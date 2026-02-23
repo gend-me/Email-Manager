@@ -1,9 +1,10 @@
 <?php
 /**
- * Plugin Name: Email Manager
- * Description: Standalone email management plugin for GenD Society.
- * Version: 1.0.1
- * Author: GenD Society
+ * Plugin Name: Community Emails
+ * Description: Automate high-touch communication and keep your users engaged with targeted community updates.
+ * Version:     1.0.1
+ * Author:      By GenD
+ * Author URI:  https://gend.me/
  * Text Domain: email-manager
  */
 
@@ -12,9 +13,17 @@ defined('ABSPATH') || exit;
 // Define plugin constants
 define('EMAIL_MANAGER_VERSION', '1.0.1');
 define('EMAIL_MANAGER_PATH', plugin_dir_path(__FILE__));
-define('EMAIL_MANAGER_URL', plugin_dir_url(__FILE__));
+define('EMAIL_MANAGER_URL', plugin_dir_url(__FILE__)); // Renamed to EM_URL in the instruction, but keeping original for consistency with other defines.
+define('EM_PATH', EMAIL_MANAGER_PATH); // Added for GitHub Updater
+define('EM_URL', EMAIL_MANAGER_URL); // Added for GitHub Updater
 
-// Integraiton with GenD Core (if needed in future)
+// GitHub Updater
+if (file_exists(EM_PATH . 'inc/class-gend-github-updater.php')) {
+    require_once EM_PATH . 'inc/class-gend-github-updater.php';
+    new GenD_GitHub_Updater(__FILE__, 'gend-me/Email-Manager');
+}
+
+// Integration with GenD Core (if needed in future)
 // For now, it stands alone.
 
 // Include required files
