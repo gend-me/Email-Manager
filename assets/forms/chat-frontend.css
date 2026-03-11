@@ -1,0 +1,444 @@
+.chat-form-container {
+    background: rgba(255, 255, 255, 0.25);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    max-width: 500px;
+    margin: 20px auto;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    overflow: hidden;
+    /* Added for responsive height */
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+}
+
+/* Progress Bar */
+.chat-progress-wrapper {
+    padding: 15px 15px 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-question-counter {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 8px;
+    text-align: center;
+    font-weight: 500;
+}
+
+.chat-progress-bar {
+    width: 100%;
+    height: 4px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.chat-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    transition: width 0.4s ease;
+    width: 0%;
+}
+
+.chat-header {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 15px;
+    color: #333;
+    font-weight: bold;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chat-messages {
+    flex: 0 1 auto;
+    height: auto;
+    overflow-y: auto;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.chat-message {
+    padding: 10px 15px;
+    border-radius: 15px;
+    max-width: 80%;
+    animation: fadeIn 0.3s ease;
+    word-wrap: break-word;
+}
+
+.chat-message.bot {
+    background: rgba(255, 255, 255, 0.8);
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+}
+
+.chat-message.user {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+}
+
+.chat-message.success {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    color: white;
+}
+
+.chat-message.error {
+    background: linear-gradient(135deg, #ee0979 0%, #ff6a00 100%);
+    color: white;
+}
+
+/* Typing indicator */
+.typing-indicator {
+    display: flex;
+    gap: 5px;
+    padding: 15px;
+}
+
+.typing-indicator span {
+    width: 8px;
+    height: 8px;
+    background: #999;
+    border-radius: 50%;
+    animation: typingBounce 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+.chat-input-area {
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+/* Text Input */
+.chat-input {
+    flex: 1;
+    padding: 10px 15px;
+    border-radius: 20px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: rgba(255, 255, 255, 0.9);
+    min-width: 200px;
+    transition: all 0.3s ease;
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.chat-input.shake {
+    animation: shake 0.5s;
+}
+
+.chat-submit-btn {
+    padding: 10px 20px;
+    border-radius: 20px;
+    border: none;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    font-weight: 600;
+}
+
+.chat-submit-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.chat-submit-btn:active {
+    transform: translateY(0);
+}
+
+.restart-btn {
+    width: 100%;
+}
+
+/* Back Button */
+.chat-back-btn {
+    width: 100%;
+    padding: 8px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    background: rgba(255, 255, 255, 0.5);
+    color: #667eea;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    font-size: 14px;
+    margin-top: 8px;
+}
+
+.chat-back-btn:hover {
+    background: rgba(255, 255, 255, 0.8);
+    border-color: rgba(102, 126, 234, 0.6);
+    transform: translateX(-3px);
+}
+
+.chat-back-btn:active {
+    transform: translateX(0);
+}
+
+/* Option Buttons */
+.chat-options-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+.chat-option-btn {
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(102, 126, 234, 0.2);
+    border-radius: 12px;
+    padding: 15px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-align: left;
+    font-size: 15px;
+    color: #333;
+    position: relative;
+    overflow: hidden;
+    animation: slideInUp 0.4s ease forwards;
+    opacity: 0;
+}
+
+.chat-option-btn:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+    border-color: rgba(102, 126, 234, 0.6);
+    background: rgba(255, 255, 255, 1);
+}
+
+.chat-option-btn:active,
+.chat-option-btn.selected {
+    transform: translateY(-1px) scale(0.98);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.chat-option-btn .option-image {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 8px;
+}
+
+.chat-option-btn .option-label {
+    flex: 1;
+    font-weight: 500;
+}
+
+/* File Upload */
+.chat-file-upload {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    align-items: center;
+}
+
+.chat-file-input {
+    display: none;
+}
+
+.chat-file-label {
+    flex: 1;
+    padding: 10px 15px;
+    border-radius: 20px;
+    border: 2px dashed rgba(102, 126, 234, 0.5);
+    background: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.chat-file-label:hover {
+    border-color: rgba(102, 126, 234, 0.8);
+    background: rgba(255, 255, 255, 1);
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes typingBounce {
+
+    0%,
+    60%,
+    100% {
+        transform: translateY(0);
+    }
+
+    30% {
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes shake {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    10%,
+    30%,
+    50%,
+    70%,
+    90% {
+        transform: translateX(-5px);
+    }
+
+    20%,
+    40%,
+    60%,
+    80% {
+        transform: translateX(5px);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.05);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Scrollbar */
+.chat-messages::-webkit-scrollbar {
+    width: 6px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+    background: rgba(102, 126, 234, 0.5);
+    border-radius: 10px;
+}
+
+
+/* Chat Form Popup Modal */
+#chat-form-popup-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 999999;
+}
+
+.chat-popup-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.chat-popup-content {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    width: 400px;
+    max-width: 90%;
+    height: 600px;
+    max-height: 80vh;
+    background: transparent;
+    /* Container handles its own background */
+    display: flex;
+    flex-direction: column;
+    animation: slideUpFade 0.3s ease;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+}
+
+.chat-popup-close-btn {
+    position: absolute;
+    top: -40px;
+    right: 0;
+    background: white;
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: 30px;
+    text-align: center;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    color: #333;
+}
+
+.chat-popup-close-btn:hover {
+    background: #f0f0f0;
+    color: red;
+}
+
+@keyframes slideUpFade {
+    from {
+        transform: translateY(50px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}

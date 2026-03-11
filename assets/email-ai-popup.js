@@ -41,47 +41,33 @@
     // Config from WordPress
     var config = window.GDC_EMAIL_AI_CONFIG || {};
 
-    // Conversation state tracking
-    var conversationState = {
-        phase: 'initial',           // initial, subject, body, styling, review
-        draftSubject: null,          // Current draft subject
-        draftBody: null,             // Current draft body (plain text)
-        draftHtml: null,             // Current draft HTML
-        lastUserMessage: null,       // Last message from user
-        lastIntent: null,            // Detected intent of last message
-        pendingOptions: {
-            subjects: [],            // Array of subject line options
-            bodies: [],              // Array of body content options
-            selectedIndex: null      // Which option user selected (global tracking)
-        },
-        chatHistory: []              // Full conversation history for context
-    };
+    // Config from WordPress
+    var config = window.GDC_EMAIL_AI_CONFIG || {};
 
     /**
      * Initialize the popup system
      */
     function init() {
+        console.log('[GDC Email AI] init() started.');
         if ($('.gdc-email-ai-modal').length) {
+            console.log('[GDC Email AI] .gdc-email-ai-modal already exists, skipping init.');
             return; // Already initialized
         }
 
         // Create popup HTML
         createPopupHTML();
+        console.log('[GDC Email AI] createPopupHTML() finished.');
 
         // Cache refs
         $modal = $('.gdc-email-ai-modal');
         $addModal = $('.gdc-email-add-modal');
-        $chatThread = $('.gdc-email-ai-modal__chat-thread');
-        $chatInput = $('.gdc-email-ai-modal__chat-input textarea');
         $subjectField = $('#gdc-email-ai-subject');
-        $bodyField = $('#gdc-email-ai-body');
         $preheaderField = $('#gdc-email-ai-preheader');
+        $bodyField = $('#gdc-email-ai-body');
 
-        // Bind events
+        // Bind UI events
+        console.log('[GDC Email AI] calling bindEvents().');
         bindEvents();
-
-        // Initial chat greeting
-        addChatMessage('assistant', 'Hi! I\'m Leo, your AI email assistant. I can help you:\n\n• Write compelling email copy\n• Generate or revise images\n• Create a complete HTML email with your brand styling\n\nWhat would you like to create today?');
     }
 
     /**
@@ -171,9 +157,19 @@
               
               <!-- Toolbar (Visual Mode Only) -->
               <div class="gdc-email-editor-toolbar" id="gdc-editor-toolbar">
+                <select class="gdc-editor-format-block" title="Format Text" style="margin-right: 4px; padding: 2px 4px; border: 1px solid transparent; border-radius: 4px; font-size: 13px; color: #475569; background: transparent; cursor: pointer; outline: none;">
+                  <option value="P">Paragraph</option>
+                  <option value="H1">Heading 1</option>
+                  <option value="H2">Heading 2</option>
+                  <option value="H3">Heading 3</option>
+                  <option value="H4">Heading 4</option>
+                  <option value="BLOCKQUOTE">Quote</option>
+                </select>
+                <div style="width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px;"></div>
                 <button type="button" class="gdc-editor-btn" data-cmd="bold" title="Bold"><b>B</b></button>
                 <button type="button" class="gdc-editor-btn" data-cmd="italic" title="Italic"><i>I</i></button>
                 <button type="button" class="gdc-editor-btn" data-cmd="underline" title="Underline"><u>U</u></button>
+                <button type="button" class="gdc-editor-btn" data-cmd="strikethrough" title="Strikethrough"><span class="dashicons dashicons-editor-strikethrough"></span></button>
                 <div style="width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px;"></div>
                 <button type="button" class="gdc-editor-btn" data-cmd="justifyLeft" title="Align Left"><span class="dashicons dashicons-editor-alignleft"></span></button>
                 <button type="button" class="gdc-editor-btn" data-cmd="justifyCenter" title="Align Center"><span class="dashicons dashicons-editor-aligncenter"></span></button>
@@ -184,6 +180,12 @@
                  <div style="width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px;"></div>
                  <button type="button" class="gdc-editor-btn" data-cmd="createLink" title="Link"><span class="dashicons dashicons-admin-links"></span></button>
                  <button type="button" class="gdc-editor-btn" data-cmd="unlink" title="Unlink"><span class="dashicons dashicons-editor-unlink"></span></button>
+                 <div style="width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px;"></div>
+                 <button type="button" class="gdc-editor-btn" data-cmd="undo" title="Undo"><span class="dashicons dashicons-undo"></span></button>
+                 <button type="button" class="gdc-editor-btn" data-cmd="redo" title="Redo"><span class="dashicons dashicons-redo"></span></button>
+                 <button type="button" class="gdc-editor-btn" data-cmd="removeFormat" title="Clear Formatting"><span class="dashicons dashicons-editor-removeformatting"></span></button>
+                 <div style="width: 1px; height: 20px; background: #e2e8f0; margin: 0 4px;"></div>
+                 <button type="button" class="gdc-editor-btn gdc-editor-add-media" title="Add Media"><span class="dashicons dashicons-admin-media"></span></button>
               </div>
               
               <div class="gdc-email-editor-content">
@@ -229,22 +231,6 @@
           <button type="button" class="gdc-email-ai-btn gdc-email-ai-btn--secondary gdc-email-ai-save">Save Draft</button>
           <button type="button" class="gdc-email-ai-btn gdc-email-ai-btn--secondary gdc-email-ai-preview">Preview</button>
           <button type="button" class="gdc-email-ai-btn gdc-email-ai-btn--primary gdc-email-ai-send">Send Email</button>
-        </div>
-      </div>
-      
-      <!-- Right: AI Chat -->
-      <div class="gdc-email-ai-modal__chat">
-        <div class="gdc-email-ai-modal__chat-header">
-          <div class="gdc-email-ai-modal__chat-avatar" style="${leoIcon ? 'background-image: url(' + leoIcon + ')' : ''}"></div>
-          <div class="gdc-email-ai-modal__chat-title">
-            <h4>Build with Leo</h4>
-            <p>AI Email Assistant</p>
-          </div>
-        </div>
-        <div class="gdc-email-ai-modal__chat-thread"></div>
-        <div class="gdc-email-ai-modal__chat-input">
-          <textarea placeholder="Describe what you want to create..." rows="1"></textarea>
-          <button type="button" class="gdc-email-ai-modal__chat-send">Send</button>
         </div>
       </div>
     </div>
@@ -337,6 +323,7 @@
      * Bind event handlers
      */
     function bindEvents() {
+        console.log('[GDC Email AI] bindEvents() started.');
         // CRITICAL: Unbind any existing handlers from the old inline script
         // so our new popup opens instead of the old iframe-based modal
         $(document).off('click', '.gdc-email-open-editor');
@@ -347,6 +334,7 @@
 
         // Open editor via Edit button
         $(document).on('click', '.gdc-email-open-editor', function (e) {
+            console.log('[GDC Email AI] .gdc-email-open-editor clicked.');
             e.preventDefault();
             e.stopPropagation();
 
@@ -364,6 +352,7 @@
 
         // Open Add New modal
         $(document).on('click', '#gdc-email-scheduled-add', function (e) {
+            console.log('[GDC Email AI] #gdc-email-scheduled-add clicked.');
             e.preventDefault();
             e.stopPropagation();
             openAddModal();
@@ -479,178 +468,11 @@
             e.stopPropagation();
         });
 
-        // Send chat message
-        $(document).on('click', '.gdc-email-ai-modal__chat-send', sendChatMessage);
-        $(document).on('keydown', '.gdc-email-ai-modal__chat-input textarea', function (e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendChatMessage();
-            }
-        });
-
         // Quick action buttons
         $(document).on('click', '.gdc-email-ai-quick-btn', function (e) {
             e.preventDefault();
             var action = $(this).data('action');
             handleQuickAction(action);
-        });
-
-        // Save email
-        $(document).on('click', '.gdc-email-ai-save', saveEmail);
-
-        // Preview email
-        $(document).on('click', '.gdc-email-ai-preview', previewEmail);
-
-        // Send test email
-        $(document).on('click', '.gdc-email-ai-send-test', sendTestEmail);
-
-        // Recipient search
-        $(document).on('input', '#gdc-email-ai-recipient-search', debounce(searchRecipients, 300));
-        $(document).on('keydown', '#gdc-email-ai-recipient-search', function (e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                addManualEmail($(this).val());
-            }
-        });
-        $(document).on('click', '.gdc-email-ai-recipient-item', function (e) {
-            e.preventDefault();
-            addRecipient($(this).data('email'), $(this).data('name'), $(this).data('avatar'));
-        });
-        $(document).on('click', '.gdc-email-ai-recipient-remove', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            removeRecipient($(this).closest('.gdc-email-ai-recipient-tag').data('email'));
-        });
-        $(document).on('click', function (e) {
-            if (!$(e.target).closest('.gdc-email-ai-recipients-wrap').length) {
-                $('#gdc-email-ai-recipients-dropdown').hide();
-            }
-        });
-
-        // Send mode toggle
-        $(document).on('click', '.gdc-email-ai-toggle-btn', function (e) {
-            e.preventDefault();
-            var mode = $(this).data('mode');
-            state.sendMode = mode;
-            $('.gdc-email-ai-toggle-btn').removeClass('active');
-            $(this).addClass('active');
-            if (mode === 'schedule') {
-                $('.gdc-email-ai-schedule-picker').show();
-                $('.gdc-email-ai-send').text('Schedule Email');
-            } else {
-                $('.gdc-email-ai-schedule-picker').hide();
-                $('.gdc-email-ai-send').text('Send Email');
-            }
-        });
-
-        // Quick time buttons
-        $(document).on('click', '.gdc-email-ai-quick-time', function (e) {
-            e.preventDefault();
-            var hours = parseInt($(this).data('hours'));
-            var date = new Date();
-            date.setHours(date.getHours() + hours);
-            $('#gdc-email-ai-schedule-date').val(date.toISOString().split('T')[0]);
-            $('#gdc-email-ai-schedule-time').val(date.toTimeString().slice(0, 5));
-        });
-
-        // Send email
-        $(document).on('click', '.gdc-email-ai-send', sendEmail);
-
-        // =========================================================================
-        // CAMPAIGN ARCHITECT EVENT HANDLERS
-        // =========================================================================
-
-        // Campaign type selection
-        $(document).on('click', '.gdc-email-ai-campaign-btn', function (e) {
-            e.preventDefault();
-            var type = $(this).data('type');
-            // Remove the action buttons after selection
-            $('.gdc-email-ai-campaign-actions').remove();
-            handleCampaignTypeSelection(type);
-        });
-
-        // Audience selection
-        $(document).on('click', '.gdc-email-ai-audience-btn', function (e) {
-            e.preventDefault();
-            var audience = $(this).data('audience');
-            $('.gdc-email-ai-campaign-actions').remove();
-            handleAudienceSelection(audience);
-        });
-
-        // Subject line selection
-        $(document).on('click', '.gdc-email-ai-subject-btn', function (e) {
-            e.preventDefault();
-            var index = parseInt($(this).data('index'));
-            // Remove all subject line UI elements
-            $('.gdc-email-ai-subject-options, .gdc-email-ai-revision-chips, .gdc-email-ai-custom-input').remove();
-            handleSubjectLineSelection(index);
-        });
-
-        // Subject revision
-        $(document).on('click', '.gdc-email-ai-revision-btn', function (e) {
-            e.preventDefault();
-            var modifier = $(this).data('modifier');
-            // Hide revision tools while revising
-            $('.gdc-email-ai-revision-chips').hide();
-            handleSubjectRevision(modifier);
-        });
-
-        // Custom subject
-        $(document).on('click', '.gdc-email-ai-custom-subject-btn', function (e) {
-            e.preventDefault();
-            var text = $(this).siblings('.gdc-email-ai-custom-subject').val();
-            if (text && text.trim()) {
-                $('.gdc-email-ai-subject-options, .gdc-email-ai-revision-chips, .gdc-email-ai-custom-input').remove();
-                handleCustomSubjectLine(text);
-            }
-        });
-
-        // Theme selection
-        $(document).on('click', '.gdc-email-ai-theme-btn', function (e) {
-            e.preventDefault();
-            var theme = $(this).data('theme');
-            applyTheme(theme);
-        });
-
-        // Subject line revision
-        $(document).on('click', '.gdc-email-ai-revision-btn', function (e) {
-            e.preventDefault();
-            var modifier = $(this).data('modifier');
-            // Remove current options
-            $('.gdc-email-ai-subject-options, .gdc-email-ai-revision-chips, .gdc-email-ai-custom-input').remove();
-            handleSubjectRevision(modifier);
-        });
-
-        // Custom subject line input
-        $(document).on('click', '.gdc-email-ai-custom-subject-btn', function (e) {
-            e.preventDefault();
-            var text = $('.gdc-email-ai-custom-subject').val();
-            if (text && text.trim()) {
-                $('.gdc-email-ai-subject-options, .gdc-email-ai-revision-chips, .gdc-email-ai-custom-input').remove();
-                handleCustomSubjectLine(text);
-            }
-        });
-
-        $(document).on('keydown', '.gdc-email-ai-custom-subject', function (e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                var text = $(this).val();
-                if (text && text.trim()) {
-                    $('.gdc-email-ai-subject-options, .gdc-email-ai-revision-chips, .gdc-email-ai-custom-input').remove();
-                    handleCustomSubjectLine(text);
-                }
-            }
-        });
-
-        // ESC to close
-        $(document).on('keydown', function (e) {
-            if (e.key === 'Escape') {
-                if ($addModal.hasClass('open')) {
-                    closeAddModal();
-                } else if ($modal.hasClass('open')) {
-                    closeEditor();
-                }
-            }
         });
 
         // =========================================================================
@@ -683,12 +505,23 @@
 
         // Toolbar Actions
         $(document).on('click', '.gdc-editor-btn', function (e) {
+            if ($(this).hasClass('gdc-editor-add-media')) return; // handled separately below
             e.preventDefault();
             var cmd = $(this).data('cmd');
             document.execCommand(cmd, false, null);
             // Sync immediately
             var html = $('#gdc-email-visual-editor').html();
             $('#gdc-email-ai-body').val(html);
+        });
+
+        // Format Block Dropdown
+        $(document).on('change', '.gdc-editor-format-block', function (e) {
+            var val = $(this).val();
+            document.execCommand('formatBlock', false, val);
+            // Sync immediately
+            var html = $('#gdc-email-visual-editor').html();
+            $('#gdc-email-ai-body').val(html);
+            $(this).val('P'); // reset
         });
 
         // Sync Visual -> Code on Input
@@ -701,6 +534,25 @@
         $(document).on('input', '#gdc-email-ai-body', function () {
             var code = $(this).val();
             $('#gdc-email-visual-editor').html(code);
+        });
+
+        // Add Media Handler for custom editor
+        $(document).on('click', '.gdc-editor-add-media', function (e) {
+            e.preventDefault();
+            $('#gdc-email-visual-editor').focus();
+
+            var mediaUploader = wp.media({
+                title: 'Add Media to Email',
+                button: { text: 'Insert into Email' },
+                multiple: false
+            });
+            mediaUploader.on('select', function () {
+                var attachment = mediaUploader.state().get('selection').first().toJSON();
+                var imgHtml = '<img src="' + attachment.url + '" alt="' + (attachment.alt || '') + '" style="max-width: 100%; height: auto;"/> ';
+                document.execCommand('insertHTML', false, imgHtml);
+                $('#gdc-email-ai-body').val($('#gdc-email-visual-editor').html());
+            });
+            mediaUploader.open();
         });
     }
 
@@ -770,23 +622,17 @@
             $('.gdc-email-ai-send').hide();
         }
 
-        // Reset Campaign Architect workflow
-        state.workflow = {
-            currentStep: 'strategy',
-            campaignType: null,
-            audienceType: null,
-            subjectOptions: [],
-            selectedSubject: null,
-            bodyBulletPoints: [],
-            visualStyle: null,
-            layoutChoice: null,
-            theme: null,
-            buttonStyle: null
-        };
+        // Set global context for Leo Widget
+        window.LEO_OVERRIDE_CONTEXT = 'email_architect';
 
-        // Clear and reset chat with context-aware greeting
-        $chatThread.empty();
-        showContextAwareGreeting();
+        // Trigger the global AIPA widget
+        if (window.AIPA_WIDGET && document.querySelector('aipa-widget')) {
+            const aipa = document.querySelector('aipa-widget');
+            if (typeof aipa.open === 'function') {
+                aipa.open();
+                // We'll let Leo flow logic handle the greeting internally based on context
+            }
+        }
 
         // Open modal
         $modal.addClass('open').attr('aria-hidden', 'false');
@@ -846,65 +692,6 @@
         });
         // Also try closing via their class patterns
         $('[class*="gdc-email-modal"]:not(.gdc-email-ai-modal):not(.gdc-email-add-modal)').attr('hidden', true).hide();
-    }
-
-    /**
-     * Show context-aware greeting based on email type and existing content
-     */
-    function showContextAwareGreeting() {
-        var emailData = state.currentEmail || {};
-        var section = emailData.section || 'general';
-        var hasSubject = !!$subjectField.val();
-        var hasBody = !!getEditorContent();
-        var label = emailData.label || 'this email';
-
-        // Build context-aware greeting
-        var greeting = "Hi! I'm Leo, your email assistant. ";
-
-        // Identify email type
-        var typeContext = '';
-        switch (section) {
-            case 'store':
-                typeContext = "I see you're working on a **WooCommerce transaction email** for " + label + ". ";
-                break;
-            case 'community':
-                typeContext = "I see you're editing a **BuddyPress community notification** for " + label + ". ";
-                break;
-            case 'rewards':
-                typeContext = "I see you're customizing a **rewards/points email** for " + label + ". ";
-                break;
-            case 'timed':
-                typeContext = "I see you're creating a **timed/sequence email** for " + label + ". ";
-                break;
-            case 'proposals':
-                typeContext = "I see you're drafting a **proposal email** for " + label + ". ";
-                break;
-            default:
-                typeContext = "I'm here to help you with **" + label + "**. ";
-        }
-        greeting += typeContext;
-
-        // Analyze what's complete
-        var suggestions = [];
-        if (!hasSubject) {
-            suggestions.push("• **Write a subject line**");
-        }
-        if (!hasBody) {
-            suggestions.push("• **Generate email body copy**");
-        } else {
-            suggestions.push("• **Improve existing copy**");
-            suggestions.push("• **Add visual elements**");
-        }
-
-        if (hasSubject && hasBody) {
-            greeting += "Looks like you've got a good start! ";
-            suggestions.push("• **Polish and refine**");
-            suggestions.push("• **Apply a theme**");
-        }
-
-        greeting += "\n\nI can help you:\n" + suggestions.join('\n');
-
-        addChatMessage('assistant', greeting);
     }
 
     /**
@@ -1255,722 +1042,6 @@
             'proposals': 'Proposal Email'
         };
         return labels[type] || 'Email';
-    }
-
-    /**
-     * Add message to chat thread
-     */
-    function addChatMessage(role, content) {
-        var msgClass = 'gdc-email-ai-msg gdc-email-ai-msg--' + role;
-        var $msg = $('<div>').addClass(msgClass).html(formatMessage(content));
-        $chatThread.append($msg);
-        $chatThread.scrollTop($chatThread[0].scrollHeight);
-
-        state.chatHistory.push({ role: role, content: content });
-    }
-
-    /**
-     * Format message content (simple markdown)
-     */
-    /**
-     * Detect user intent from message
-     */
-    function detectUserIntent(message) {
-        var lower = message.toLowerCase();
-
-        // Styling/HTML request - be MORE specific to avoid false positives
-        // Only detect as styling if user explicitly asks for HTML/formatting
-        if (lower.match(/\b(html|format|responsive)\b/) ||
-            lower.match(/add (html|styling|design|formatting)/) ||
-            lower.match(/make it (pretty|formatted)/) ||
-            lower.match(/apply (html|styling|design)/) ||
-            lower.match(/brand colors?\b/)) {
-            return 'styling';
-        }
-
-        // Subject line
-        if (lower.match(/subject|headline|title/)) {
-            return 'subject';
-        }
-
-        // Body content
-        if (lower.match(/body|content|copy|write|paragraph|message|text/)) {
-            return 'body';
-        }
-
-        // Images
-        if (lower.match(/image|picture|photo|visual|graphic/)) {
-            return 'image';
-        }
-
-        // Improvement
-        if (lower.match(/improve|better|enhance|refine|polish/)) {
-            return 'improve';
-        }
-
-        // If we're in a specific phase, infer intent
-        if (conversationState.phase === 'subject') return 'subject';
-        if (conversationState.phase === 'body') return 'body';
-        if (conversationState.phase === 'styling') return 'styling';
-
-        return 'general';
-    }
-
-    /**
-     * Format message text with basic markdown
-     */
-    function formatMessage(content) {
-
-        if (!content) return '';
-        // Convert newlines to <br>
-        var html = content.replace(/\n/g, '<br>');
-        // Bold
-        html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-        // Code
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-        return html;
-    }
-
-    /**
-     * Send chat message to AI
-     */
-    function sendChatMessage() {
-        var message = $chatInput.val().trim();
-        if (!message || state.isGenerating) return;
-
-        // Detect user intent
-        var intent = detectUserIntent(message);
-        conversationState.lastUserMessage = message;
-        conversationState.lastIntent = intent;
-
-        // Add user message
-        addChatMessage('user', message);
-        $chatInput.val('');
-
-        // CAMPAIGN ARCHITECT INTERCEPT
-        if (state.workflow) {
-            if (state.workflow.currentStep === 'body_copy') {
-                generateBodyCopy(message);
-                return;
-            }
-            if (state.workflow.currentStep === 'image_generation') {
-                generateImageFromPrompt(message);
-                return;
-            }
-        }
-
-        // Show thinking indicator
-        state.isGenerating = true;
-        var $thinking = $('<div>').addClass('gdc-email-ai-msg gdc-email-ai-msg--thinking').text('Leo is thinking...');
-        $chatThread.append($thinking);
-        $chatThread.scrollTop($chatThread[0].scrollHeight);
-
-        // Build context with intent
-        var context = buildEmailContext();
-        context.user_intent = intent;
-        context.conversation_phase = conversationState.phase;
-        context.has_draft = {
-            subject: !!conversationState.draftSubject,
-            body: !!conversationState.draftBody,
-            html: !!conversationState.draftHtml
-        };
-
-        // Call AI endpoint
-        callAiEndpoint(message, context)
-            .then(function (response) {
-                $thinking.remove();
-                handleAiResponse(response, intent);
-            })
-            .catch(function (error) {
-                $thinking.remove();
-                addChatMessage('assistant', 'Sorry, I encountered an error. Please try again.');
-                console.error('[GDC Email AI] Error:', error);
-            })
-            .always(function () {
-                state.isGenerating = false;
-            });
-    }
-
-    /**
-     * Build email context for AI
-     */
-    function buildEmailContext() {
-        var emailData = state.currentEmail || {};
-        return {
-            email_context: true,
-            email_type: emailData.section || 'general',
-            email_label: emailData.label || '',
-            current_subject: $subjectField.val(),
-            current_body: getEditorContent(),
-            current_heading: emailData.heading || '',
-            has_existing_content: {
-                subject: !!$subjectField.val(),
-                body: !!getEditorContent(),
-                heading: !!emailData.heading
-            },
-            brand: {
-                site_name: config.siteName || '',
-                logo_url: config.siteLogo || '',
-                primary_color: config.primaryColor || '#6366f1',
-                secondary_color: config.secondaryColor || '#22d3ee'
-            }
-        };
-    }
-
-    /**
-     * Call AI endpoint
-     */
-    function callAiEndpoint(message, context) {
-        var endpoint = config.chatEndpoint || '/wp-json/aipa/v1/chat-gemini'; // Force Gemini endpoint for workflow support
-
-        var messages = state.chatHistory.map(function (m) {
-            return { role: m.role, content: m.content };
-        });
-        messages.push({ role: 'user', content: message });
-
-        return $.ajax({
-            url: endpoint,
-            method: 'POST',
-            contentType: 'application/json',
-            beforeSend: function (xhr) {
-                xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
-            },
-            data: JSON.stringify({
-                message: message, // Gemini endpoint expects 'message' at root
-                workflow: 'email_designer', // Enforce email_designer workflow
-                enable_tools: true,
-                context: context
-            })
-        });
-    }
-
-    /**
-     * Handle AI response with intent-based processing
-     */
-    function handleAiResponse(response, intent) {
-        var content = '';
-
-        // Handle different response formats
-        if (response && response.choices && response.choices[0]) {
-            content = response.choices[0].message ? response.choices[0].message.content : '';
-        } else if (response && response.candidates && response.candidates[0]) {
-            // Gemini format
-            content = response.candidates[0].content ? response.candidates[0].content.parts[0].text : '';
-        } else if (response && response.content) {
-            content = response.content;
-        } else if (typeof response === 'string') {
-            content = response;
-        }
-
-        if (!content) {
-            addChatMessage('assistant', 'I received an empty response. Please try rephrasing your request.');
-            return;
-        }
-
-        // Add assistant message to chat
-        addChatMessage('assistant', content);
-
-        // Process based on detected intent
-        try {
-            // Handle JSON actions from email_designer
-            var actionData = JSON.parse(content);
-            if (actionData.action) {
-                handleEmailAction(actionData);
-                return;
-            }
-        } catch (e) {
-            // Not JSON, treat as text
-        }
-
-        processAiResponseByIntent(content, intent);
-    }
-
-    /**
-     * Process AI response based on user intent
-     */
-    /**
-     * Handle Email Architect Actions
-     */
-    function handleEmailAction(data) {
-        var chatResponse = data.chat_response || 'Updates applied.';
-        addChatMessage('assistant', chatResponse);
-
-        if (data.action === 'replace_all') {
-            // Convert hierarchy to HTML string
-            // Since we are in a text editor, if blocks are passed, we might need to rely on their 'originalContent' or similar
-            // But my prompt mostly returns core/html with 'content' attr for email.
-            // If complex structure, this might fail unless we parse.
-            // Simple fallback: If blocks exist, try to extract content.
-            var html = '';
-            if (data.blocks && Array.isArray(data.blocks)) {
-                data.blocks.forEach(function (b) {
-                    if (b.attrs && b.attrs.content) html += b.attrs.content;
-                    else if (b.innerHTML) html += b.innerHTML;
-                });
-            }
-            if (html) setEditorContent(html);
-
-        } else if (data.action === 'insert_block') {
-            var block = data.block;
-            var html = (block.attrs && block.attrs.content) ? block.attrs.content : '';
-            if (html) {
-                var current = getEditorContent();
-                if (data.position === 'bottom') setEditorContent(current + '\n' + html);
-                else setEditorContent(html + '\n' + current);
-            }
-        }
-    }
-
-    /**
-     * Process response - Legacy Fallback
-     */
-    function processAiResponseByIntent(content, intent) {
-        // FIRST: Check if response actually contains HTML (overrides intent)
-        if (content.includes('<!DOCTYPE') || content.includes('<html') || content.match(/```html/i)) {
-            handleStylingRequest(content);
-            return;
-        }
-
-        // Intent: Styling, but only if AI isn't asking clarifying questions
-        if (intent === 'styling') {
-            var isAskingQuestions = content.match(/\?/) ||
-                content.match(/tell me|let me know|clarify|which|what kind/i) ||
-                content.match(/option \d/i);
-            if (!isAskingQuestions) {
-                handleStylingRequest(content);
-                return;
-            }
-        }
-
-        // Intent: Subject line (check for multiple options)
-        if (intent === 'subject' || detectMultipleSubjects(content)) {
-            handleSubjectOptions(content);
-            return;
-        }
-
-        // Intent: Body content
-        if (intent === 'body' || detectBodyContent(content)) {
-            handleBodyContent(content);
-            return;
-        }
-
-        // Intent: Images
-        if (intent === 'image' || content.match(/!\[([^\]]*)\]\(([^)]+)\)/)) {
-            handleImageSuggestion(content);
-            return;
-        }
-
-        // Fallback: try old detection for backward compatibility
-        detectAndOfferApplyLegacy(content);
-    }
-
-    /**
-     * Detect if response contains multiple subject line options
-     */
-    function detectMultipleSubjects(content) {
-        var matches = content.match(/(?:Subject|Option)\s*[:\s#]*\d/gi);
-        return matches && matches.length >= 2;
-    }
-
-    /**
-     * Detect if response contains body content
-     */
-    function detectBodyContent(content) {
-        var bodyMatch = content.match(/Body[:\s]+([\s\S]{50,}?)(?:\n\n|Subject|$)/i);
-        return !!bodyMatch;
-    }
-
-    /**
-     * Handle HTML styling request
-     */
-    function handleStylingRequest(content) {
-        conversationState.phase = 'styling';
-
-        // Extract HTML code
-        var htmlCode = extractHtmlFromResponse(content);
-
-        if (htmlCode) {
-            conversationState.draftHtml = htmlCode;
-            showHtmlPreviewAndApply(htmlCode);
-        } else {
-            // No HTML found - this is okay, AI might be asking clarifying questions
-            console.log('[Email AI] Styling intent detected but no HTML in response');
-        }
-    }
-
-    /**
-     * Extract HTML code from AI response
-     */
-    function extractHtmlFromResponse(content) {
-        // Try code block first
-        var codeBlock = content.match(/```html?\n?([\s\S]*?)```/i);
-        if (codeBlock) return codeBlock[1].trim();
-
-        // Try raw HTML (DOCTYPE or html tag)
-        if (content.includes('<!DOCTYPE') || content.includes('<html')) {
-            var start = content.indexOf('<');
-            var end = content.lastIndexOf('>') + 1;
-            if (start !== -1 && end > start) {
-                return content.substring(start, end);
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Show HTML preview with iframe and apply button
-     */
-    function showHtmlPreviewAndApply(htmlCode) {
-        var $container = $('<div class="gdc-html-preview-container"></div>').css({
-            'margin': '16px 0',
-            'padding': '16px',
-            'background': 'rgba(99, 102, 241, 0.08)',
-            'border-radius': '12px',
-            'border': '1px solid rgba(99, 102, 241, 0.3)'
-        });
-
-        var $title = $('<div style="font-size: 11px; color: #9ca3af; margin-bottom: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">📧 HTML Email Preview</div>');
-        var $iframe = $('<iframe style="width:100%; height:450px; border:1px solid rgba(99, 102, 241, 0.2); border-radius:8px; background:#fff; margin-bottom:12px;"></iframe>');
-
-        $container.append($title);
-        $container.append($iframe);
-
-        // Load HTML into iframe safely
-        $iframe.on('load', function () {
-            try {
-                var doc = this.contentDocument || this.contentWindow.document;
-                doc.open();
-                doc.write(htmlCode);
-                doc.close();
-            } catch (e) {
-                console.error('Error loading HTML preview:', e);
-            }
-        });
-
-        // Apply button
-        var $applyBtn = $('<button class="gdc-email-ai-quick-btn" style="width:100%; padding:14px; font-size:14px; font-weight:600;">Apply This HTML to Email Body</button>');
-        $applyBtn.on('click', function () {
-            setEditorContent(htmlCode);
-            $(this).text('✓ HTML Applied to Email').prop('disabled', true).css('background', '#22c55e');
-
-            // Show success feedback
-            conversationState.draftHtml = htmlCode;
-            conversationState.phase = 'review';
-        });
-
-        $container.append($applyBtn);
-        $chatThread.append($container);
-        $chatThread.scrollTop($chatThread[0].scrollHeight);
-    }
-
-    /**
-     * Handle multiple subject line options
-     */
-    function handleSubjectOptions(content) {
-        conversationState.phase = 'subject';
-
-        // Extract all subject line options
-        // STRICTER REGEX: Only match lines starting with "Subject:" or "Option X: Subject:" 
-        // effectively ignoring loose "Option" headers to prevent duplicates and garbage
-        var subjectLines = [];
-        var matches = content.match(/^[\s\t]*(?:Option\s+\d+[:\.]\s*)?Subject[:\s]+(.+)/gmi);
-
-        if (matches && matches.length > 0) {
-            matches.forEach(function (match) {
-                // Clean up the match to get just the subject text
-                var cleaned = match.replace(/^[\s\t]*(?:Option\s+\d+[:\.]\s*)?Subject[:\s]+/i, '').trim();
-                // Remove enclosing quotes if present
-                cleaned = cleaned.replace(/^["']|["']$/g, '');
-
-                if (cleaned && cleaned.length > 5 && cleaned.length < 150) {
-                    subjectLines.push(cleaned);
-                }
-            });
-        }
-
-
-        if (subjectLines.length > 0) {
-            conversationState.pendingOptions.subjects = subjectLines;
-            conversationState.pendingOptions.selectedIndex = null;
-            addSelectableOptions('subject', subjectLines); // Re-using existing addSelectableOptions
-        }
-    }
-
-    /**
-     * Handle body content from AI
-     */
-    function handleBodyContent(content) {
-        conversationState.phase = 'body';
-
-        // Extract body content
-        var bodyMatch = content.match(/Body[:\s]+([\s\S]{50,}?)(?:\n\n|Subject|$)/i);
-        if (bodyMatch) {
-            var bodyContent = bodyMatch[1].trim();
-            // Remove common artifacts
-            bodyContent = bodyContent.replace(/```/g, '').replace(/^["']|["']$/g, '').trim();
-
-            if (bodyContent.length > 30) {
-                conversationState.draftBody = bodyContent;
-                addApplyButton('body', bodyContent, 'Apply Body Content'); // Re-using existing addApplyButton
-            }
-        }
-    }
-
-    /**
-     * Handle image requests - redirect to Design Studio
-     */
-    function handleImageSuggestion(content) {
-        // Show Design Studio button
-        var $container = $('<div class="gdc-design-studio-prompt"></div>').css({
-            'margin': '16px 0',
-            'padding': '16px',
-            'background': 'rgba(139, 92, 246, 0.1)',
-            'border-radius': '12px',
-            'border': '1px solid rgba(139, 92, 246, 0.3)',
-            'text-align': 'center'
-        });
-
-        var $title = $('<div style="font-size: 13px; color: #a78bfa; margin-bottom: 12px; font-weight: 600;">🎨 IMAGE GENERATION</div>');
-        var $desc = $('<p style="font-size: 12px; color: #d1d5db; margin-bottom: 14px;">Create professional images using AI-powered Design Studio with Imagen 3.0</p>');
-
-        var $openBtn = $('<button class="gdc-email-ai-quick-btn" style="width: 100%; background: linear-gradient(135deg, #8b5cf6, #6366f1); padding: 12px; font-weight: 600;">Open Design Studio</button>');
-        $openBtn.on('click', function () {
-            // Open Design Studio (AI Project Assistant)
-            var designStudioUrl = '/wp-admin/admin.php?page=aipa-design-studio';
-            window.open(designStudioUrl, '_blank', 'width=1400,height=900');
-            $(this).text('Design Studio Opened ✓').css('background', '#22c55e');
-        });
-
-        var $helpText = $('<div style="font-size: 11px; color: #9ca3af; margin-top: 10px;">After generating your image, download it and use the media library to insert it into your email.</div>');
-
-        $container.append($title);
-        $container.append($desc);
-        $container.append($openBtn);
-        $container.append($helpText);
-
-        $chatThread.append($container);
-        $chatThread.scrollTop($chatThread[0].scrollHeight);
-    }
-
-    /**
-     * Legacy detection for backward compatibility
-     */
-    function detectAndOfferApplyLegacy(content) {
-
-        // Check for multiple subject line options (numbered or bulleted)
-        var subjectLines = [];
-        var subjectMatches = content.match(/(?:Subject|Option)\s*[:\s#]*\d*[:\s]*["']?([^"'\n]{10,120})["']?/gi);
-        if (subjectMatches && subjectMatches.length > 0) {
-            subjectMatches.forEach(function (match) {
-                var cleaned = match.replace(/(?:Subject|Option)\s*[:\s#]*\d*[:\s]*["']?/i, '').replace(/["']$/, '').trim();
-                if (cleaned && cleaned.length > 5 && cleaned.length < 150) {
-                    subjectLines.push(cleaned);
-                }
-            });
-        }
-
-        // Make subject lines clickable if found
-        if (subjectLines.length > 0) {
-            addSelectableOptions('subject', subjectLines);
-        }
-
-        // Check for body content - look for paragraphs or body sections
-        var bodyMatch = content.match(/Body[:\s]+([\s\S]{50,}?)(?:\n\n|Subject|$)/i);
-        if (bodyMatch) {
-            var bodyContent = bodyMatch[1].trim();
-            // Remove common artifacts
-            bodyContent = bodyContent.replace(/```/g, '').replace(/^["']|["']$/g, '').trim();
-            if (bodyContent.length > 30) {
-                addApplyButton('body', bodyContent, 'Apply Body Content');
-            }
-        }
-
-        // Check for HTML email content (in code blocks or explicit HTML tags)
-        if (content.includes('<html') || content.includes('<table') || content.includes('<!DOCTYPE')) {
-            var htmlMatch = content.match(/```html?\n?([\s\S]*?)```/i);
-            if (htmlMatch) {
-                addApplyButton('html', htmlMatch[1].trim(), 'Apply HTML Email');
-            } else {
-                // Extract raw HTML
-                var htmlStart = content.indexOf('<');
-                var htmlEnd = content.lastIndexOf('>');
-                if (htmlStart !== -1 && htmlEnd !== -1 && htmlEnd > htmlStart) {
-                    var rawHtml = content.substring(htmlStart, htmlEnd + 1);
-                    if (rawHtml.length > 50) {
-                        addApplyButton('html', rawHtml, 'Apply HTML Email');
-                    }
-                }
-            }
-        }
-
-        // Check for image suggestions or URLs
-        var imageMatch = content.match(/!\[([^\]]*)\]\(([^)]+)\)/); // Markdown image
-        if (imageMatch) {
-            addImageOption(imageMatch[2], imageMatch[1] || 'AI Generated Image');
-        }
-    }
-
-    /**
-     * Add selectable options (for subject lines with radio buttons)
-     */
-    function addSelectableOptions(type, options) {
-        var $container = $('<div class="gdc-options-container"></div>').css({
-            'margin': '12px 0',
-            'padding': '12px',
-            'background': 'rgba(99, 102, 241, 0.08)',
-            'border-radius': '8px',
-            'border': '1px solid rgba(99, 102, 241, 0.2)'
-        });
-
-        var $title = $('<div style="font-size: 11px; color: #9ca3af; margin-bottom: 8px; font-weight: 600;">SELECT ONE:</div>');
-        $container.append($title);
-
-        // Use conversationState for global tracking (not local closure)
-        conversationState.pendingOptions.selectedIndex = null;
-
-        options.forEach(function (option, index) {
-            var $option = $('<div class="gdc-selectable-option"></div>').css({
-                'padding': '10px 12px',
-                'margin': '4px 0',
-                'background': 'rgba(15, 23, 42, 0.6)',
-                'border': '1px solid rgba(99, 102, 241, 0.25)',
-                'border-radius': '6px',
-                'cursor': 'pointer',
-                'transition': 'all 0.2s ease',
-                'font-size': '13px',
-                'color': '#e5e7eb'
-            }).text(option).data('option-index', index).data('option-value', option);
-
-            $option.on('click', function () {
-                // Deselect all
-                $container.find('.gdc-selectable-option').css({
-                    'background': 'rgba(15, 23, 42, 0.6)',
-                    'border-color': 'rgba(99, 102, 241, 0.25)'
-                });
-                // Select this one
-                $(this).css({
-                    'background': 'rgba(99, 102, 241, 0.3)',
-                    'border-color': 'rgba(99, 102, 241, 0.6)'
-                });
-                // Store in GLOBAL state
-                conversationState.pendingOptions.selectedIndex = $(this).data('option-index');
-            });
-
-            $option.on('mouseenter', function () {
-                if ($(this).data('option-index') !== conversationState.pendingOptions.selectedIndex) {
-                    $(this).css('background', 'rgba(99, 102, 241, 0.15)');
-                }
-            }).on('mouseleave', function () {
-                if ($(this).data('option-index') !== conversationState.pendingOptions.selectedIndex) {
-                    $(this).css('background', 'rgba(15, 23, 42, 0.6)');
-                }
-            });
-
-            $container.append($option);
-        });
-
-        // Add apply button
-        var $applyBtn = $('<button class="gdc-email-ai-quick-btn" style="margin-top: 10px; width: 100%;">Apply Selected Subject</button>');
-        $applyBtn.on('click', function () {
-            var selectedIndex = conversationState.pendingOptions.selectedIndex;
-            if (selectedIndex !== null && options[selectedIndex]) {
-                var selectedOption = options[selectedIndex];
-                $subjectField.val(selectedOption).addClass('gdc-email-ai-field-updated');
-                setTimeout(function () { $subjectField.removeClass('gdc-email-ai-field-updated'); }, 2000);
-                $(this).text('Applied ✓').prop('disabled', true).css('background', '#22c55e');
-
-                // Update conversation state
-                conversationState.draftSubject = selectedOption;
-                conversationState.phase = 'body'; // Move to next phase
-            } else {
-                $(this).text('Please select an option first').css('background', '#ef4444');
-                setTimeout(function () {
-                    $applyBtn.text('Apply Selected Subject').css('background', '');
-                }, 2000);
-            }
-        });
-        $container.append($applyBtn);
-
-        $chatThread.append($container);
-        $chatThread.scrollTop($chatThread[0].scrollHeight);
-    }
-
-    /**
-     * Add single apply button to chat
-     */
-    function addApplyButton(type, content, label) {
-        var $btn = $('<button></button>')
-            .addClass('gdc-email-ai-quick-btn')
-            .text(label || (type === 'subject' ? 'Apply Subject' : type === 'body' ? 'Apply Body' : 'Apply HTML'))
-            .css({ marginTop: '8px', width: '100%' })
-            .on('click', function () {
-                if (type === 'subject') {
-                    $subjectField.val(content).addClass('gdc-email-ai-field-updated');
-                    setTimeout(function () { $subjectField.removeClass('gdc-email-ai-field-updated'); }, 2000);
-                } else if (type === 'body') {
-                    setEditorContent(content);
-                } else if (type === 'html') {
-                    setEditorContent(content);
-                }
-                $(this).text('Applied ✓').prop('disabled', true).css('background', '#22c55e');
-            });
-        $chatThread.append($btn);
-        $chatThread.scrollTop($chatThread[0].scrollHeight);
-    }
-
-    /**
-     * Add image option
-     */
-    function addImageOption(imageUrl, description) {
-        var $container = $('<div style="margin: 12px 0; padding: 12px; background: rgba(99, 102, 241, 0.08); border-radius: 8px;"></div>');
-        var $img = $('<img>').attr('src', imageUrl).css({ 'max-width': '100%', 'border-radius': '6px', 'margin-bottom': '8px' });
-        var $btn = $('<button class="gdc-email-ai-quick-btn" style="width: 100%;">Insert Image</button>');
-
-        $btn.on('click', function () {
-            var imgTag = '<img src="' + imageUrl + '" alt="' + description + '" style="max-width: 100%; height: auto;">';
-            var currentContent = getEditorContent();
-            setEditorContent(currentContent + '\n' + imgTag);
-            $(this).text('Inserted ✓').prop('disabled', true).css('background', '#22c55e');
-        });
-
-        $container.append($('<div style="font-size: 11px; color: #9ca3af; margin-bottom: 8px;">' + description + '</div>'));
-        $container.append($img);
-        $container.append($btn);
-        $chatThread.append($container);
-        $chatThread.scrollTop($chatThread[0].scrollHeight);
-    }
-
-
-    /**
-     * Handle quick action buttons
-     */
-    function handleQuickAction(action) {
-        // Campaign Architect specific actions
-        if (action === 'upload-image') {
-            openMediaLibrary();
-            return;
-        }
-        if (action === 'skip-visuals') {
-            addChatMessage('user', 'Skip visuals');
-            moveToFinalReview();
-            return;
-        }
-        if (action === 'generate-image' && state.workflow && state.workflow.currentStep === 'visual_assets') {
-            startImageGeneration();
-            return;
-        }
-
-        var prompts = {
-            'generate-copy': 'Write an engaging email for this ' + getTypeLabel((state.currentEmail && state.currentEmail.section) ? state.currentEmail.section : 'general') + '. Make it compelling and professional.',
-            'generate-image': 'The user wants to add images to this email. I will show them a button to open the Design Studio where they can generate professional images using Imagen 3.0.',
-            'generate-html': 'Create a complete, responsive HTML email template with inline styles. Use my brand colors: primary ' + (config.primaryColor || '#6366f1') + ' and secondary ' + (config.secondaryColor || '#22d3ee') + '. Include proper HTML structure with DOCTYPE, head, and body tags. Make it mobile-responsive.',
-            'improve': 'Please review and improve the current email copy. Here is the current subject: "' + $subjectField.val() + '" and body content.'
-        };
-
-        var prompt = prompts[action] || 'Help me with this email.';
-        $chatInput.val(prompt);
-        sendChatMessage();
     }
 
     /**

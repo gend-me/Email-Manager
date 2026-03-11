@@ -11,7 +11,7 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('EMAIL_MANAGER_VERSION', '1.0.1');
+define('EMAIL_MANAGER_VERSION', time() + 25);
 define('EMAIL_MANAGER_PATH', plugin_dir_path(__FILE__));
 define('EMAIL_MANAGER_URL', plugin_dir_url(__FILE__)); // Renamed to EM_URL in the instruction, but keeping original for consistency with other defines.
 define('EM_PATH', EMAIL_MANAGER_PATH); // Added for GitHub Updater
@@ -35,6 +35,15 @@ require_once EMAIL_MANAGER_PATH . 'inc/email-logs.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-smtp.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-manager-admin.php';
+require_once EMAIL_MANAGER_PATH . 'inc/forms/class-chat-forms-core.php';
+
+// Initialize Forms System
+add_action('plugins_loaded', 'em_initialize_forms_system');
+function em_initialize_forms_system()
+{
+    $chat_forms = new Chat_Forms_Core();
+    $chat_forms->run();
+}
 
 // Activation Hook
 register_activation_hook(__FILE__, 'em_activate_plugin');
@@ -62,6 +71,9 @@ function em_enqueue_assets($hook)
 {
     $is_em_page = (strpos($hook, 'email-manager') !== false) || (isset($_GET['page']) && $_GET['page'] === 'email-manager');
     if ($is_em_page) {
+
+        // Enqueue WP Media
+        wp_enqueue_media();
 
         // Enqueue Email AI Popup
         wp_enqueue_style('em-email-ai-popup', EMAIL_MANAGER_URL . 'assets/email-ai-popup.css', array(), EMAIL_MANAGER_VERSION);

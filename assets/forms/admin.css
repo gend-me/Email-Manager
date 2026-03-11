@@ -1,0 +1,378 @@
+/* Admin Builder Enhancements */
+.chat-forms-builder {
+    background: #fff;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.chat-form-question {
+    background: #f9f9f9;
+    padding: 20px;
+    margin-bottom: 15px;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.chat-form-question h4 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 15px 0;
+    gap: 10px;
+}
+
+.drag-handle {
+    font-size: 18px;
+    margin-right: 8px;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.drag-handle:hover {
+    opacity: 1;
+}
+
+.question-actions {
+    display: flex;
+    gap: 5px;
+    margin-left: auto;
+}
+
+.duplicate-question {
+    background: #f0f0f1 !important;
+    border-color: #0071a1 !important;
+    color: #0071a1 !important;
+}
+
+.duplicate-question:hover {
+    background: #0071a1 !important;
+    color: #fff !important;
+}
+
+/* Drag and Drop */
+.chat-form-question {
+    cursor: default;
+    transition: all 0.2s ease;
+}
+
+.chat-form-question.ui-sortable-helper {
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    transform: rotate(2deg);
+}
+
+.question-placeholder {
+    background: #f0f0f1;
+    border: 2px dashed #0073aa;
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+#questions-container {
+    min-height: 100px;
+}
+
+#questions-container.ui-sortable {
+    position: relative;
+}
+
+.chat-form-question-controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+/* Options Manager */
+.options-manager {
+    margin-top: 15px;
+    padding: 15px;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+
+.options-manager-wrapper {
+    border: 1px solid #ddd;
+    padding: 15px;
+    margin-top: 10px;
+    background: #fff;
+    border-radius: 4px;
+}
+
+.option-item {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 10px;
+    background: #fafafa;
+    border-radius: 4px;
+    align-items: center;
+}
+
+.option-item input[type="text"] {
+    flex: 1;
+}
+
+.option-item .remove-option {
+    background: #dc3545;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.add-option-btn {
+    margin-top: 10px;
+}
+
+.chat-forms-actions {
+    margin-top: 20px;
+}
+
+/* Enhanced field layouts */
+.chat-form-question>p {
+    margin: 10px 0;
+}
+
+.chat-form-question label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #333;
+}
+
+.chat-form-question input[type="text"],
+.chat-form-question select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.chat-form-question select {
+    cursor: pointer;
+}
+
+/* Chat Forms Modal */
+#chat-submission-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100000;
+}
+
+.chat-modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+}
+
+.chat-modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    max-width: 90%;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    animation: slideIn 0.3s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translate(-50%, -40%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translate(-50%, -50%);
+        opacity: 1;
+    }
+}
+
+.chat-modal-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8f9fa;
+}
+
+.chat-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.chat-modal-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 20px;
+    color: #888;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.chat-modal-close:hover {
+    color: #d63638;
+}
+
+.chat-modal-body {
+    padding: 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.chat-modal-loading {
+    text-align: center;
+    padding: 30px;
+    color: #666;
+    display: none;
+}
+
+/* Submission Details Table */
+.submission-details-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.submission-details-table th,
+.submission-details-table td {
+    padding: 12px 15px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+}
+
+.submission-details-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #444;
+    width: 35%;
+}
+
+.submission-details-table tr:last-child td {
+    border-bottom: none;
+}
+
+.submission-details-table tr:hover td {
+    background: #fcfcfc;
+}
+
+/* Email Rule Modal Styles */
+#chat-forms-email-modal {
+    display: none;
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 999999 !important;
+}
+
+.chat-forms-modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+}
+
+.chat-forms-modal-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 800px;
+    max-width: 95%;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 90vh;
+}
+
+.chat-forms-modal-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid #eee;
+    background: #f8f9fa;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-forms-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.chat-forms-modal-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 24px;
+    color: #888;
+    line-height: 1;
+}
+
+.chat-forms-modal-close:hover {
+    color: #d63638;
+}
+
+.chat-forms-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.chat-forms-modal-body p {
+    margin-bottom: 15px;
+}
+
+.chat-forms-modal-body label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.chat-forms-modal-body input[type="text"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.chat-forms-modal-footer {
+    padding: 15px 20px;
+    border-top: 1px solid #eee;
+    background: #f8f9fa;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
