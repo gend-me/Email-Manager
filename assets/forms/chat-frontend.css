@@ -442,3 +442,106 @@
         opacity: 1;
     }
 }
+
+/* ── Account Registration Widget ── */
+.chat-account-widget {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Logged-in state */
+.account-logged-in {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    text-align: center;
+}
+
+.account-avatar {
+    font-size: 2em;
+    line-height: 1;
+}
+
+.account-logged-in p {
+    margin: 0;
+    font-size: 14px;
+    color: #333;
+}
+
+/* Tab row */
+.account-tabs {
+    display: flex;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(102, 126, 234, 0.35);
+}
+
+.account-tab {
+    flex: 1;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.6);
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #667eea;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.account-tab.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+}
+
+.account-tab:not(.active):hover {
+    background: rgba(102, 126, 234, 0.1);
+}
+
+/* Tab content panels */
+.account-tab-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.account-tab-content .chat-input {
+    flex: none;
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 8px;
+    font-size: 14px;
+    padding: 10px 14px;
+    min-width: 0;
+}
+
+/* Feedback messages */
+.account-msg {
+    display: none;
+    font-size: 13px;
+    padding: 8px 12px;
+    border-radius: 6px;
+}
+
+.account-msg.error {
+    background: rgba(214, 54, 56, 0.12);
+    color: #c0392b;
+    border: 1px solid rgba(214, 54, 56, 0.25);
+}
+
+.account-msg.success {
+    background: rgba(0, 160, 70, 0.1);
+    color: #007a38;
+    border: 1px solid rgba(0, 160, 70, 0.25);
+}
+
+.account-tab-content .chat-submit-btn {
+    width: 100%;
+    border-radius: 8px;
+    margin-top: 2px;
+}

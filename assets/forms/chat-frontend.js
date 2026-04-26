@@ -305,6 +305,8 @@ jQuery(document).ready(function ($) {
                 renderOptionButtons(question);
             } else if (question.type === 'file') {
                 renderFileUpload(question);
+            } else if (question.type === 'account_registration') {
+                renderAccountRegistration(question);
             } else {
                 renderTextInput(question);
             }
@@ -407,6 +409,137 @@ jQuery(document).ready(function ($) {
                     submitTextAnswer($input, question);
                 }
             });
+        }
+
+        function renderAccountRegistration(question) {
+            var isLoggedIn = chatFormsPublic.isLoggedIn === true || chatFormsPublic.isLoggedIn === 'true' || chatFormsPublic.isLoggedIn == '1';
+            var currentUser = chatFormsPublic.currentUser || {};
+
+            if (isLoggedIn) {
+                var displayName = currentUser.display_name || currentUser.username || 'Unknown';
+                $inputArea.html(
+                    '<div class="chat-account-widget">' +
+                        '<div class="account-logged-in">' +
+                            '<span class="account-avatar">👤</span>' +
+                            '<p>You are logged in as <strong>' + displayName + '</strong></p>' +
+                            '<button type="button" class="chat-submit-btn account-continue-btn">Continue</button>' +
+                        '</div>' +
+                    '</div>'
+                );
+
+                $inputArea.find('.account-continue-btn').on('click', function () {
+                    handleAnswer(
+                        JSON.stringify({ action: 'logged_in', user_id: currentUser.user_id, username: currentUser.username }),
+                        'Continuing as ' + displayName
+                    );
+                });
+
+            } else {
+                $inputArea.html(
+                    '<div class="chat-account-widget">' +
+                        '<div class="account-tabs">' +
+                            '<button type="button" class="account-tab active" data-tab="login">Log In</button>' +
+                            '<button type="button" class="account-tab" data-tab="register">New Account</button>' +
+                        '</div>' +
+                        '<div class="account-tab-content login-tab">' +
+                            '<input type="text" class="chat-input account-username" placeholder="Username or Email" />' +
+                            '<input type="password" class="chat-input account-password" placeholder="Password" />' +
+                            '<div class="account-msg" style="display:none;"></div>' +
+                            '<button type="button" class="chat-submit-btn account-login-btn">Log In</button>' +
+                        '</div>' +
+                        '<div class="account-tab-content register-tab" style="display:none;">' +
+                            '<input type="text" class="chat-input account-reg-username" placeholder="Username" />' +
+                            '<input type="email" class="chat-input account-reg-email" placeholder="Email Address" />' +
+                            '<input type="password" class="chat-input account-reg-password" placeholder="Password (min 8 chars)" />' +
+                            '<input type="password" class="chat-input account-reg-confirm" placeholder="Confirm Password" />' +
+                            '<div class="account-msg" style="display:none;"></div>' +
+                            '<button type="button" class="chat-submit-btn account-register-btn">Register & Continue</button>' +
+                        '</div>' +
+                    '</div>'
+                );
+
+                // Tab switching
+                $inputArea.find('.account-tab').on('click', function () {
+                    $inputArea.find('.account-tab').removeClass('active');
+                    $(this).addClass('active');
+                    var tab = $(this).data('tab');
+                    $inputArea.find('.account-tab-content').hide();
+                    $inputArea.find('.' + tab + '-tab').show();
+                });
+
+                // Login button
+                $inputArea.find('.account-login-btn').on('click', function () {
+                    var $btn = $(this);
+                    var username = $inputArea.find('.account-username').val().trim();
+                    var password = $inputArea.find('.account-password').val();
+                    var $msg = $inputArea.find('.login-tab .account-msg');
+
+                    if (!username || !password) {
+                        $msg.removeClass('success').addClass('error').text('Please enter your username and password.').show();
+                        return;
+                    }
+
+                    $btn.prop('disabled', true).text('Logging in…');
+                    $msg.hide();
+
+                    $.ajax({
+                        url: chatFormsPublic.ajaxUrl,
+                        method: 'POST',
+                        data: {
+                            action: 'chat_forms_account_login',
+                            username: username,
+                            password: password,
+                            nonce: chatFormsPublic.nonce
+                        },
+                        success: function (res) {
+                            if (res.success) {
+                                handleAnswer(
+                                    JSON.stringify({ action: 'logged_in', user_id: res.data.user_id, username: res.data.username }),
+                                    'Logged in as ' + (res.data.display_name || res.data.username)
+                                );
+                            } else {
+                                $msg.removeClass('success').addClass('error').text(res.data || 'Login failed. Please check your credentials.').show();
+                                $btn.prop('disabled', false).text('Log In');
+                            }
+                        },
+                        error: function () {
+                            $msg.removeClass('success').addClass('error').text('Connection error. Please try again.').show();
+                            $btn.prop('disabled', false).text('Log In');
+                        }
+                    });
+                });
+
+                // Register button — collect data and continue; account created on form submission
+                $inputArea.find('.account-register-btn').on('click', function () {
+                    var username = $inputArea.find('.account-reg-username').val().trim();
+                    var email    = $inputArea.find('.account-reg-email').val().trim();
+                    var password = $inputArea.find('.account-reg-password').val();
+                    var confirm  = $inputArea.find('.account-reg-confirm').val();
+                    var $msg     = $inputArea.find('.register-tab .account-msg');
+
+                    if (!username || !email || !password) {
+                        $msg.removeClass('success').addClass('error').text('Please fill in all fields.').show();
+                        return;
+                    }
+                    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                        $msg.removeClass('success').addClass('error').text('Please enter a valid email address.').show();
+                        return;
+                    }
+                    if (password.length < 8) {
+                        $msg.removeClass('success').addClass('error').text('Password must be at least 8 characters.').show();
+                        return;
+                    }
+                    if (password !== confirm) {
+                        $msg.removeClass('success').addClass('error').text('Passwords do not match.').show();
+                        return;
+                    }
+
+                    handleAnswer(
+                        JSON.stringify({ action: 'register', username: username, email: email, password: password }),
+                        'Registering as ' + username
+                    );
+                });
+            }
         }
 
         // Validation function

@@ -597,6 +597,7 @@ class Chat_Forms_Admin
                     <option value="email" <?php selected($type, 'email'); ?>>Email</option>
                     <option value="telephone" <?php selected($type, 'telephone'); ?>>Telephone</option>
                     <option value="file" <?php selected($type, 'file'); ?>>File Upload</option>
+                    <option value="account_registration" <?php selected($type, 'account_registration'); ?>>Account Registration</option>
                 </select>
             </p>
 

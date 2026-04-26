@@ -106,6 +106,7 @@ jQuery(document).ready(function ($) {
                     <option value="tel">Telephone</option>
                     <option value="multiple">Multiple Choice</option>
                     <option value="file">File Upload</option>
+                    <option value="account_registration">Account Registration</option>
                 </select>
             </p>
             <div class="options-manager" style="display:none;">

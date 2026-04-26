@@ -14,6 +14,10 @@
         sendMode: 'immediate', // 'immediate' or 'schedule'
         scheduleDate: null,
         scheduleTime: '09:00',
+        storeRecipients: {
+            sendToCustomer: true,
+            extraEmails: []
+        },
         // Campaign Architect workflow state
         workflow: {
             currentStep: 'strategy', // strategy | subject_lines | body_copy | visual_assets | theme_send
@@ -96,6 +100,11 @@
           <h4>Email Content</h4>
         </div>
         <div class="gdc-email-ai-modal__editor-form">
+          <!-- Campaign Name (for Proposals) -->
+          <div class="gdc-email-ai-field gdc-email-ai-campaign-name" style="display:none;">
+            <label for="gdc-email-ai-campaign-name">Campaign Name</label>
+            <input type="text" id="gdc-email-ai-campaign-name" placeholder="e.g. Q1 Proposal, Summer Outreach...">
+          </div>
           <!-- Recipients (for Proposals) -->
           <div class="gdc-email-ai-field gdc-email-ai-recipients" style="display:none;">
             <label>Recipients</label>
@@ -104,6 +113,61 @@
               <input type="text" id="gdc-email-ai-recipient-search" placeholder="Search members or enter email..." autocomplete="off">
               <div class="gdc-email-ai-recipients-dropdown" id="gdc-email-ai-recipients-dropdown" style="display:none;"></div>
             </div>
+          </div>
+          <!-- Enable / Disable (for Store emails) -->
+          <div class="gdc-email-ai-field gdc-email-ai-status-field" style="display:none;">
+            <style>
+              .gdc-row-toggle { display:flex; align-items:center; gap:12px; padding:10px 14px; background:rgba(15,23,42,.6); border:1px solid #1e293b; border-radius:8px; }
+              .gdc-row-toggle .gdc-toggle-label { font-size:13px; color:#cbd5e1; flex:1; }
+              .gdc-row-toggle .gdc-toggle-label strong { display:block; color:#e2e8f0; font-weight:600; }
+              .gdc-pill-toggle { position:relative; width:40px; height:22px; flex-shrink:0; }
+              .gdc-pill-toggle input { opacity:0; width:0; height:0; position:absolute; }
+              .gdc-pill-slider { position:absolute; inset:0; background:#334155; border-radius:11px; cursor:pointer; transition:background .2s; }
+              .gdc-pill-slider::after { content:''; position:absolute; left:3px; top:3px; width:16px; height:16px; background:#fff; border-radius:50%; transition:transform .2s; }
+              .gdc-pill-toggle input:checked + .gdc-pill-slider { background:#22c55e; }
+              .gdc-pill-toggle input:checked + .gdc-pill-slider::after { transform:translateX(18px); }
+              .gdc-save-status { font-size:11px; color:#64748b; margin-left:8px; }
+              .gdc-save-status.saving { color:#f59e0b; }
+              .gdc-save-status.saved { color:#22c55e; }
+              .gdc-save-status.error { color:#ef4444; }
+              .gdc-extra-tags-wrap { display:flex; flex-wrap:wrap; gap:6px; padding:8px; background:#0f172a; border:1px solid #334155; border-radius:8px; min-height:42px; align-items:center; cursor:text; }
+              .gdc-extra-tag { display:inline-flex; align-items:center; gap:5px; background:#1e3a5f; border:1px solid #2563eb; border-radius:20px; padding:3px 10px; font-size:12px; color:#93c5fd; }
+              .gdc-extra-tag-remove { background:none; border:none; color:#93c5fd; cursor:pointer; font-size:14px; line-height:1; padding:0; opacity:.7; }
+              .gdc-extra-tag-remove:hover { opacity:1; }
+              .gdc-extra-tag-input { border:none; background:transparent; outline:none; font-size:13px; color:#e2e8f0; min-width:200px; flex:1; padding:2px 4px; }
+              .gdc-extra-tag-input::placeholder { color:#475569; }
+              .gdc-recipient-hint { font-size:11px; color:#64748b; margin-top:6px; }
+              .gdc-recipient-row { display:flex; align-items:center; gap:12px; padding:10px 14px; background:rgba(99,102,241,.06); border:1px solid rgba(99,102,241,.18); border-radius:8px; margin-bottom:10px; }
+              .gdc-recipient-row .gdc-toggle-label { font-size:13px; color:#cbd5e1; flex:1; }
+              .gdc-recipient-row .gdc-toggle-label strong { display:block; color:#e2e8f0; font-weight:600; }
+            </style>
+            <div class="gdc-row-toggle">
+              <span class="gdc-toggle-label"><strong>Email status</strong>Enable or disable this automated email</span>
+              <label class="gdc-pill-toggle">
+                <input type="checkbox" id="gdc-email-status-toggle" checked>
+                <span class="gdc-pill-slider"></span>
+              </label>
+              <span class="gdc-save-status" id="gdc-email-status-save-msg"></span>
+            </div>
+          </div>
+          <!-- Recipients (for Store/WooCommerce emails) -->
+          <div class="gdc-email-ai-field gdc-email-ai-store-recipients" style="display:none;">
+            <label>Recipients</label>
+            <div class="gdc-recipient-row" id="gdc-send-to-customer-toggle">
+              <label class="gdc-pill-toggle">
+                <input type="checkbox" id="gdc-email-send-to-customer" checked>
+                <span class="gdc-pill-slider"></span>
+              </label>
+              <span class="gdc-toggle-label" id="gdc-recipient-toggle-label">
+                <strong>Send to customer</strong>
+                Automatically delivered to the order purchaser
+              </span>
+            </div>
+            <span style="font-size:12px;color:#94a3b8;font-weight:500;margin-bottom:6px;display:block;">Additional recipients</span>
+            <div class="gdc-extra-tags-wrap" id="gdc-extra-tags-wrap">
+              <input type="text" class="gdc-extra-tag-input" id="gdc-extra-recipient-input" placeholder="Enter email address, press Enter or comma to add...">
+            </div>
+            <p class="gdc-recipient-hint">These addresses will also receive this email every time it is triggered.</p>
           </div>
           <div class="gdc-email-ai-field">
             <label for="gdc-email-ai-subject">Subject Line</label>
@@ -148,6 +212,21 @@
               .hidden-editor { display: none !important; }
             </style>
             
+            <!-- Shortcode tokens (store emails only) -->
+            <div class="gdc-email-tokens-wrap" id="gdc-email-tokens-wrap" style="display:none;margin-bottom:10px;">
+              <style>
+                .gdc-email-tokens-wrap { background:rgba(15,23,42,.7); border:1px solid #1e3a5f; border-radius:8px; padding:10px 12px; }
+                .gdc-tokens-label { font-size:11px; font-weight:600; color:#64748b; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; display:block; }
+                .gdc-tokens-list { display:flex; flex-wrap:wrap; gap:5px; }
+                .gdc-token-chip { display:inline-flex; align-items:center; background:#0f172a; border:1px solid #334155; border-radius:4px; padding:3px 8px; font-size:11px; font-family:monospace; color:#7dd3fc; cursor:pointer; transition:background .15s,border-color .15s; user-select:none; }
+                .gdc-token-chip:hover { background:#1e3a5f; border-color:#3b82f6; color:#fff; }
+                .gdc-token-chip:active { background:#1d4ed8; }
+                .gdc-tokens-copied { font-size:11px; color:#34d399; margin-left:6px; opacity:0; transition:opacity .2s; }
+                .gdc-tokens-copied.show { opacity:1; }
+              </style>
+              <span class="gdc-tokens-label">Available shortcodes — click to insert into body</span>
+              <div class="gdc-tokens-list" id="gdc-tokens-list"></div>
+            </div>
             <label for="gdc-email-ai-body">Email Body</label>
             <div class="gdc-email-editor-wrapper">
               <div class="gdc-email-editor-tabs">
@@ -339,10 +418,36 @@
             e.stopPropagation();
 
             var emailData = {};
-            try {
-                emailData = JSON.parse($(this).attr('data-email') || '{}');
-            } catch (err) {
-                console.warn('[GDC Email AI] Failed to parse email data', err);
+            var b64Data = $(this).attr('data-email-b64');
+            var parsed = false;
+
+            if (b64Data) {
+                try {
+                    var decodedStr = decodeURIComponent(escape(window.atob(b64Data)));
+                    emailData = JSON.parse(decodedStr);
+                    parsed = true;
+                } catch (err) {
+                    console.warn('[GDC Email AI] Base64 decode failed', err);
+                }
+            }
+
+            if (!parsed) {
+                var rawData = $(this).attr('data-email');
+                if (rawData) {
+                    try {
+                        emailData = JSON.parse(rawData);
+                    } catch (err) {
+                        console.warn('[GDC Email AI] Standard JSON.parse failed, falling back to jQuery .data()', err);
+                        emailData = $(this).data('email');
+                        if (typeof emailData === 'string') {
+                            try { emailData = JSON.parse(emailData); } catch(e) {}
+                        }
+                    }
+                }
+            }
+
+            if (!emailData || typeof emailData !== 'object') {
+                emailData = {};
             }
 
             // Always open custom editor for all types (Raw HTML Mode)
@@ -554,6 +659,207 @@
             });
             mediaUploader.open();
         });
+
+        // Token chip click — insert into active body editor
+        $(document).on('click', '.gdc-token-chip', function (e) {
+            e.preventDefault();
+            var tok = $(this).data('token');
+            if (!tok) { return; }
+            var $visual = $('#gdc-email-visual-editor');
+            var $code = $('#gdc-email-ai-body');
+            if ($code.hasClass('active')) {
+                // Code mode: insert at cursor
+                var el = $code[0];
+                var start = el.selectionStart;
+                var end = el.selectionEnd;
+                var val = el.value;
+                el.value = val.substring(0, start) + tok + val.substring(end);
+                el.selectionStart = el.selectionEnd = start + tok.length;
+                el.focus();
+                $visual.html(el.value);
+            } else {
+                // Visual mode: insert at cursor/end
+                $visual.focus();
+                document.execCommand('insertText', false, tok);
+                $code.val($visual.html());
+            }
+        });
+
+        // Close notice dismiss button
+        $(document).on('click', '#gdc-store-notice-close', function () {
+            closeStoreEmailNotice();
+        });
+
+        // Reset to WC default button (wipes saved override, re-fetches)
+        $(document).on('click', '.gdc-email-reset-btn', function () {
+            if (!state.currentEmail || !state.currentEmail.id) return;
+            var $btn = $(this);
+            $btn.prop('disabled', true).text('Resetting…');
+            var saveEndpoint = config.wcEmailSaveEndpoint || ((config.root || '/wp-json/') + 'em/v1/wc-email-save');
+            $.ajax({
+                url: saveEndpoint,
+                method: 'POST',
+                contentType: 'application/json',
+                beforeSend: function (xhr) { xhr.setRequestHeader('X-WP-Nonce', config.nonce || ''); },
+                data: JSON.stringify({ email_id: state.currentEmail.id, additional_content: '' })
+            })
+            .done(function () {
+                // Re-fetch the WC default render
+                var renderUrl = (config.wcEmailRenderEndpoint || ((config.root || '/wp-json/') + 'em/v1/wc-email-render'))
+                    + '?email_id=' + encodeURIComponent(state.currentEmail.id);
+                $.ajax({ url: renderUrl, method: 'GET',
+                    beforeSend: function (xhr) { xhr.setRequestHeader('X-WP-Nonce', config.nonce || ''); } })
+                .done(function (res) {
+                    if (res && res.html) { setEditorContent(res.html); }
+                    showStoreEmailNotice('Template reset to WooCommerce default. Edit and <strong>Save</strong> to create your custom version.');
+                });
+            })
+            .fail(function () { $btn.prop('disabled', false).text('Reset to WC default'); });
+        });
+
+        // Store recipients: send-to-customer checkbox change
+        $(document).on('change', '#gdc-email-send-to-customer', function () {
+            state.storeRecipients.sendToCustomer = $(this).is(':checked');
+        });
+
+        // Email status enable/disable toggle — auto-saves to WooCommerce settings
+        $(document).on('change', '#gdc-email-status-toggle', function () {
+            var enabled = $(this).is(':checked');
+            var $msg = $('#gdc-email-status-save-msg');
+            var emailId = (state.currentEmail && state.currentEmail.id) ? state.currentEmail.id : '';
+            if (!emailId) { return; }
+            $msg.text('Saving…').removeClass('saved error').addClass('saving');
+            $.ajax({
+                url: (config.root || '/wp-json/') + 'em/v1/wc-email-toggle',
+                method: 'POST',
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                },
+                data: JSON.stringify({ email_id: emailId, enabled: enabled }),
+                success: function (res) {
+                    if (res && res.success) {
+                        $msg.text(enabled ? 'Enabled' : 'Disabled').removeClass('saving error').addClass('saved');
+                        setTimeout(function () { $msg.text('').removeClass('saved'); }, 2500);
+                    } else {
+                        $msg.text('Save failed').removeClass('saving saved').addClass('error');
+                        $('#gdc-email-status-toggle').prop('checked', !enabled);
+                    }
+                },
+                error: function () {
+                    $msg.text('Save failed').removeClass('saving saved').addClass('error');
+                    $('#gdc-email-status-toggle').prop('checked', !enabled);
+                }
+            });
+        });
+
+        // Store recipients: add chip on Enter or comma
+        $(document).on('keydown', '#gdc-extra-recipient-input', function (e) {
+            if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                var val = $(this).val().replace(/,/g, '').trim();
+                if (val) { addStoreExtraEmail(val); }
+                $(this).val('');
+            }
+        });
+
+        // Store recipients: add chip on blur
+        $(document).on('blur', '#gdc-extra-recipient-input', function () {
+            var val = $(this).val().trim();
+            if (val) { addStoreExtraEmail(val); $(this).val(''); }
+        });
+
+        // Store recipients: click wrap focuses input
+        $(document).on('click', '#gdc-extra-tags-wrap', function (e) {
+            if (!$(e.target).hasClass('gdc-extra-tag-remove') && !$(e.target).closest('.gdc-extra-tag').length) {
+                $('#gdc-extra-recipient-input').focus();
+            }
+        });
+
+        // Campaign name input: update the modal header label live
+        $(document).on('input', '#gdc-email-ai-campaign-name', function () {
+            var val = $(this).val().trim();
+            $('.gdc-email-ai-modal__email-label').text(val || 'New Proposal Email');
+        });
+
+        // Store recipients: remove chip
+        $(document).on('click', '.gdc-extra-tag-remove', function (e) {
+            e.stopPropagation();
+            var email = $(this).data('email');
+            state.storeRecipients.extraEmails = state.storeRecipients.extraEmails.filter(function (e) { return e !== email; });
+            renderStoreExtraTags();
+        });
+
+        // Send Test Email button
+        $(document).on('click', '.gdc-email-ai-send-test', function (e) {
+            e.preventDefault();
+            sendTestEmail();
+        });
+
+        // Save Draft button
+        $(document).on('click', '.gdc-email-ai-save', function (e) {
+            e.preventDefault();
+            saveEmail();
+        });
+
+        // Preview button
+        $(document).on('click', '.gdc-email-ai-preview', function (e) {
+            e.preventDefault();
+            previewEmail();
+        });
+
+        // Send Email button
+        $(document).on('click', '.gdc-email-ai-send', function (e) {
+            e.preventDefault();
+            sendEmail();
+        });
+
+        // Send mode toggle (Immediately / Schedule)
+        $(document).on('click', '.gdc-email-ai-toggle-btn', function (e) {
+            e.preventDefault();
+            var mode = $(this).data('mode');
+            state.sendMode = mode;
+            $('.gdc-email-ai-toggle-btn').removeClass('active');
+            $(this).addClass('active');
+            if (mode === 'schedule') {
+                $('.gdc-email-ai-schedule-picker').show();
+                $('.gdc-email-ai-send').text('Schedule Email');
+            } else {
+                $('.gdc-email-ai-schedule-picker').hide();
+                $('.gdc-email-ai-send').text('Send Email');
+            }
+        });
+
+        // Recipient search input
+        $(document).on('input', '#gdc-email-ai-recipient-search', debounce(function () {
+            searchRecipients();
+        }, 300));
+
+        // Recipient dropdown item click
+        $(document).on('click', '.gdc-email-ai-recipient-item', function (e) {
+            e.preventDefault();
+            var email  = $(this).data('email');
+            var name   = $(this).data('name');
+            var avatar = $(this).data('avatar');
+            addRecipient(email, name, avatar);
+        });
+
+        // Recipient tag remove
+        $(document).on('click', '.gdc-email-ai-recipient-remove', function (e) {
+            e.preventDefault();
+            var email = $(this).closest('.gdc-email-ai-recipient-tag').data('email');
+            state.recipients = state.recipients.filter(function (r) { return r.email !== email; });
+            renderRecipientTags();
+        });
+
+        // Manual email add on Enter/comma in recipient search
+        $(document).on('keydown', '#gdc-email-ai-recipient-search', function (e) {
+            if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                var val = $(this).val().replace(/,/g, '').trim();
+                if (val) { addManualEmail(val); }
+            }
+        });
     }
 
     /**
@@ -600,6 +906,11 @@
         $('#gdc-email-ai-recipient-search').val('');
         $('#gdc-email-ai-recipients-dropdown').hide();
 
+        // Reset store recipients UI
+        state.storeRecipients = { sendToCustomer: true, extraEmails: [] };
+        renderStoreExtraTags();
+        $('#gdc-extra-recipient-input').val('');
+
         // Reset schedule UI
         $('.gdc-email-ai-toggle-btn').removeClass('active');
         $('.gdc-email-ai-toggle-btn[data-mode="immediate"]').addClass('active');
@@ -610,16 +921,133 @@
         $('#gdc-email-ai-schedule-date').val(tomorrow.toISOString().split('T')[0]);
         $('#gdc-email-ai-schedule-time').val('09:00');
 
-        // Show/hide proposal-specific sections
-        var isProposal = (emailData.section || '').toLowerCase() === 'proposals';
+        // Show/hide section-specific panels
+        var section = (emailData.section || '').toLowerCase();
+        var isProposal = section === 'proposals';
+        var isStore = section === 'store';
+        var isCommunity = section === 'community';
+
+        // Always reset campaign name field
+        $('#gdc-email-ai-campaign-name').val('');
+        $('.gdc-email-ai-campaign-name').hide();
+
         if (isProposal) {
+            $('.gdc-email-ai-campaign-name').show();
+            $('#gdc-email-ai-campaign-name').val(emailData.label || '');
             $('.gdc-email-ai-recipients').show();
             $('.gdc-email-ai-send-options').show();
             $('.gdc-email-ai-send').show();
-        } else {
+            $('.gdc-email-ai-store-recipients').hide();
+            $('.gdc-email-ai-status-field').hide();
+            $('#gdc-email-tokens-wrap').hide();
+        } else if (isStore || isCommunity) {
             $('.gdc-email-ai-recipients').hide();
             $('.gdc-email-ai-send-options').hide();
             $('.gdc-email-ai-send').hide();
+
+            // Rename the save button to just "Save" for store/WC emails (not a draft)
+            $('.gdc-email-ai-save').text('Save');
+
+            // Shortcode tokens
+            var tokens = (emailData.tokens && Array.isArray(emailData.tokens)) ? emailData.tokens : [];
+            var $tokensList = $('#gdc-tokens-list');
+            $tokensList.empty();
+            if (tokens.length) {
+                tokens.forEach(function (tok) {
+                    $tokensList.append('<span class="gdc-token-chip" data-token="' + $('<span>').text(tok).html() + '">' + $('<span>').text(tok).html() + '</span>');
+                });
+                $('#gdc-email-tokens-wrap').show();
+            } else {
+                $('#gdc-email-tokens-wrap').hide();
+            }
+
+            // Enable/disable toggle
+            var isEnabled = emailData.is_enabled !== false;
+            $('#gdc-email-status-toggle').prop('checked', isEnabled);
+            $('#gdc-email-status-save-msg').text('').removeClass('saving saved error');
+            $('.gdc-email-ai-status-field').show();
+
+            // Recipients: send_to_customer
+            var sendToCustomer = emailData.send_to_customer === true;
+            state.storeRecipients.sendToCustomer = sendToCustomer;
+            $('#gdc-email-send-to-customer').prop('checked', sendToCustomer);
+            var recipientTitle = sendToCustomer ? 'Send to customer' : 'Send to admin';
+            var recipientDesc = sendToCustomer
+                ? 'Automatically delivered to the order purchaser'
+                : 'Delivered to: ' + (emailData.wc_recipient || 'site admin');
+            $('#gdc-recipient-toggle-label').html('<strong>' + recipientTitle + '</strong>' + recipientDesc);
+
+            // Extra recipients
+            if (emailData.extra_recipients && Array.isArray(emailData.extra_recipients)) {
+                state.storeRecipients.extraEmails = emailData.extra_recipients.slice();
+                renderStoreExtraTags();
+            }
+            $('.gdc-email-ai-store-recipients').show();
+
+            // ── Force Code (raw HTML) tab for store/community emails ──────────
+            // The visual editor is a contenteditable div; setting .html() on it
+            // strips <DOCTYPE>, <html>, <head>, <style> — losing the email
+            // envelope. Editing in Code tab preserves the full document.
+            $('.gdc-editor-tab').removeClass('active');
+            $('.gdc-editor-tab[data-mode="code"]').addClass('active');
+            $('#gdc-email-visual-editor').hide();
+            $('#gdc-editor-toolbar').hide();
+            // Body textarea stays shown in code mode
+            $('#gdc-email-ai-body').show().addClass('active');
+
+            if (isCommunity) {
+                // Community emails just load the saved body directly
+                $bodyField.val(bodyContent || '');
+                showStoreEmailNotice('Editing Social Network Email. Use <strong>{token}</strong> chips for dynamic content. Click <strong>Save</strong> to apply changes.');
+            } else {
+                // \u2500\u2500 Fetch full email HTML from server (Store / WP Core)  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+                // In code-mode we write directly to the textarea so the full
+                // HTML document (DOCTYPE / html / head / style) is preserved.
+                if (!bodyContent || bodyContent.length < 100) {
+                    $bodyField.val('Loading email template\u2026');
+
+                    var renderUrl = (config.wcEmailRenderEndpoint || ((config.root || '/wp-json/') + 'em/v1/wc-email-render'))
+                        + '?email_id=' + encodeURIComponent(emailData.id || '');
+
+                    $.ajax({
+                        url: renderUrl,
+                        method: 'GET',
+                        beforeSend: function (xhr) {
+                            xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                        }
+                    })
+                    .done(function (res) {
+                        if (res && res.html) {
+                            // Write full HTML directly to textarea (preserves DOCTYPE/html/head/style)
+                            $bodyField.val(res.html);
+                            if (res.source === 'woocommerce') {
+                                showStoreEmailNotice('Showing the live WooCommerce email. Edit the HTML below and click <strong>Save</strong> to use your custom version. Insert <strong>{token}</strong> chips for dynamic data.');
+                            } else {
+                                showStoreEmailNotice('Editing your saved custom template. Use <strong>{token}</strong> chips for dynamic order data. <button type="button" class="gdc-email-reset-btn">Reset to WC default</button>');
+                            }
+                        } else {
+                            $bodyField.val('<!-- Could not load email template. Place a test order first, then re-open. -->');
+                        }
+                    })
+                    .fail(function () {
+                        $bodyField.val('<!-- Failed to load email template. Check REST API access. -->');
+                    });
+                } else {
+                    // Already have saved override HTML in the textarea \u2014 show notice
+                    showStoreEmailNotice('Editing your saved custom template. Use <strong>{token}</strong> chips for dynamic order data. <button type="button" class="gdc-email-reset-btn">Reset to WC default</button>');
+                }
+            }
+
+        } else {
+            $('.gdc-email-ai-campaign-name').hide();
+            $('.gdc-email-ai-recipients').hide();
+            $('.gdc-email-ai-send-options').hide();
+            $('.gdc-email-ai-send').hide();
+            $('.gdc-email-ai-store-recipients').hide();
+            $('.gdc-email-ai-status-field').hide();
+            $('#gdc-email-tokens-wrap').hide();
+            // Restore default save button label for non-store emails
+            $('.gdc-email-ai-save').text('Save Draft');
         }
 
         // Set global context for Leo Widget
@@ -652,6 +1080,58 @@
         // User requested Raw HTML editing only. 
         // Disabling TinyMCE initialization.
         $('#gdc-email-ai-body').val(content || '');
+    }
+
+    /**
+     * Render store extra recipient tags into the UI
+     */
+    function renderStoreExtraTags() {
+        var $wrap = $('#gdc-extra-tags-wrap');
+        // Remove existing tags (keep the input)
+        $wrap.find('.gdc-extra-tag').remove();
+        var $input = $wrap.find('#gdc-extra-recipient-input');
+        state.storeRecipients.extraEmails.forEach(function (email) {
+            var $tag = $('<span class="gdc-extra-tag">'
+                + '<span>' + $('<span>').text(email).html() + '</span>'
+                + '<button type="button" class="gdc-extra-tag-remove" data-email="' + $('<span>').text(email).html() + '" title="Remove">&times;</button>'
+                + '</span>');
+            $wrap.prepend($tag);
+        });
+        // Ensure input stays last
+        $wrap.append($input);
+    }
+
+    /**
+     * Show an info notice banner inside the email editor for store emails.
+     */
+    function showStoreEmailNotice(message) {
+        var $notice = $('#gdc-store-email-notice');
+        if (!$notice.length) {
+            $notice = $('<div id="gdc-store-email-notice" style="' +
+                'margin:0 0 12px;padding:10px 14px;background:rgba(99,102,241,0.12);' +
+                'border:1px solid rgba(99,102,241,0.3);border-radius:8px;font-size:12px;' +
+                'color:#c7d2fe;line-height:1.5;display:flex;align-items:flex-start;gap:10px;"></div>');
+            // Insert before the subject field
+            $('.gdc-email-ai-modal__editor-form').prepend($notice);
+        }
+        $notice.html('<span style="flex:1;">ℹ️ ' + message + '</span>' +
+            '<button type="button" id="gdc-store-notice-close" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:16px;line-height:1;padding:0;">✕</button>');
+        $notice.show();
+    }
+
+    function closeStoreEmailNotice() {
+        $('#gdc-store-email-notice').hide();
+    }
+
+    /**
+     * Add a store extra recipient email chip
+     */
+    function addStoreExtraEmail(email) {
+        email = email.trim().toLowerCase();
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { return; }
+        if (state.storeRecipients.extraEmails.indexOf(email) !== -1) { return; }
+        state.storeRecipients.extraEmails.push(email);
+        renderStoreExtraTags();
     }
 
     /**
@@ -698,6 +1178,7 @@
      * Close the email editor popup
      */
     function closeEditor() {
+        closeStoreEmailNotice();
         // Cleanup WordPress editor
         var editorId = 'gdc-email-ai-body';
         if (window.wp && wp.editor && wp.editor.remove) {
@@ -1047,20 +1528,198 @@
     /**
      * Save email
      */
-    function saveEmail() {
-        var data = {
-            section: state.currentEmail ? state.currentEmail.section : 'general',
-            subject: $subjectField.val(),
-            preheader: $preheaderField.val(),
-            html: $bodyField.val(),
-            // Pass back original ID if available to identify which row to update
-            _id: state.currentEmail ? state.currentEmail._id : null
+    /**
+     * Update a row in the proposals table (or add it if new).
+     * Called after a successful save or send so the table reflects the change
+     * without needing a full page reload.
+     */
+    function updateProposalsTable(email) {
+        var $tbody = $('.gdc-sub-tabpanel[data-panel="proposals"] table tbody');
+        if (!$tbody.length) return;
+
+        // Remove the "no emails yet" placeholder row if present
+        $tbody.find('td[colspan]').closest('tr').remove();
+
+        var statusLabel = email.status
+            ? (email.status.charAt(0).toUpperCase() + email.status.slice(1))
+            : 'Draft';
+
+        var emailData = {
+            _id:         email.id,
+            section:     'proposals',
+            label:       email.label      || 'Proposal Email',
+            trigger:     email.trigger    || 'Proposal Sent',
+            status:      email.status     || 'draft',
+            subject:     email.subject    || '',
+            preheader:   email.preheader  || '',
+            html:        email.html       || '',
+            description: ''
         };
 
-        // Trigger custom event for external listeners (Sales Team, etc)
+        var rowHtml = '<tr data-email-id="' + email.id + '">' +
+            '<td><strong>' + $('<span>').text(emailData.label).html() + '</strong></td>' +
+            '<td>' + $('<span>').text(emailData.trigger).html() + '</td>' +
+            '<td><span class="gdc-status-badge gdc-status-' + emailData.status + '">' + statusLabel + '</span></td>' +
+            '<td><button type="button" class="button button-small gdc-email-open-editor"' +
+            ' data-email-section="proposals"' +
+            ' data-edit-title="Edit Email"' +
+            ' data-email=\'' + JSON.stringify(emailData).replace(/'/g, '&#39;') + '\'>Edit</button></td>' +
+            '</tr>';
+
+        var $existing = $tbody.find('tr[data-email-id="' + email.id + '"]');
+        if ($existing.length) {
+            $existing.replaceWith(rowHtml);
+        } else {
+            $tbody.append(rowHtml);
+        }
+    }
+
+    function saveEmail() {
+        var section = state.currentEmail ? (state.currentEmail.section || 'general') : 'general';
+        var label = (section === 'proposals')
+            ? ($('#gdc-email-ai-campaign-name').val().trim() || 'Proposal Email')
+            : (state.currentEmail ? (state.currentEmail.label || '') : '');
+
+        var data = {
+            section:   section,
+            label:     label,
+            subject:   $subjectField.val(),
+            preheader: $preheaderField.val(),
+            html:      getEditorContent(),
+            _id:       state.currentEmail ? (state.currentEmail._id || null) : null
+        };
+
+        // Trigger custom event for external listeners
         $(document).trigger('gdc_email_ai_save', [data]);
 
-        // Also close the editor
+        // ── WooCommerce store emails — persist back to WC settings ──────────
+        if (section === 'store' && state.currentEmail && state.currentEmail.id) {
+            var $saveBtn = $('.gdc-email-ai-save');
+            $saveBtn.prop('disabled', true).text('Saving…');
+
+            var saveEndpoint = (config.wcEmailSaveEndpoint)
+                || ((config.root || '/wp-json/') + 'em/v1/wc-email-save');
+
+            $.ajax({
+                url: saveEndpoint,
+                method: 'POST',
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                },
+                data: JSON.stringify({
+                    email_id:           state.currentEmail.id,
+                    subject:            data.subject,
+                    heading:            data.preheader,
+                    additional_content: data.html
+                })
+            })
+            .done(function (response) {
+                if (response && response.success) {
+                    // Update the in-memory state so a re-open shows the saved values
+                    if (state.currentEmail) {
+                        state.currentEmail.subject   = data.subject;
+                        state.currentEmail.preheader = data.preheader;
+                        state.currentEmail.html      = data.html;
+                    }
+                    // Brief visual confirmation then close
+                    $saveBtn.text('Saved! ✓').addClass('gdc-save-btn--success');
+                    setTimeout(function () {
+                        $saveBtn.prop('disabled', false).text('Save').removeClass('gdc-save-btn--success');
+                        closeEditor();
+                    }, 900);
+                } else {
+                    $saveBtn.prop('disabled', false).text('Save');
+                    alert('Could not save email settings. Please try again.');
+                }
+            })
+            .fail(function (xhr) {
+                $saveBtn.prop('disabled', false).text('Save');
+                var msg = 'Failed to save email settings.';
+                if (xhr.responseJSON && xhr.responseJSON.message) { msg = xhr.responseJSON.message; }
+                alert(msg);
+            });
+            return; // closeEditor() called inside .done()
+        }
+
+        // ── BuddyPress / Community emails — persist to bp-email post ──────────
+        if (section === 'community' && state.currentEmail && state.currentEmail.id) {
+            var $saveBtn = $('.gdc-email-ai-save');
+            $saveBtn.prop('disabled', true).text('Saving…');
+
+            var saveEndpoint = (config.bpEmailSaveEndpoint)
+                || ((config.root || '/wp-json/') + 'em/v1/bp-email-save');
+
+            $.ajax({
+                url: saveEndpoint,
+                method: 'POST',
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                },
+                data: JSON.stringify({
+                    email_id:           state.currentEmail.id,
+                    subject:            data.subject,
+                    heading:            data.preheader,
+                    additional_content: data.html
+                })
+            })
+            .done(function (response) {
+                if (response && response.success) {
+                    if (state.currentEmail) {
+                        state.currentEmail.subject   = data.subject;
+                        state.currentEmail.preheader = data.preheader;
+                        state.currentEmail.html      = data.html;
+                    }
+                    $saveBtn.text('Saved! ✓').addClass('gdc-save-btn--success');
+                    setTimeout(function () {
+                        $saveBtn.prop('disabled', false).text('Save').removeClass('gdc-save-btn--success');
+                        closeEditor();
+                    }, 900);
+                } else {
+                    $saveBtn.prop('disabled', false).text('Save');
+                    alert('Could not save email. Please try again.');
+                }
+            })
+            .fail(function (xhr) {
+                $saveBtn.prop('disabled', false).text('Save');
+                var msg = 'Failed to save email.';
+                if (xhr.responseJSON && xhr.responseJSON.message) { msg = xhr.responseJSON.message; }
+                alert(msg);
+            });
+            return;
+        }
+
+        // Persist proposal emails to the server; update the table on success
+        if (data.section === 'proposals' && config.proposalEmailsEndpoint) {
+            var $saveBtn = $('.gdc-email-ai-save');
+            $saveBtn.prop('disabled', true).text('Saving…');
+            $.ajax({
+                url: config.proposalEmailsEndpoint,
+                method: 'POST',
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                },
+                data: JSON.stringify(data)
+            })
+            .done(function (response) {
+                if (response && response.success && response.email) {
+                    // Store the ID back so re-saves update the same record
+                    if (state.currentEmail) {
+                        state.currentEmail._id = response.email.id;
+                    }
+                    updateProposalsTable(response.email);
+                }
+                closeEditor();
+            })
+            .fail(function () {
+                $saveBtn.prop('disabled', false).text('Save Draft');
+                alert('Failed to save draft. Please try again.');
+            });
+            return; // closeEditor() is called inside .done()
+        }
+
         closeEditor();
     }
 
@@ -1237,6 +1896,8 @@
 
         $btn.prop('disabled', true).text(state.sendMode === 'schedule' ? 'Scheduling...' : 'Sending...');
 
+        var section = state.currentEmail ? (state.currentEmail.section || '') : '';
+
         $.ajax({
             url: config.sendEmailEndpoint || '/wp-json/gdc/v1/send-email',
             method: 'POST',
@@ -1246,8 +1907,36 @@
             },
             data: JSON.stringify(data)
         })
-            .done(function (response) {
+            .done(function () {
                 var msg = state.sendMode === 'schedule' ? 'Email scheduled successfully!' : 'Email sent successfully!';
+
+                // For proposal emails, record the sent/scheduled status in the proposals list
+                if (section === 'proposals' && config.proposalEmailsEndpoint) {
+                    var savedStatus = state.sendMode === 'schedule' ? 'scheduled' : 'sent';
+                    var saveData = {
+                        section:   'proposals',
+                        label:     state.currentEmail ? (state.currentEmail.label || 'Proposal Email') : 'Proposal Email',
+                        subject:   subject,
+                        preheader: preheader,
+                        html:      body,
+                        _id:       state.currentEmail ? (state.currentEmail._id || null) : null,
+                        status:    savedStatus
+                    };
+                    $.ajax({
+                        url: config.proposalEmailsEndpoint,
+                        method: 'POST',
+                        contentType: 'application/json',
+                        beforeSend: function (xhr) {
+                            xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                        },
+                        data: JSON.stringify(saveData)
+                    }).done(function (saveResponse) {
+                        if (saveResponse && saveResponse.success && saveResponse.email) {
+                            updateProposalsTable(saveResponse.email);
+                        }
+                    });
+                }
+
                 alert(msg);
                 closeEditor();
             })
@@ -2003,9 +2692,20 @@
 
     // Initialize on DOM ready
     $(document).ready(function () {
-        // Only init on email page
-        if ($('.gdc-email-page').length || $('.gdc-scheduled-panel').length) {
+        var _isEmailPage = ($('.gdc-email-page').length || $('.gdc-scheduled-panel').length || $('.gdc-store-settings').length || $('.gdc-network-settings').length);
+        if (_isEmailPage) {
             init();
+        }
+
+        // Auto-open the configure modal when launched from Leo wireframe completion card.
+        // PHP resolves the email data server-side and passes it via GDC_EMAIL_AI_CONFIG.configureEmail.
+        if (config.configureEmail && config.configureEmail.id) {
+            if (!$modal || !$modal.length) { init(); }
+            var $targetTab = $('[data-tab="system-emails"]');
+            if ($targetTab.length) { $targetTab.trigger('click'); }
+            setTimeout(function () {
+                openEditor(config.configureEmail);
+            }, 300);
         }
     });
 

@@ -83,6 +83,282 @@ function em_register_email_manager_routes()
             'permission_callback' => 'em_rest_permission_check',
         ),
     ));
+
+    // Proposal Emails
+    register_rest_route($namespace, '/proposal-emails', array(
+        array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => 'em_get_proposal_emails_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => 'em_save_proposal_email_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+
+    register_rest_route($namespace, '/proposal-emails/(?P<id>[a-zA-Z0-9_.+-]+)', array(
+        array(
+            'methods'             => WP_REST_Server::DELETABLE,
+            'callback'            => 'em_delete_proposal_email_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+
+    // Send test email
+    register_rest_route($namespace, '/send-test-email', array(
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => 'em_send_test_email_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+
+    // Send email
+    register_rest_route($namespace, '/send-email', array(
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => 'em_send_email_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+
+    // WooCommerce email enable/disable toggle
+    register_rest_route($namespace, '/wc-email-toggle', array(
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => 'em_wc_email_toggle_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+
+    // WooCommerce email save (subject, heading, full body override)
+    register_rest_route($namespace, '/wc-email-save', array(
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => 'em_wc_email_save_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+
+    // WooCommerce email full HTML render (for the editor preview)
+    register_rest_route($namespace, '/wc-email-render', array(
+        array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => 'em_wc_email_render_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+
+    // BuddyPress / Social Network email save (updates bp-email post)
+    register_rest_route($namespace, '/bp-email-save', array(
+        array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => 'em_bp_email_save_handler',
+            'permission_callback' => 'em_rest_permission_check',
+        ),
+    ));
+}
+
+// ─── Proposal Emails ─────────────────────────────────────────────────────────
+
+define('EM_PROPOSAL_EMAILS_OPTION', 'em_proposal_emails');
+
+function em_get_proposal_emails_handler(WP_REST_Request $request)
+{
+    $emails = get_option(EM_PROPOSAL_EMAILS_OPTION, array());
+    if (!is_array($emails)) $emails = array();
+    return array('success' => true, 'emails' => array_values($emails));
+}
+
+function em_save_proposal_email_handler(WP_REST_Request $request)
+{
+    $params = $request->get_json_params();
+    $emails = get_option(EM_PROPOSAL_EMAILS_OPTION, array());
+    if (!is_array($emails)) $emails = array();
+
+    $id  = (isset($params['_id']) && !empty($params['_id'])) ? sanitize_text_field($params['_id']) : uniqid('proposal_', true);
+    $now = current_time('mysql');
+
+    $allowed_statuses = array('draft', 'sent', 'scheduled');
+    $status = (isset($params['status']) && in_array($params['status'], $allowed_statuses, true))
+        ? $params['status']
+        : 'draft';
+
+    $email = array(
+        'id'         => $id,
+        'label'      => isset($params['label'])     ? sanitize_text_field($params['label'])     : 'Proposal Email',
+        'subject'    => isset($params['subject'])   ? sanitize_text_field($params['subject'])   : '',
+        'preheader'  => isset($params['preheader']) ? sanitize_text_field($params['preheader']) : '',
+        'html'       => isset($params['html'])      ? wp_kses_post($params['html'])             : '',
+        'status'     => $status,
+        'trigger'    => 'Proposal Sent',
+        'section'    => 'proposals',
+        'updated_at' => $now,
+        'created_at' => $now,
+    );
+
+    $found = false;
+    foreach ($emails as &$existing) {
+        if ($existing['id'] === $id) {
+            $email['created_at'] = $existing['created_at'];
+            $existing = $email;
+            $found    = true;
+            break;
+        }
+    }
+    unset($existing);
+
+    if (!$found) {
+        $emails[] = $email;
+    }
+
+    update_option(EM_PROPOSAL_EMAILS_OPTION, array_values($emails));
+    return array('success' => true, 'email' => $email);
+}
+
+function em_delete_proposal_email_handler(WP_REST_Request $request)
+{
+    $id     = sanitize_text_field($request['id']);
+    $emails = get_option(EM_PROPOSAL_EMAILS_OPTION, array());
+    if (!is_array($emails)) $emails = array();
+
+    $emails = array_values(array_filter($emails, function ($e) use ($id) {
+        return $e['id'] !== $id;
+    }));
+
+    update_option(EM_PROPOSAL_EMAILS_OPTION, $emails);
+    return array('success' => true);
+}
+
+// ─── Send Test Email ──────────────────────────────────────────────────────────
+
+function em_send_test_email_handler(WP_REST_Request $request)
+{
+    $params    = $request->get_json_params();
+    $to        = isset($params['to'])        ? sanitize_email($params['to'])            : '';
+    $subject   = isset($params['subject'])   ? sanitize_text_field($params['subject'])  : '';
+    $body      = isset($params['body'])      ? wp_kses_post($params['body'])            : '';
+    $preheader = isset($params['preheader']) ? sanitize_text_field($params['preheader']): '';
+
+    if (!is_email($to)) {
+        return new WP_Error('invalid_email', 'Invalid email address', array('status' => 400));
+    }
+    if (empty($subject) && empty($body)) {
+        return new WP_Error('missing_content', 'Subject and body are required', array('status' => 400));
+    }
+
+    if (!empty($preheader) && !empty($body)) {
+        $body = '<div style="display:none;max-height:0;overflow:hidden;">' . esc_html($preheader) . '</div>' . $body;
+    }
+
+    $headers = array('Content-Type: text/html; charset=UTF-8');
+    $result  = wp_mail($to, $subject ?: '(Test Email)', $body, $headers);
+
+    if ($result) {
+        return array('success' => true, 'message' => 'Test email sent successfully.');
+    }
+    return new WP_Error('send_failed', 'Failed to send test email. Check your SMTP settings.', array('status' => 500));
+}
+
+// ─── Send Email ───────────────────────────────────────────────────────────────
+
+function em_send_email_handler(WP_REST_Request $request)
+{
+    $params     = $request->get_json_params();
+    $recipients = (isset($params['recipients']) && is_array($params['recipients'])) ? $params['recipients'] : array();
+    $subject    = isset($params['subject'])   ? sanitize_text_field($params['subject'])  : '';
+    $body       = isset($params['body'])      ? wp_kses_post($params['body'])            : '';
+    $preheader  = isset($params['preheader']) ? sanitize_text_field($params['preheader']): '';
+    $mode       = isset($params['mode'])      ? sanitize_text_field($params['mode'])     : 'immediate';
+
+    if (empty($recipients)) {
+        return new WP_Error('missing_recipients', 'At least one recipient is required', array('status' => 400));
+    }
+    if (empty($subject) && empty($body)) {
+        return new WP_Error('missing_content', 'Subject and body are required', array('status' => 400));
+    }
+
+    $valid_recipients = array_values(array_filter(array_map('sanitize_email', $recipients), 'is_email'));
+    if (empty($valid_recipients)) {
+        return new WP_Error('invalid_recipients', 'No valid email addresses found', array('status' => 400));
+    }
+
+    if ($mode === 'schedule' && !empty($params['schedule_datetime'])) {
+        $timestamp = strtotime(sanitize_text_field($params['schedule_datetime']));
+        if (!$timestamp || $timestamp <= time()) {
+            return new WP_Error('invalid_schedule', 'Schedule time must be in the future', array('status' => 400));
+        }
+        wp_schedule_single_event($timestamp, 'em_send_scheduled_email', array(
+            array(
+                'recipients' => $valid_recipients,
+                'subject'    => $subject,
+                'body'       => $body,
+                'preheader'  => $preheader,
+            )
+        ));
+        return array('success' => true, 'message' => 'Email scheduled successfully.');
+    }
+
+    if (!empty($preheader) && !empty($body)) {
+        $body = '<div style="display:none;max-height:0;overflow:hidden;">' . esc_html($preheader) . '</div>' . $body;
+    }
+
+    $headers = array('Content-Type: text/html; charset=UTF-8');
+    $sent    = 0;
+    $errors  = array();
+    foreach ($valid_recipients as $email) {
+        if (wp_mail($email, $subject, $body, $headers)) {
+            $sent++;
+        } else {
+            $errors[] = $email;
+        }
+    }
+
+    if ($sent === 0) {
+        return new WP_Error('send_failed', 'Failed to send email. Check your SMTP settings.', array('status' => 500));
+    }
+    return array('success' => true, 'message' => sprintf('Email sent to %d recipient(s).', $sent), 'sent' => $sent, 'errors' => $errors);
+}
+
+add_action('em_send_scheduled_email', function ($data) {
+    $headers = array('Content-Type: text/html; charset=UTF-8');
+    $body    = $data['body'];
+    if (!empty($data['preheader'])) {
+        $body = '<div style="display:none;max-height:0;overflow:hidden;">' . esc_html($data['preheader']) . '</div>' . $body;
+    }
+    foreach ($data['recipients'] as $email) {
+        wp_mail($email, $data['subject'], $body, $headers);
+    }
+});
+
+// ─── WC Email Toggle ──────────────────────────────────────────────────────────
+
+function em_wc_email_toggle_handler(WP_REST_Request $request)
+{
+    $body    = json_decode($request->get_body(), true);
+    $id      = isset($body['email_id']) ? sanitize_key($body['email_id']) : '';
+    $enabled = isset($body['enabled']) ? (bool) $body['enabled'] : true;
+
+    if (empty($id)) {
+        return new WP_Error('missing_id', 'email_id is required', array('status' => 400));
+    }
+
+    // WooCommerce stores email settings as woocommerce_{id}_settings option
+    $option_key = 'woocommerce_' . $id . '_settings';
+    $settings   = get_option($option_key, array());
+    if (!is_array($settings)) {
+        $settings = array();
+    }
+    $settings['enabled'] = $enabled ? 'yes' : 'no';
+    update_option($option_key, $settings);
+
+    return array(
+        'success'  => true,
+        'email_id' => $id,
+        'enabled'  => $enabled,
+    );
 }
 
 function em_rest_permission_check()
@@ -90,7 +366,53 @@ function em_rest_permission_check()
     return current_user_can('manage_options');
 }
 
+// ─── WC Email Save ────────────────────────────────────────────────────────────
+
+/**
+ * Save WooCommerce email settings:
+ *   - subject / heading  → woocommerce_{id}_settings (used by WC natively)
+ *   - body (full HTML)   → em_wc_email_override_{id}  (applied via filter at send-time)
+ */
+function em_wc_email_save_handler(WP_REST_Request $request)
+{
+    $body    = json_decode($request->get_body(), true);
+    $id      = isset($body['email_id'])           ? sanitize_key($body['email_id'])           : '';
+    $subject = isset($body['subject'])            ? sanitize_text_field($body['subject'])      : null;
+    $heading = isset($body['heading'])            ? sanitize_text_field($body['heading'])      : null;
+    // Use permissive sanitizer — wp_kses_post() strips <html>/<head>/<body>/<style>/<meta>
+    // which are all required for full email templates. Permission is already gated to manage_options.
+    $html    = isset($body['additional_content']) ? em_sanitize_email_html($body['additional_content']) : null;
+
+    if (empty($id)) {
+        return new WP_Error('missing_id', 'email_id is required', array('status' => 400));
+    }
+
+    // Persist subject & heading to WooCommerce native settings option
+    $wc_key  = 'woocommerce_' . $id . '_settings';
+    $wc_opts = get_option($wc_key, array());
+    if (!is_array($wc_opts)) $wc_opts = array();
+    if ($subject !== null) $wc_opts['subject'] = $subject;
+    if ($heading !== null) $wc_opts['heading']  = $heading;
+    update_option($wc_key, $wc_opts);
+
+    // Persist full body HTML to our override option
+    if ($html !== null) {
+        if ($html === '') {
+            // Empty body = delete override so WC default is used
+            delete_option(EM_WC_OVERRIDE_PREFIX . $id);
+        } else {
+            update_option(EM_WC_OVERRIDE_PREFIX . $id, $html);
+        }
+    }
+
+    return array(
+        'success'  => true,
+        'email_id' => $id,
+    );
+}
+
 // Handler Functions
+
 
 function em_get_lists_handler(WP_REST_Request $request)
 {

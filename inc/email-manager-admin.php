@@ -8,6 +8,123 @@
 
 defined('ABSPATH') || exit;
 
+/**
+ * Build a representative plain-text email body for a WooCommerce email object.
+ * Shows the template structure with available {tokens} so the AI editor has meaningful context.
+ */
+if (!function_exists('em_get_wc_email_body_template')) {
+    function em_get_wc_email_body_template($email)
+    {
+        $id = $email->id;
+        $templates = array(
+            'new_order'                  => "A new order has been placed.\n\nOrder #{order_number} from {customer_name} — {order_date}\n\n[Order Details Table]\n\n[Customer Billing & Shipping Details]\n\n",
+            'cancelled_order'            => "Order #{order_number} has been cancelled.\n\nOrder from {customer_name} — {order_date}\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'failed_order'               => "Payment for order #{order_number} from {customer_name} has failed.\n\nThe order was as follows:\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_on_hold_order'     => "Hi {customer_first_name},\n\nThank you for your order. Your order is on-hold until we confirm payment has been received. In the meantime, here is a reminder of what you ordered:\n\nOrder #{order_number} — {order_date}\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_processing_order'  => "Hi {customer_first_name},\n\nJust to let you know — we've received your order #{order_number}, and it is now being processed:\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_completed_order'   => "Hi {customer_first_name},\n\nYour {site_title} order has been completed. Your order details are shown below for your reference:\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_refunded_order'    => "Hi {customer_first_name},\n\nYour order #{order_number} from {site_title} has been refunded. There are more details below for your reference:\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_cancelled_order'   => "Hi {customer_first_name},\n\nYour order #{order_number} from {site_title} has been cancelled. Your order details are shown below for your reference:\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_failed_order'      => "Hi {customer_first_name},\n\nUnfortunately, we couldn't complete your order due to an issue with your payment method.\n\nIf you'd like to continue with your purchase, please return to {site_title} and try a different payment method.\n\nYour order details are as follows:\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_note'              => "Hi {customer_first_name},\n\nThe following note has been added to your order #{order_number}:\n\n{customer_note}\n\n[Order Details Table]\n\n",
+            'customer_invoice'           => "Hi {customer_first_name},\n\nAn invoice has been created for order #{order_number} from {order_date}. Payment is required.\n\n[Order Details Table]\n\n[Customer Details]\n\n",
+            'customer_new_account'       => "Hi {customer_name},\n\nThanks for creating an account on {site_title}. Your username is {customer_username}.\n\nYou can access your account area to view orders, change your password, and more at:\n{account_url}\n\n",
+            'customer_reset_password'    => "Hi {customer_username},\n\nSomeone has requested a new password for the following account on {site_title}.\n\nIf you didn't make this request, just ignore this email.\n\nTo reset your password, visit the following address:\n{password_reset_link}\n\n",
+        );
+        $body = isset($templates[$id]) ? $templates[$id] : "[Email body for '{$id}']\n\n";
+        $additional = $email->get_option('additional_content', '');
+        if (empty($additional) && method_exists($email, 'get_default_additional_content')) {
+            try { $additional = $email->get_default_additional_content(); } catch (Exception $e) { $additional = ''; }
+        }
+        if (!empty($additional)) {
+            $body .= $additional . "\n\n";
+        }
+        return $body;
+    }
+}
+
+/**
+ * Return an array of available token strings for a WooCommerce email object.
+ * Merges the email's own placeholders with global WC email tokens.
+ */
+if (!function_exists('em_get_wc_email_tokens')) {
+    function em_get_wc_email_tokens($email)
+    {
+        $global_tokens = array(
+            '{site_title}', '{site_address}', '{site_url}', '{store_email}',
+            '{admin_email}', '{order_date}', '{order_number}',
+        );
+        $email_tokens = method_exists($email, 'get_placeholders') ? array_keys($email->get_placeholders()) : array();
+        // Merge, deduplicate, and filter out empty
+        $all = array_unique(array_merge($email_tokens, $global_tokens));
+        return array_values(array_filter($all));
+    }
+}
+
+/**
+ * Render a single system email table row with a popup Configure button.
+ */
+if (!function_exists('em_render_system_email_row')) {
+    function em_render_system_email_row($title, $description, $recipient, $enabled, $email_data_arr)
+    {
+        $email_json = esc_attr(wp_json_encode($email_data_arr));
+        $email_b64 = base64_encode(wp_json_encode($email_data_arr));
+        ?>
+        <tr>
+            <td><strong><?php echo esc_html($title); ?></strong></td>
+            <td><?php echo esc_html($description); ?></td>
+            <td><?php echo esc_html($recipient); ?></td>
+            <td>
+                <?php if ($enabled): ?>
+                    <span style="color:#00a32a;font-weight:600;"><?php esc_html_e('Enabled', 'email-manager'); ?></span>
+                <?php else: ?>
+                    <span style="color:#d63638;font-weight:600;"><?php esc_html_e('Disabled', 'email-manager'); ?></span>
+                <?php endif; ?>
+            </td>
+            <td>
+                <button type="button" class="button button-small gdc-email-open-editor"
+                    data-email="<?php echo $email_json; ?>"
+                    data-email-b64="<?php echo $email_b64; ?>">
+                    <?php esc_html_e('Configure', 'email-manager'); ?>
+                </button>
+            </td>
+        </tr>
+        <?php
+    }
+}
+
+/**
+ * Render a titled system email group table.
+ */
+if (!function_exists('em_system_email_table')) {
+    function em_system_email_table($title, $rows_callback)
+    {
+        ?>
+        <div class="gdc-email-panel" style="margin-bottom:24px;">
+            <div class="gdc-email-panel__header">
+                <h3><?php echo esc_html($title); ?></h3>
+            </div>
+            <div class="gdc-table-wrap">
+                <table class="widefat striped">
+                    <thead>
+                        <tr>
+                            <th><?php esc_html_e('Email', 'email-manager'); ?></th>
+                            <th><?php esc_html_e('Description', 'email-manager'); ?></th>
+                            <th><?php esc_html_e('Recipient(s)', 'email-manager'); ?></th>
+                            <th><?php esc_html_e('Status', 'email-manager'); ?></th>
+                            <th><?php esc_html_e('Actions', 'email-manager'); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php $rows_callback(); ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php
+    }
+}
+
 function em_render_email_manager_page()
 {
     // Check permissions
@@ -30,14 +147,92 @@ function em_render_email_manager_page()
         'sending-settings' => __('Sending Settings', 'email-manager'),
     );
 
-    // Get Mock Data or Actual Data
-    // For System Emails, we need to fetch them or define them.
-    // In GenD Core, they came from global variables or helper functions.
-    // We will define empty arrays or mock data for now to avoid errors, 
-    // as fetching logic might be complex dependency in other files.
+    // WordPress core system emails (static – these are built into WP core)
+    $gdc_wp_core_emails = array(
+        array(
+            'id'          => 'new_user_registration',
+            'title'       => __('New User Registration', 'email-manager'),
+            'description' => __('Sent to the site admin when a new user registers.', 'email-manager'),
+            'recipient'   => __('Admin', 'email-manager'),
+            'section'     => 'store',
+            'subject'     => sprintf('[%s] New User Registration', get_bloginfo('name')),
+        ),
+        array(
+            'id'          => 'new_user_welcome',
+            'title'       => __('New User Welcome', 'email-manager'),
+            'description' => __('Sent to the new user with their login credentials.', 'email-manager'),
+            'recipient'   => __('New User', 'email-manager'),
+            'section'     => 'store',
+            'subject'     => sprintf('[%s] Your username and password', get_bloginfo('name')),
+        ),
+        array(
+            'id'          => 'password_reset',
+            'title'       => __('Password Reset', 'email-manager'),
+            'description' => __('Sent to users who request a password reset link.', 'email-manager'),
+            'recipient'   => __('User', 'email-manager'),
+            'section'     => 'store',
+            'subject'     => sprintf('[%s] Password Reset', get_bloginfo('name')),
+        ),
+        array(
+            'id'          => 'email_change_confirmation',
+            'title'       => __('Email Change Confirmation', 'email-manager'),
+            'description' => __('Sent to users when they change their email address.', 'email-manager'),
+            'recipient'   => __('User', 'email-manager'),
+            'section'     => 'store',
+            'subject'     => sprintf('[%s] Email Change Request', get_bloginfo('name')),
+        ),
+    );
+
+    // WooCommerce store emails
     $gdc_store_emails = array();
-    $gdc_community_emails = array();
-    $gdc_reward_emails = array();
+    try {
+        if (class_exists('WC_Emails')) {
+            $gdc_store_emails = WC_Emails::instance()->get_emails();
+        } elseif (function_exists('WC') && WC()->mailer()) {
+            $gdc_store_emails = WC()->mailer()->get_emails();
+        }
+    } catch (Exception $e) {
+        $gdc_store_emails = array();
+    }
+
+    // Social network / BuddyPress emails — query terms then posts to get the real situation name
+    $gdc_bp_emails = array();
+    if (post_type_exists('bp-email') && taxonomy_exists('bp-email-type')) {
+        $bp_terms = get_terms(array(
+            'taxonomy'   => 'bp-email-type',
+            'hide_empty' => false,
+        ));
+        
+        if (!is_wp_error($bp_terms)) {
+            foreach ($bp_terms as $term) {
+                $bp_posts = get_posts(array(
+                    'post_type'   => 'bp-email',
+                    'post_status' => 'publish',
+                    'numberposts' => 1,
+                    'tax_query'   => array(
+                        array(
+                            'taxonomy' => 'bp-email-type',
+                            'field'    => 'term_id',
+                            'terms'    => $term->term_id,
+                        ),
+                    ),
+                ));
+                
+                if (!empty($bp_posts)) {
+                    $post = $bp_posts[0];
+                    $gdc_bp_emails[] = array(
+                        'id'          => $post->post_name,
+                        'title'       => $term->name,
+                        'description' => trim($post->post_title),
+                        'recipient'   => __('Member', 'email-manager'),
+                        'section'     => 'community',
+                        'subject'     => trim($post->post_title),
+                        'html'        => $post->post_content,
+                    );
+                }
+            }
+        }
+    }
 
     // Placeholder URL for edit links
     $gdc_nurture_embed_url = admin_url('admin.php?page=email-manager&view=nurture'); // Example
@@ -379,26 +574,30 @@ function em_render_email_manager_page()
                     <!-- Proposals Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="proposals" hidden>
                         <?php
-                        $gdc_proposal_rows = array();
-                        $gdc_proposal_rows[] = array(
-                            'type' => __('Proposal Email', 'email-manager'),
-                            'type_slug' => 'proposals',
-                            'trigger' => __('Proposal Sent', 'email-manager'),
-                            'status' => __('Active', 'email-manager'),
-                            'enabled' => true,
-                            'sequence' => 1,
-                            'edit_url' => $gdc_nurture_embed_url, // For future standalone edit if needed
-                            'edit_title' => __('Edit Email', 'email-manager'),
-                            'email_data' => array(
-                                'section' => 'proposals',
-                                'label' => __('Proposal Sent Notification', 'email-manager'),
-                                'trigger' => __('Proposal Sent', 'email-manager'),
-                                'status' => 'draft',
-                                'description' => __('Sent when a new proposal is created for a client.', 'email-manager'),
-                                'subject' => __('Your new proposal from GenD Society', 'email-manager'),
-                                'html' => ''
-                            ),
-                        );
+                        $gdc_proposal_rows    = array();
+                        $saved_proposal_emails = get_option('em_proposal_emails', array());
+                        if (is_array($saved_proposal_emails)) {
+                            foreach ($saved_proposal_emails as $saved_email) {
+                                $gdc_proposal_rows[] = array(
+                                    'type'       => __('Proposal Email', 'email-manager'),
+                                    'type_slug'  => 'proposals',
+                                    'trigger'    => isset($saved_email['trigger']) ? $saved_email['trigger'] : __('Proposal Sent', 'email-manager'),
+                                    'status'     => isset($saved_email['status']) ? ucfirst($saved_email['status']) : __('Draft', 'email-manager'),
+                                    'edit_title' => __('Edit Email', 'email-manager'),
+                                    'email_data' => array(
+                                        '_id'        => $saved_email['id'],
+                                        'section'    => 'proposals',
+                                        'label'      => isset($saved_email['label'])     ? $saved_email['label']     : __('Proposal Email', 'email-manager'),
+                                        'trigger'    => isset($saved_email['trigger'])   ? $saved_email['trigger']   : __('Proposal Sent', 'email-manager'),
+                                        'status'     => isset($saved_email['status'])    ? $saved_email['status']    : 'draft',
+                                        'subject'    => isset($saved_email['subject'])   ? $saved_email['subject']   : '',
+                                        'preheader'  => isset($saved_email['preheader']) ? $saved_email['preheader'] : '',
+                                        'html'       => isset($saved_email['html'])      ? $saved_email['html']      : '',
+                                        'description'=> '',
+                                    ),
+                                );
+                            }
+                        }
                         ?>
                         <div class="gdc-email-panel">
                             <div class="gdc-email-panel__header">
@@ -434,31 +633,37 @@ function em_render_email_manager_page()
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <?php foreach ($gdc_proposal_rows as $row): ?>
+                                        <?php if (empty($gdc_proposal_rows)): ?>
                                             <tr>
-                                                <td><strong>
-                                                        <?php echo esc_html($row['email_data']['label']); ?>
-                                                    </strong></td>
-                                                <td>
-                                                    <?php echo esc_html($row['trigger']); ?>
-                                                </td>
-                                                <td>
-                                                    <span
-                                                        class="gdc-status-badge gdc-status-<?php echo esc_attr(strtolower($row['status'])); ?>">
-                                                        <?php echo esc_html($row['status']); ?>
-                                                    </span>
-                                                </td>
-                                                <td>
-                                                    <button type="button" class="button button-small gdc-email-open-editor"
-                                                        data-email-section="<?php echo esc_attr($row['type_slug']); ?>"
-                                                        data-edit-url="<?php echo esc_url($row['edit_url']); ?>"
-                                                        data-edit-title="<?php echo esc_attr($row['edit_title']); ?>"
-                                                        data-email='<?php echo json_encode($row['email_data']); ?>'>
-                                                        <?php esc_html_e('Edit', 'email-manager'); ?>
-                                                    </button>
+                                                <td colspan="4" style="text-align:center; color:#888; padding:20px;">
+                                                    <?php esc_html_e('No proposal emails yet. Click "Add New Email" to create one.', 'email-manager'); ?>
                                                 </td>
                                             </tr>
-                                        <?php endforeach; ?>
+                                        <?php else: ?>
+                                            <?php foreach ($gdc_proposal_rows as $row): ?>
+                                                <tr data-email-id="<?php echo esc_attr($row['email_data']['_id']); ?>">
+                                                    <td><strong>
+                                                            <?php echo esc_html($row['email_data']['label']); ?>
+                                                        </strong></td>
+                                                    <td>
+                                                        <?php echo esc_html($row['trigger']); ?>
+                                                    </td>
+                                                    <td>
+                                                        <span class="gdc-status-badge gdc-status-<?php echo esc_attr(strtolower($row['status'])); ?>">
+                                                            <?php echo esc_html($row['status']); ?>
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <button type="button" class="button button-small gdc-email-open-editor"
+                                                            data-email-section="<?php echo esc_attr($row['type_slug']); ?>"
+                                                            data-edit-title="<?php echo esc_attr($row['edit_title']); ?>"
+                                                            data-email='<?php echo esc_attr(wp_json_encode($row['email_data'])); ?>'>
+                                                            <?php esc_html_e('Edit', 'email-manager'); ?>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
                                     </tbody>
                                 </table>
                             </div>
@@ -704,7 +909,100 @@ function em_render_email_manager_page()
 
                     <!-- System Emails Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="system-emails" hidden>
-                        <p><?php esc_html_e('No system emails found.', 'email-manager'); ?></p>
+
+
+                        <?php // --- WordPress Core Emails --- ?>
+                        <?php em_system_email_table(__('Login & Account Emails', 'email-manager'), function() use ($gdc_wp_core_emails) {
+                            foreach ($gdc_wp_core_emails as $e) {
+                                $override_key = 'em_wc_email_override_' . $e['id'];
+                                $body = get_option($override_key, '');
+                                em_render_system_email_row($e['title'], $e['description'], $e['recipient'], true, array(
+                                    'section'     => 'store', // treated same as WC for render/save flow
+                                    'id'          => $e['id'],
+                                    'label'       => $e['title'],
+                                    'subject'     => $e['subject'],
+                                    'preheader'   => $e['title'],
+                                    'description' => $e['description'],
+                                    'html'        => $body,
+                                    'is_enabled'  => true,
+                                    'tokens'      => function_exists('em_wp_account_tokens') ? em_wp_account_tokens($e['id']) : array(),
+                                ));
+                            }
+                        }); ?>
+
+                        <?php // --- WooCommerce Store Emails --- ?>
+                        <?php if (!empty($gdc_store_emails)): ?>
+                            <?php em_system_email_table(__('Store Emails', 'email-manager'), function() use ($gdc_store_emails) {
+                                foreach ($gdc_store_emails as $email) {
+                                    $subject = $email->get_option('subject', '');
+                                    if (empty($subject) && method_exists($email, 'get_default_subject')) {
+                                        try { $subject = $email->get_default_subject(); } catch (Exception $e) { $subject = ''; }
+                                    }
+                                    $heading = $email->get_option('heading', '');
+                                    if (empty($heading) && method_exists($email, 'get_default_heading')) {
+                                        try { $heading = $email->get_default_heading(); } catch (Exception $e) { $heading = ''; }
+                                    }
+                                    // Use saved override HTML if it exists; otherwise send empty so JS fetches the render
+                                    $override_key = defined('EM_WC_OVERRIDE_PREFIX') ? EM_WC_OVERRIDE_PREFIX . $email->id : 'em_wc_email_override_' . $email->id;
+                                    $body = get_option($override_key, '');
+                                    if ($body === '' && method_exists($email, 'get_default_additional_content')) {
+                                        // Provide default additional_content as a hint but JS will fetch full render
+                                        try { $body = $email->get_default_additional_content(); } catch (Exception $e) { $body = ''; }
+                                    }
+                                    $em_is_customer_email    = (strpos($email->id, 'customer_') === 0);
+                                    $em_raw_recip            = $email->get_recipient();
+                                    $em_display_recip        = $em_is_customer_email
+                                        ? __('Customer', 'email-manager')
+                                        : ($em_raw_recip ?: get_option('admin_email'));
+                                    em_render_system_email_row(
+                                        $email->get_title(),
+                                        $email->get_description(),
+                                        $em_display_recip,
+                                        $email->is_enabled(),
+                                        array(
+                                            'section'          => 'store',
+                                            'id'               => $email->id,
+                                            'label'            => $email->get_title(),
+                                            'subject'          => $subject,
+                                            'preheader'        => $heading,
+                                            'html'             => $body,
+                                            'send_to_customer' => $em_is_customer_email,
+                                            'wc_recipient'     => $em_display_recip,
+                                            'is_enabled'       => $email->is_enabled(),
+                                            'tokens'           => function_exists('em_wc_all_tokens') ? em_wc_all_tokens() : (function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array()),
+                                        )
+                                    );
+                                }
+                            }); ?>
+                        <?php endif; ?>
+
+                        <?php // --- Social Network / BuddyPress Emails --- ?>
+                        <?php if (!empty($gdc_bp_emails)): ?>
+                            <?php em_system_email_table(__('Social Network Emails', 'email-manager'), function() use ($gdc_bp_emails) {
+                                foreach ($gdc_bp_emails as $e) {
+                                    em_render_system_email_row($e['title'], $e['description'], $e['recipient'], true, array(
+                                        'section'     => 'community',
+                                        'id'          => $e['id'],
+                                        'label'       => $e['title'],
+                                        'subject'     => $e['subject'],
+                                        'preheader'   => $e['subject'],
+                                        'description' => $e['description'],
+                                        'html'        => isset($e['html']) ? $e['html'] : '',
+                                        'is_enabled'  => true,
+                                        'tokens'      => array(
+                                            '{{sender.name}}', '{{sender.username}}',
+                                            '{{recipient.name}}', '{{recipient.username}}',
+                                            '{{site.name}}', '{{site.url}}',
+                                            '{{group.name}}', '{{group.url}}',
+                                            '{{activity.content}}', '{{comment.content}}',
+                                            '{{thread.subject}}', '{{message.content}}',
+                                            '{{friendship.initiator.name}}',
+                                        ),
+                                    ));
+                                }
+                            }); ?>
+                        <?php endif; ?>
+
                     </section>
 
                     <!-- App Template Tab -->

@@ -14,10 +14,22 @@ class Chat_Forms_Public
         $recaptcha_site_key = $smtp_settings['recaptcha_site_key'] ?? '';
 
         wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.3', false);
+        $current_user_data = array();
+        if (is_user_logged_in()) {
+            $current_user = wp_get_current_user();
+            $current_user_data = array(
+                'user_id'      => $current_user->ID,
+                'username'     => $current_user->user_login,
+                'display_name' => $current_user->display_name,
+            );
+        }
+
         wp_localize_script('chat_forms_frontend_js', 'chatFormsPublic', array(
-            'ajaxUrl' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('chat_forms_submit_nonce'),
-            'recaptchaSiteKey' => $recaptcha_site_key
+            'ajaxUrl'         => admin_url('admin-ajax.php'),
+            'nonce'           => wp_create_nonce('chat_forms_submit_nonce'),
+            'recaptchaSiteKey' => $recaptcha_site_key,
+            'isLoggedIn'      => is_user_logged_in(),
+            'currentUser'     => $current_user_data,
         ));
 
         if ($recaptcha_site_key) {

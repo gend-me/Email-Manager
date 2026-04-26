@@ -10,6 +10,40 @@ class Chat_Forms_Ajax
 
         add_action('wp_ajax_chat_forms_submit_entry', array($this, 'submit_entry'));
         add_action('wp_ajax_nopriv_chat_forms_submit_entry', array($this, 'submit_entry'));
+
+        add_action('wp_ajax_nopriv_chat_forms_account_login', array($this, 'account_login'));
+        add_action('wp_ajax_chat_forms_account_login', array($this, 'account_login'));
+    }
+
+    /**
+     * Handle login AJAX request from account_registration question type.
+     */
+    public function account_login()
+    {
+        $username = isset($_POST['username']) ? sanitize_text_field($_POST['username']) : '';
+        $password = isset($_POST['password']) ? $_POST['password'] : '';
+
+        if (empty($username) || empty($password)) {
+            wp_send_json_error('Please enter your username and password.');
+        }
+
+        $creds = array(
+            'user_login'    => $username,
+            'user_password' => $password,
+            'remember'      => true,
+        );
+
+        $user = wp_signon($creds, is_ssl());
+
+        if (is_wp_error($user)) {
+            wp_send_json_error('Invalid username or password. Please try again.');
+        }
+
+        wp_send_json_success(array(
+            'user_id'      => $user->ID,
+            'username'     => $user->user_login,
+            'display_name' => $user->display_name,
+        ));
     }
 
     public function get_questions()
@@ -139,6 +173,66 @@ class Chat_Forms_Ajax
 
         $form_title = get_the_title($form_id);
 
+        // Handle account_registration question type — process new user registration before saving submission
+        $registration_key  = null;
+        $registration_data = null;
+
+        foreach ($answers as $key => $raw_answer) {
+            $answer_str = is_array($raw_answer) ? (isset($raw_answer['answer']) ? $raw_answer['answer'] : '') : (string) $raw_answer;
+            $decoded    = json_decode($answer_str, true);
+
+            if (is_array($decoded) && isset($decoded['action']) && $decoded['action'] === 'register') {
+                $registration_key  = $key;
+                $registration_data = $decoded;
+                break;
+            }
+        }
+
+        if ($registration_data) {
+            $reg_username = sanitize_user($registration_data['username'] ?? '');
+            $reg_email    = sanitize_email($registration_data['email'] ?? '');
+            $reg_password = $registration_data['password'] ?? '';
+
+            if (empty($reg_username) || empty($reg_email) || empty($reg_password)) {
+                wp_send_json_error('Registration data is incomplete.');
+            }
+
+            if (username_exists($reg_username)) {
+                wp_send_json_error('That username is already taken. Please choose a different one.');
+            }
+
+            if (email_exists($reg_email)) {
+                wp_send_json_error('An account with that email address already exists.');
+            }
+
+            $user_id = wp_create_user($reg_username, $reg_password, $reg_email);
+
+            if (is_wp_error($user_id)) {
+                wp_send_json_error($user_id->get_error_message());
+            }
+
+            // Send new-user notifications (admin + welcome email to user)
+            wp_new_user_notification($user_id, null, 'both');
+
+            // Log the new user in for the current request
+            wp_set_current_user($user_id);
+            wp_set_auth_cookie($user_id, true);
+
+            // Replace the answer with sanitized data — strip the password from stored submissions
+            $safe_reg_answer = json_encode(array(
+                'action'   => 'registered',
+                'user_id'  => $user_id,
+                'username' => $reg_username,
+                'email'    => $reg_email,
+            ));
+
+            if (is_array($answers[$registration_key])) {
+                $answers[$registration_key]['answer'] = $safe_reg_answer;
+            } else {
+                $answers[$registration_key] = $safe_reg_answer;
+            }
+        }
+
         // Create Submission
         $post_data = array(
             'post_title' => 'Submission for ' . $form_title . ' - ' . date('Y-m-d H:i:s'),
@@ -157,6 +251,15 @@ class Chat_Forms_Ajax
 
         // Trigger Email Notifications
         $this->send_notifications($form_id, $answers, $submission_id);
+
+        /**
+         * Action fired after a chat form is successfully submitted.
+         * 
+         * @param int   $form_id       The ID of the form.
+         * @param array $answers       The array of submitted answers.
+         * @param int   $submission_id The ID of the created submission post.
+         */
+        do_action('chat_form_submission', $form_id, $answers, $submission_id);
 
         $thank_you_message = get_post_meta($form_id, '_chat_form_thank_you_message', true);
         $redirect_url = get_post_meta($form_id, '_chat_form_redirect_url', true);

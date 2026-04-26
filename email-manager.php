@@ -34,6 +34,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/email-rest-handlers.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-logs.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-smtp.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
+require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-manager-admin.php';
 require_once EMAIL_MANAGER_PATH . 'inc/forms/class-chat-forms-core.php';
 
@@ -65,11 +66,94 @@ function em_admin_init()
     }
 }
 
+/**
+ * Resolve full email data array for a given email ID.
+ * Searches WP core emails, WooCommerce emails, and BuddyPress emails.
+ * Returns null if not found.
+ */
+function em_resolve_email_data_by_id( $id ) {
+    if ( empty( $id ) ) return null;
+
+    // 1. WordPress core / account emails
+    $core_ids = array(
+        'new_user_registration' => array( 'section' => 'account', 'label' => 'New User Registration', 'subject' => '[' . get_bloginfo('name') . '] New User Registration' ),
+        'new_user_welcome'      => array( 'section' => 'account', 'label' => 'New User Welcome',      'subject' => '[' . get_bloginfo('name') . '] Your username and password' ),
+        'password_reset'        => array( 'section' => 'account', 'label' => 'Password Reset',        'subject' => '[' . get_bloginfo('name') . '] Password Reset' ),
+        'email_change_confirmation' => array( 'section' => 'account', 'label' => 'Email Change Confirmation', 'subject' => '[' . get_bloginfo('name') . '] Email Change Confirmation' ),
+    );
+    if ( isset( $core_ids[ $id ] ) ) {
+        return array_merge( array( 'id' => $id, 'html' => '', 'description' => '' ), $core_ids[ $id ] );
+    }
+
+    // 2. WooCommerce emails
+    if ( class_exists( 'WC_Emails' ) || ( function_exists('WC') && WC()->mailer() ) ) {
+        try {
+            $emails = class_exists('WC_Emails')
+                ? WC_Emails::instance()->get_emails()
+                : WC()->mailer()->get_emails();
+            foreach ( $emails as $email ) {
+                if ( $email->id === $id ) {
+                    $subject = $email->get_option('subject', '');
+                    if ( empty($subject) && method_exists($email, 'get_default_subject') ) {
+                        try { $subject = $email->get_default_subject(); } catch ( Exception $e ) { $subject = ''; }
+                    }
+                    $heading = $email->get_option('heading', '');
+                    if ( empty($heading) && method_exists($email, 'get_default_heading') ) {
+                        try { $heading = $email->get_default_heading(); } catch ( Exception $e ) { $heading = ''; }
+                    }
+                    $is_customer = ( strpos($email->id, 'customer_') === 0 );
+                    return array(
+                        'id'               => $email->id,
+                        'section'          => 'store',
+                        'label'            => $email->get_title(),
+                        'subject'          => $subject,
+                        'preheader'        => $heading,
+                        'html'             => function_exists('em_get_wc_email_body_template') ? em_get_wc_email_body_template($email) : '',
+                        'description'      => $email->get_description(),
+                        'send_to_customer' => $is_customer,
+                        'wc_recipient'     => $is_customer ? 'Customer' : ( $email->get_recipient() ?: get_option('admin_email') ),
+                        'is_enabled'       => $email->is_enabled(),
+                        'tokens'           => function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array(),
+                    );
+                }
+            }
+        } catch ( Exception $e ) { /* silently skip */ }
+    }
+
+    // 3. BuddyPress / social emails — look up by post slug
+    if ( function_exists('bp_get_email') ) {
+        $bp_email = bp_get_email( $id );
+        if ( ! is_wp_error($bp_email) && $bp_email ) {
+            return array(
+                'id'          => $id,
+                'section'     => 'social',
+                'label'       => $bp_email->get_subject(),
+                'subject'     => $bp_email->get_subject(),
+                'html'        => $bp_email->get_content_html(),
+                'description' => '',
+            );
+        }
+    }
+
+    // Not found — return minimal data so JS can still open a blank editor
+    return array(
+        'id'      => $id,
+        'section' => 'account',
+        'label'   => ucwords( str_replace( array('_', '-'), ' ', $id ) ),
+        'subject' => '',
+        'html'    => '',
+    );
+}
+
 // Enqueue Assets
 add_action('admin_enqueue_scripts', 'em_enqueue_assets');
 function em_enqueue_assets($hook)
 {
-    $is_em_page = (strpos($hook, 'email-manager') !== false) || (isset($_GET['page']) && $_GET['page'] === 'email-manager');
+    $current_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+    $is_em_page = (strpos($hook, 'email-manager') !== false)
+        || $current_page === 'email-manager'
+        || $current_page === 'gdc-store-settings'
+        || $current_page === 'gdc-social-network-settings';
     if ($is_em_page) {
 
         // Enqueue WP Media
@@ -84,14 +168,26 @@ function em_enqueue_assets($hook)
         // Enqueue Lists Table Script
         wp_enqueue_script('em-email-lists-table', EMAIL_MANAGER_URL . 'assets/email-lists-table.js', array('jquery', 'em-email-ai-popup'), EMAIL_MANAGER_VERSION, true);
 
+        // Resolve configure email data server-side so the JS can open the popup directly.
+        $configure_email_data = null;
+        if ( ! empty( $_GET['configure'] ) ) {
+            $configure_email_data = em_resolve_email_data_by_id( sanitize_text_field( wp_unslash( $_GET['configure'] ) ) );
+        }
+
         // Localize Script
         wp_localize_script('em-email-ai-popup', 'GDC_EMAIL_AI_CONFIG', array( // Keeping GDC_ prefix for compatibility if JS uses it
-            'root' => esc_url_raw(rest_url()),
-            'nonce' => wp_create_nonce('wp_rest'),
-            'listsEndpoint' => rest_url('em/v1/email-lists'),       // New endpoint
-            'subscribersEndpoint' => rest_url('em/v1/email-subscribers'), // New endpoint
-            // 'leoIcon' => ... (Add if needed)
-            // 'siteLogo' => ... (Add if needed)
+            'root'                  => esc_url_raw(rest_url()),
+            'nonce'                 => wp_create_nonce('wp_rest'),
+            'listsEndpoint'         => rest_url('em/v1/email-lists'),
+            'subscribersEndpoint'   => rest_url('em/v1/email-subscribers'),
+            'proposalEmailsEndpoint'=> rest_url('em/v1/proposal-emails'),
+            'testEmailEndpoint'     => rest_url('em/v1/send-test-email'),
+            'sendEmailEndpoint'     => rest_url('em/v1/send-email'),
+            'wcEmailSaveEndpoint'   => rest_url('em/v1/wc-email-save'),
+            'wcEmailToggleEndpoint' => rest_url('em/v1/wc-email-toggle'),
+            'wcEmailRenderEndpoint' => rest_url('em/v1/wc-email-render'),
+            'bpEmailSaveEndpoint'   => rest_url('em/v1/bp-email-save'),
+            'configureEmail'        => $configure_email_data,
         ));
         // Also localize for email lists table if it uses a separate config object, 
         // but analysis showed it uses GDC_EMAIL_AI_CONFIG or gdcEmailConfig. 
