@@ -5,7 +5,8 @@ class Chat_Forms_Public
 
     public function enqueue_styles()
     {
-        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.0.3', 'all');
+        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.0', 'all');
+        wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
     }
 
     public function enqueue_scripts()
@@ -13,7 +14,8 @@ class Chat_Forms_Public
         $smtp_settings = get_option('em_smtp_settings', []);
         $recaptcha_site_key = $smtp_settings['recaptcha_site_key'] ?? '';
 
-        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.3', false);
+        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.6', false);
+        wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
         $current_user_data = array();
         if (is_user_logged_in()) {
             $current_user = wp_get_current_user();
@@ -21,19 +23,171 @@ class Chat_Forms_Public
                 'user_id'      => $current_user->ID,
                 'username'     => $current_user->user_login,
                 'display_name' => $current_user->display_name,
+                'avatar_url'   => get_avatar_url($current_user->ID, array('size' => 96)),
+                'email'        => $current_user->user_email,
             );
         }
 
+        // Brand palette: per-form colors override; otherwise fall back to global brand option
+        $brand_colors = get_option('em_chat_brand_colors', array());
+        if (!is_array($brand_colors)) $brand_colors = array();
+
         wp_localize_script('chat_forms_frontend_js', 'chatFormsPublic', array(
-            'ajaxUrl'         => admin_url('admin-ajax.php'),
-            'nonce'           => wp_create_nonce('chat_forms_submit_nonce'),
+            'ajaxUrl'          => admin_url('admin-ajax.php'),
+            'nonce'            => wp_create_nonce('chat_forms_submit_nonce'),
             'recaptchaSiteKey' => $recaptcha_site_key,
-            'isLoggedIn'      => is_user_logged_in(),
-            'currentUser'     => $current_user_data,
+            'isLoggedIn'       => is_user_logged_in(),
+            'currentUser'      => $current_user_data,
+            'brand'            => wp_parse_args($brand_colors, array(
+                'primary'   => '#6366f1',
+                'secondary' => '#8b5cf6',
+                'surface'   => 'rgba(15, 23, 42, 0.9)',
+                'text'      => '#f8fafc',
+            )),
         ));
 
         if ($recaptcha_site_key) {
             wp_enqueue_script('google-recaptcha-v3', 'https://www.google.com/recaptcha/api.js?render=' . $recaptcha_site_key, array(), null, false);
+        }
+    }
+
+    /* ================================================================
+       Widget injection — runs on every public + admin page request and
+       picks the chat_form posts targeted to render here.
+       ================================================================ */
+
+    public function inject_widgets_frontend()
+    {
+        if (is_admin()) return;
+        $forms = $this->get_widget_forms_for_context('frontend');
+        if (empty($forms)) return;
+        $this->print_widget_launchers($forms);
+    }
+
+    public function inject_widgets_admin()
+    {
+        $forms = $this->get_widget_forms_for_context('admin');
+        if (empty($forms)) return;
+
+        // Need our chat assets on admin pages too
+        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.0', 'all');
+        wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
+        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.6', true);
+        wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
+
+        $cu = wp_get_current_user();
+        wp_localize_script('chat_forms_frontend_js', 'chatFormsPublic', array(
+            'ajaxUrl'     => admin_url('admin-ajax.php'),
+            'nonce'       => wp_create_nonce('chat_forms_submit_nonce'),
+            'isLoggedIn'  => is_user_logged_in(),
+            'currentUser' => is_user_logged_in() ? array(
+                'user_id'      => $cu->ID,
+                'username'     => $cu->user_login,
+                'display_name' => $cu->display_name,
+                'avatar_url'   => get_avatar_url($cu->ID, array('size' => 96)),
+                'email'        => $cu->user_email,
+            ) : array(),
+            'brand'       => wp_parse_args(get_option('em_chat_brand_colors', array()), array(
+                'primary'   => '#6366f1',
+                'secondary' => '#8b5cf6',
+                'surface'   => 'rgba(15, 23, 42, 0.9)',
+                'text'      => '#f8fafc',
+            )),
+        ));
+
+        $this->print_widget_launchers($forms);
+    }
+
+    private function get_widget_forms_for_context($context)
+    {
+        $modes_in_widget = array('widget', 'both');
+        $forms = get_posts(array(
+            'post_type'   => 'chat_form',
+            'numberposts' => -1,
+            'post_status' => 'publish',
+            'meta_query'  => array(
+                array(
+                    'key'     => '_chat_form_display_mode',
+                    'value'   => $modes_in_widget,
+                    'compare' => 'IN',
+                ),
+            ),
+        ));
+        if (empty($forms)) return array();
+
+        $matches = array();
+        foreach ($forms as $form) {
+            $pages_meta_key = $context === 'admin' ? '_chat_form_widget_pages_admin' : '_chat_form_widget_pages_frontend';
+            $pages = get_post_meta($form->ID, $pages_meta_key, true);
+            if (!is_array($pages) || empty($pages)) continue;
+
+            if ($context === 'admin') {
+                if (in_array('all', $pages, true)) { $matches[] = $form; continue; }
+                $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+                if (!$screen) continue;
+                if (in_array('dashboard', $pages, true) && $screen->id === 'dashboard') $matches[] = $form;
+                elseif (in_array('plugins', $pages, true) && $screen->id === 'plugins') $matches[] = $form;
+                elseif (in_array('users', $pages, true) && in_array($screen->id, array('users', 'user-edit', 'profile'), true)) $matches[] = $form;
+                elseif (in_array('tools', $pages, true) && $screen->id === 'tools') $matches[] = $form;
+            } else {
+                if (in_array('all', $pages, true)) { $matches[] = $form; continue; }
+                $matched = false;
+                if (in_array('home', $pages, true) && (is_front_page() || is_home())) $matched = true;
+                if (in_array('archive', $pages, true) && (is_archive() || is_home())) $matched = true;
+                if (in_array('singular', $pages, true) && is_singular()) $matched = true;
+                if (!$matched && is_singular()) {
+                    $current_id = (string) get_queried_object_id();
+                    if (in_array($current_id, array_map('strval', $pages), true)) $matched = true;
+                }
+                if ($matched) $matches[] = $form;
+            }
+        }
+        return $matches;
+    }
+
+    private function print_widget_launchers($forms)
+    {
+        foreach ($forms as $form) {
+            $cfg = get_post_meta($form->ID, '_chat_form_widget_config', true);
+            if (!is_array($cfg)) $cfg = array();
+            $cfg = wp_parse_args($cfg, array(
+                'image_url'     => '',
+                'border_color'  => '#6366f1',
+                'border_radius' => 16,
+                'position'      => 'bottom-right',
+            ));
+            $bot_avatar = get_post_meta($form->ID, '_chat_form_bot_avatar', true);
+
+            // Get questions for the localized data
+            $questions = get_post_meta($form->ID, '_chat_form_questions', true);
+            if (!is_array($questions)) $questions = array();
+
+            $form_data = array(
+                'id'           => (int) $form->ID,
+                'title'        => get_the_title($form->ID),
+                'image'        => $cfg['image_url'],
+                'borderColor'  => $cfg['border_color'],
+                'borderRadius' => (int) $cfg['border_radius'],
+                'position'     => $cfg['position'],
+                'botAvatar'    => $bot_avatar,
+                'questions'    => $questions,
+                'thankYou'     => get_post_meta($form->ID, '_chat_form_thank_you_message', true),
+            );
+            ?>
+            <div class="chat-widget-launcher"
+                 data-form-id="<?php echo esc_attr($form->ID); ?>"
+                 data-position="<?php echo esc_attr($cfg['position']); ?>"
+                 data-form='<?php echo esc_attr(wp_json_encode($form_data)); ?>'
+                 style="--cw-border-color:<?php echo esc_attr($cfg['border_color']); ?>;--cw-border-radius:<?php echo esc_attr($cfg['border_radius']); ?>px;">
+                <button type="button" class="chat-widget-launcher__btn" aria-label="<?php echo esc_attr(get_the_title($form->ID)); ?>">
+                    <?php if (!empty($cfg['image_url'])): ?>
+                        <img src="<?php echo esc_url($cfg['image_url']); ?>" alt="" />
+                    <?php else: ?>
+                        <span class="dashicons dashicons-format-chat"></span>
+                    <?php endif; ?>
+                </button>
+            </div>
+            <?php
         }
     }
 

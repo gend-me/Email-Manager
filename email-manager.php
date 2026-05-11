@@ -35,6 +35,12 @@ require_once EMAIL_MANAGER_PATH . 'inc/email-logs.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-smtp.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
+require_once EMAIL_MANAGER_PATH . 'inc/applications.php';
+require_once EMAIL_MANAGER_PATH . 'inc/support.php';
+require_once EMAIL_MANAGER_PATH . 'inc/personas.php';
+require_once EMAIL_MANAGER_PATH . 'inc/chats.php';
+require_once EMAIL_MANAGER_PATH . 'inc/leo-integration.php';
+require_once EMAIL_MANAGER_PATH . 'inc/leo-oauth.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-manager-admin.php';
 require_once EMAIL_MANAGER_PATH . 'inc/forms/class-chat-forms-core.php';
 
@@ -168,6 +174,14 @@ function em_enqueue_assets($hook)
         // Enqueue Lists Table Script
         wp_enqueue_script('em-email-lists-table', EMAIL_MANAGER_URL . 'assets/email-lists-table.js', array('jquery', 'em-email-ai-popup'), EMAIL_MANAGER_VERSION, true);
 
+        // Applications + Support shared assets
+        wp_enqueue_style('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.css', array('em-email-manager-admin'), EMAIL_MANAGER_VERSION);
+        wp_enqueue_script('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.js', array('jquery'), EMAIL_MANAGER_VERSION, true);
+        wp_localize_script('em-app-support', 'EM_AS_CONFIG', array(
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce'   => wp_create_nonce('em_app_support'),
+        ));
+
         // Resolve configure email data server-side so the JS can open the popup directly.
         $configure_email_data = null;
         if ( ! empty( $_GET['configure'] ) ) {
@@ -219,16 +233,16 @@ function em_register_admin_menu()
         $parent_slug = defined('GS_VERSION') ? 'gs-app' : 'gdc-app';
         add_submenu_page(
             $parent_slug,
-            __('Email Manager', 'email-manager'),
-            __('Email Manager', 'email-manager'),
+            __('Messages', 'email-manager'),
+            __('Messages', 'email-manager'),
             'manage_options',
             'email-manager',
             'em_render_email_manager_page'
         );
     } else {
         add_menu_page(
-            __('Email Manager', 'email-manager'),
-            __('Email Manager', 'email-manager'),
+            __('Messages', 'email-manager'),
+            __('Messages', 'email-manager'),
             'manage_options',
             'email-manager',
             'em_render_email_manager_page',

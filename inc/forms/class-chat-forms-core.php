@@ -39,5 +39,7 @@ class Chat_Forms_Core
         add_action('wp_enqueue_scripts', array($plugin_public, 'enqueue_scripts'));
         add_shortcode('chat_form', array($plugin_public, 'render_shortcode'));
         add_shortcode('basic_form', array($plugin_public, 'render_basic_form_shortcode'));
+        add_action('wp_footer', array($plugin_public, 'inject_widgets_frontend'));
+        add_action('admin_footer', array($plugin_public, 'inject_widgets_admin'));
     }
 }

@@ -48,6 +48,9 @@ class EM_Email_Logs
                 font-weight: 600;
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
+                background: rgba(100, 116, 139, 0.12);
+                color: #475569;
+                border: 1px solid rgba(100, 116, 139, 0.2);
             }
 
             .em-pill--success {
@@ -60,6 +63,69 @@ class EM_Email_Logs
                 background: rgba(239, 68, 68, 0.15);
                 color: #b91c1c;
                 border: 1px solid rgba(239, 68, 68, 0.25);
+            }
+
+            .em-pill--info {
+                background: rgba(59, 130, 246, 0.15);
+                color: #1d4ed8;
+                border: 1px solid rgba(59, 130, 246, 0.25);
+            }
+
+            #em-log-modal.gdc-email-modal {
+                position: fixed;
+                inset: 0;
+                background: rgba(11, 14, 20, 0.8);
+                z-index: 99999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 24px;
+            }
+
+            #em-log-modal[hidden] {
+                display: none !important;
+            }
+
+            #em-log-modal .gdc-email-modal__dialog {
+                position: relative;
+                background: #fff;
+                border-radius: 12px;
+                width: 100%;
+                max-width: 800px;
+                height: 80vh;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+                padding: 24px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+
+            #em-log-modal .gdc-email-modal__dialog > h3 {
+                margin: 0 0 16px;
+                padding-right: 40px;
+            }
+
+            #em-log-modal .gdc-close {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                width: 32px;
+                height: 32px;
+                border-radius: 8px;
+                border: 1px solid rgba(0, 0, 0, 0.1);
+                background: rgba(0, 0, 0, 0.04);
+                font-size: 20px;
+                line-height: 1;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            #em-log-modal .em-log-content {
+                flex: 1 1 auto;
+                min-height: 0;
+                height: auto !important;
             }
         </style>
         <div class="gdc-email-panel">
@@ -158,20 +224,26 @@ class EM_Email_Logs
                     <?php esc_html_e('Email Content', 'email-manager'); ?>
                 </h3>
                 <div class="em-log-content"
-                    style="padding:20px; overflow:auto; height:calc(100% - 60px); background:#fff; border:1px solid #ddd;">
+                    style="padding:20px; overflow:auto; background:#fff; border:1px solid #ddd;">
                 </div>
             </div>
         </div>
 
         <script>
             jQuery(document).ready(function ($) {
+                var ajaxUrl = (typeof bpaAdmin !== 'undefined' && bpaAdmin.ajaxUrl) ? bpaAdmin.ajaxUrl : (window.ajaxurl || '/wp-admin/admin-ajax.php');
+
+                function closeLogModal() {
+                    $('#em-log-modal').prop('hidden', true);
+                }
+
                 $('.em-view-log').on('click', function () {
                     var id = $(this).data('log-id');
                     $('#em-log-modal').prop('hidden', false);
                     $('.em-log-content').html('Loading...');
 
                     $.ajax({
-                        url: bpaAdmin.ajaxUrl, // Reuse generic ajax url if available or define new
+                        url: ajaxUrl,
                         data: { action: 'em_get_log_body', id: id, nonce: '<?php echo wp_create_nonce('em_log_nonce'); ?>' },
                         success: function (res) {
                             if (res.success) {
@@ -179,8 +251,19 @@ class EM_Email_Logs
                             } else {
                                 $('.em-log-content').html('Error loading content.');
                             }
+                        },
+                        error: function () {
+                            $('.em-log-content').html('Error loading content.');
                         }
                     });
+                });
+
+                $('#em-log-modal').on('click', function (e) {
+                    if (e.target === this) closeLogModal();
+                });
+
+                $(document).on('keydown', function (e) {
+                    if (e.key === 'Escape' && !$('#em-log-modal').prop('hidden')) closeLogModal();
                 });
             });
         </script>

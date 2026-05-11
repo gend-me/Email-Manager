@@ -70,7 +70,12 @@ class Chat_Forms_Ajax
                     'type' => isset($q['type']) ? $q['type'] : 'text',
                     'options' => array(),
                     'conditional' => isset($q['conditional']) ? $q['conditional'] : array(),
-                    'validation' => isset($q['validation']) ? $q['validation'] : array()
+                    'validation' => isset($q['validation']) ? $q['validation'] : array(),
+                    // New question-type payload
+                    'content'       => isset($q['content']) ? $q['content'] : '',
+                    'prompt'        => isset($q['prompt'])  ? $q['prompt']  : '',
+                    'pays'          => isset($q['pays'])          ? $q['pays']          : 'site',
+                    'pays_user_id'  => isset($q['pays_user_id'])  ? (int) $q['pays_user_id'] : 0,
                 );
 
                 // Handle options - support both old string format and new array format
@@ -81,9 +86,10 @@ class Chat_Forms_Ajax
                             if (is_array($opt)) {
                                 // New format: array with label, value, and optional image
                                 $questionData['options'][] = array(
-                                    'label' => isset($opt['label']) ? $opt['label'] : '',
-                                    'value' => isset($opt['value']) ? $opt['value'] : '',
-                                    'image' => isset($opt['image']) ? $opt['image'] : ''
+                                    'label'         => isset($opt['label']) ? $opt['label'] : '',
+                                    'value'         => isset($opt['value']) ? $opt['value'] : '',
+                                    'image'         => isset($opt['image']) ? $opt['image'] : '',
+                                    'response_html' => isset($opt['response_html']) ? $opt['response_html'] : '',
                                 );
                             } else {
                                 // Fallback for unexpected array element, treat as simple option

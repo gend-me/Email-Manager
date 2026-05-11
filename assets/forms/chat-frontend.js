@@ -5,6 +5,10 @@ jQuery(document).ready(function ($) {
         initChatForm($(this));
     });
 
+    // Expose so other scripts (widget launcher, admin preview) can mount chats
+    window.chatFormsInitContainer = function ($el) { initChatForm($el); };
+    $(document).on('chat_forms_init', function (e, $el) { initChatForm($el); });
+
     // Popup Trigger Logic
     $(document).on('click', '.chat-form-popup-trigger', function (e) {
         e.preventDefault();
@@ -59,40 +63,174 @@ jQuery(document).ready(function ($) {
         var currentQuestionIndex = 0;
         var answers = {};
         var questionHistory = []; // Track shown questions for back button
+        var isPreview = String($container.attr('data-preview-mode') || '') === '1';
+        var botAvatar = $container.attr('data-bot-avatar') || '';
 
-        // Load questions via AJAX
-        $.ajax({
-            url: chatFormsPublic.ajaxUrl,
-            method: 'POST',
-            data: {
-                action: 'chat_forms_get_questions',
-                form_id: formId,
-                nonce: chatFormsPublic.nonce
-            },
-            success: function (response) {
-                if (response.success) {
-                    questions = response.data.questions || response.data;
-                    formSettings = {
-                        thankYouMessage: response.data.thank_you_message || '🎉 Thank you! Your response has been saved successfully.',
-                        redirectUrl: response.data.redirect_url || ''
-                    };
+        function bootstrapFlow(qs, settings) {
+            questions = qs || [];
+            formSettings = $.extend({
+                thankYouMessage: '🎉 Thank you! Your response has been saved successfully.',
+                redirectUrl: ''
+            }, settings || {});
 
-                    // Add progress bar and counter
-                    // Initial count will be updated immediately
-                    $container.prepend('<div class="chat-progress-wrapper">' +
-                        '<div class="chat-question-counter">Question <span class="current">0</span> of <span class="total">0</span></div>' +
-                        '<div class="chat-progress-bar"><div class="chat-progress-fill"></div></div>' +
-                        '</div>');
+            // Insert the LEO balance bar above the progress bar if the flow
+            // contains any prompt_response question that bills the chat user.
+            var needsChatUserToken = questions.some(function (q) {
+                return q && q.type === 'prompt_response' && q.pays === 'chat_user';
+            });
+            if (needsChatUserToken) renderLeoBalanceBar();
 
-                    setTimeout(function () {
-                        moveToNextQuestion();
-                    }, 500);
+            $container.prepend('<div class="chat-progress-wrapper">' +
+                '<div class="chat-question-counter">Question <span class="current">0</span> of <span class="total">0</span></div>' +
+                '<div class="chat-progress-bar"><div class="chat-progress-fill"></div></div>' +
+                '</div>');
+
+            setTimeout(function () { moveToNextQuestion(); }, 400);
+        }
+
+        /* ---------- LEO balance bar (top of chat, when chat_user pays) ---------- */
+        function renderLeoBalanceBar() {
+            if ($container.find('.em-leo-bar').length) return;
+            var bar = '<div class="em-leo-bar" data-state="loading">' +
+                '<div class="em-leo-bar__icon">💎</div>' +
+                '<div class="em-leo-bar__body">' +
+                  '<div class="em-leo-bar__label">LEO Balance</div>' +
+                  '<div class="em-leo-bar__value">Checking…</div>' +
+                '</div>' +
+                '<div class="em-leo-bar__actions"></div>' +
+                '</div>';
+            $container.prepend(bar);
+            refreshLeoBalanceBar();
+        }
+
+        function refreshLeoBalanceBar() {
+            var $bar = $container.find('.em-leo-bar');
+            if (!$bar.length) return;
+            var statusUrl = '/wp-json/em/v1/oauth/status';
+            var balanceUrl = '/wp-json/em/v1/oauth/balance';
+            $.get(statusUrl).done(function (s) {
+                if (!s.configured) {
+                    $bar.attr('data-state', 'unconfigured');
+                    $bar.find('.em-leo-bar__value').text('Not configured');
+                    $bar.find('.em-leo-bar__actions').empty();
+                    return;
                 }
-            },
-            error: function () {
-                addMessage('⚠️ Failed to load form. Please refresh the page.', 'bot error');
-            }
+                if (!s.connected) {
+                    $bar.attr('data-state', 'disconnected');
+                    $bar.find('.em-leo-bar__value').text('Connect to use AI');
+                    $bar.find('.em-leo-bar__actions').html(
+                        '<button type="button" class="em-leo-bar__btn em-leo-bar__btn--primary" data-action="connect">🔗 Connect</button>'
+                    );
+                    return;
+                }
+                $.get(balanceUrl).done(function (b) {
+                    $bar.attr('data-state', 'connected');
+                    var bal = (typeof b.balance === 'number') ? b.balance.toFixed(2) : '—';
+                    var label = b.token_label || 'Generators';
+                    $bar.find('.em-leo-bar__value').html(bal + ' <small>' + label + '</small>');
+                    var topupHref = b.topup_url || (s.hub_url + '/leo/tokens');
+                    $bar.find('.em-leo-bar__actions').html(
+                        '<a href="' + topupHref + '" target="_blank" rel="noopener" class="em-leo-bar__btn">💳 Top up</a>' +
+                        '<button type="button" class="em-leo-bar__btn em-leo-bar__btn--ghost" data-action="disconnect">Disconnect</button>'
+                    );
+                });
+            }).fail(function () {
+                $bar.attr('data-state', 'error');
+                $bar.find('.em-leo-bar__value').text('Status check failed');
+            });
+        }
+
+        $container.on('click', '.em-leo-bar__btn[data-action="connect"]', function () {
+            startChatLeoOAuth(refreshLeoBalanceBar);
         });
+        $container.on('click', '.em-leo-bar__btn[data-action="disconnect"]', function () {
+            $.post('/wp-json/em/v1/oauth/revoke').always(refreshLeoBalanceBar);
+        });
+
+        function startChatLeoOAuth(onDone) {
+            $.get('/wp-json/em/v1/oauth/status').done(function (s) {
+                if (!s.configured || !s.client_id) { alert('LEO is not configured for this site.'); return; }
+                var hub = s.hub_url || 'https://gend.me';
+                var redirectUri = 'https://gend.me/oauth-bridge/';
+                var b64url = function (bytes) {
+                    var x = ''; bytes.forEach(function (b) { x += String.fromCharCode(b); });
+                    return btoa(x).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                };
+                var stB = new Uint8Array(32); crypto.getRandomValues(stB);
+                var vB  = new Uint8Array(32); crypto.getRandomValues(vB);
+                var state = b64url(stB);
+                var verifier = b64url(vB);
+                crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)).then(function (digest) {
+                    var challenge = b64url(new Uint8Array(digest));
+                    try { sessionStorage.setItem('em_leo_oauth_attempt', JSON.stringify({ state: state, codeVerifier: verifier, ts: Date.now() })); }
+                    catch (_) { alert('Session storage unavailable.'); return; }
+                    var params = new URLSearchParams({
+                        client_id: s.client_id,
+                        response_type: 'code',
+                        redirect_uri: redirectUri,
+                        state: state,
+                        code_challenge: challenge,
+                        code_challenge_method: 'S256'
+                    });
+                    var win = window.open(hub + '/oauth/authorize?' + params.toString(), 'GenDLogin', 'width=600,height=700');
+                    var hubOrigin = new URL(hub).origin;
+                    var onMsg = function (ev) {
+                        if (ev.origin !== hubOrigin) return;
+                        var d = ev.data || {};
+                        if (d.type !== 'gdc-auth' || !d.code) return;
+                        window.removeEventListener('message', onMsg);
+                        if (win) try { win.close(); } catch(_) {}
+                        var attempt = {};
+                        try { attempt = JSON.parse(sessionStorage.getItem('em_leo_oauth_attempt') || '{}'); } catch(_){}
+                        sessionStorage.removeItem('em_leo_oauth_attempt');
+                        if (!attempt.state || attempt.state !== d.state) { alert('Login aborted.'); return; }
+                        $.ajax({
+                            url: '/wp-json/em/v1/oauth/exchange',
+                            method: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ code: d.code, redirect_uri: redirectUri, code_verifier: attempt.codeVerifier, state: d.state })
+                        }).done(function () { if (onDone) onDone(); });
+                    };
+                    window.addEventListener('message', onMsg);
+                });
+            });
+        }
+
+        // Inline bootstrap takes precedence (used by preview + widget)
+        var inlineBootstrap = $container.attr('data-bootstrap');
+        if (inlineBootstrap) {
+            try {
+                var parsed = JSON.parse(inlineBootstrap);
+                bootstrapFlow(parsed.questions || [], {
+                    thankYouMessage: parsed.thankYou || '🎉 Thank you! Your response has been saved successfully.',
+                    redirectUrl: ''
+                });
+            } catch (e) {
+                addMessage('⚠️ Failed to load preview.', 'bot error');
+            }
+        } else {
+            // Load questions via AJAX
+            $.ajax({
+                url: chatFormsPublic.ajaxUrl,
+                method: 'POST',
+                data: {
+                    action: 'chat_forms_get_questions',
+                    form_id: formId,
+                    nonce: chatFormsPublic.nonce
+                },
+                success: function (response) {
+                    if (response.success) {
+                        bootstrapFlow(response.data.questions || response.data, {
+                            thankYouMessage: response.data.thank_you_message || '🎉 Thank you! Your response has been saved successfully.',
+                            redirectUrl: response.data.redirect_url || ''
+                        });
+                    }
+                },
+                error: function () {
+                    addMessage('⚠️ Failed to load form. Please refresh the page.', 'bot error');
+                }
+            });
+        }
 
         // Calculate reachable questions based on current answers
         function getReachableQuestionsCount() {
@@ -274,6 +412,13 @@ jQuery(document).ready(function ($) {
         }
 
         function askQuestion(question) {
+            // Info Block bypasses the typing-indicator + question-bubble flow:
+            // it renders its content as a full-width raw block (no avatar, no bubble).
+            if (question.type === 'info_block') {
+                renderInput(question);
+                return;
+            }
+
             showTypingIndicator();
 
             setTimeout(function () {
@@ -301,7 +446,13 @@ jQuery(document).ready(function ($) {
         function renderInput(question) {
             $inputArea.empty();
 
-            if ((question.type === 'select' || question.type === 'multiple') && question.options && question.options.length > 0) {
+            if (question.type === 'info_block') {
+                renderInfoBlock(question);
+                return;
+            } else if (question.type === 'prompt_response') {
+                renderPromptResponse(question);
+                return;
+            } else if ((question.type === 'select' || question.type === 'multiple') && question.options && question.options.length > 0) {
                 renderOptionButtons(question);
             } else if (question.type === 'file') {
                 renderFileUpload(question);
@@ -348,7 +499,8 @@ jQuery(document).ready(function ($) {
                     $(this).addClass('selected');
                     // Disable all buttons to prevent double-click
                     $optionsContainer.find('.chat-option-btn').prop('disabled', true);
-                    handleAnswer(optValue, optLabel);
+                    var branchResponse = (typeof option === 'object' && option.response_html) ? option.response_html : '';
+                    handleAnswer(optValue, optLabel, branchResponse);
                 });
 
                 $optionsContainer.append($btn);
@@ -599,11 +751,23 @@ jQuery(document).ready(function ($) {
             handleAnswer(answer, answer);
         }
 
-        function handleAnswer(value, displayText) {
+        function handleAnswer(value, displayText, branchResponseHtml) {
             addMessage(displayText, 'user');
             answers[currentQuestionIndex] = value;
 
             $inputArea.fadeOut(200);
+
+            // Branch response from a multiple-choice option
+            if (branchResponseHtml && String(branchResponseHtml).trim() !== '') {
+                showTypingIndicator();
+                setTimeout(function () {
+                    hideTypingIndicator();
+                    addMessage(branchResponseHtml, 'bot info');
+                    currentQuestionIndex++;
+                    setTimeout(function () { moveToNextQuestion(); }, 700);
+                }, 600);
+                return;
+            }
 
             currentQuestionIndex++;
             setTimeout(function () {
@@ -611,14 +775,129 @@ jQuery(document).ready(function ($) {
             }, 800);
         }
 
+        function buildAvatarHtml(role) {
+            if (role === 'user') {
+                var url = (window.chatFormsPublic && chatFormsPublic.currentUser && chatFormsPublic.currentUser.avatar_url) || '';
+                if (url) return '<div class="chat-avatar"><img src="' + url + '" alt="" /></div>';
+                var name = (chatFormsPublic && chatFormsPublic.currentUser && chatFormsPublic.currentUser.display_name) || 'You';
+                return '<div class="chat-avatar">' + (name.charAt(0) || 'U').toUpperCase() + '</div>';
+            }
+            // bot
+            if (botAvatar) return '<div class="chat-avatar"><img src="' + botAvatar + '" alt="" /></div>';
+            return '<div class="chat-avatar">🤖</div>';
+        }
+
         function addMessage(text, type) {
-            var html = '<div class="chat-message ' + type + '">' + text + '</div>';
+            // Original behavior preserved for non-bubble messages (errors, status); upgrade
+            // bot/user messages to avatar+bubble layout used by the widget design.
+            var classes = String(type || '').split(/\s+/);
+            var role = classes.indexOf('user') !== -1 ? 'user' : 'bot';
+
+            // Raw mode: full-width content, no avatar, no bubble container.
+            // Used by Info Block question type so admins can lay out custom HTML.
+            if (classes.indexOf('raw') !== -1) {
+                var rawHtml = '<div class="chat-message chat-message--raw ' + (type || '') + '">' + text + '</div>';
+                $messages.append(rawHtml);
+                $messages.scrollTop($messages[0].scrollHeight);
+                return;
+            }
+
+            var modifier = '';
+            if (classes.indexOf('info') !== -1) modifier = ' chat-bubble--info';
+            else if (classes.indexOf('ai')   !== -1) modifier = ' chat-bubble--ai';
+            else if (classes.indexOf('error') !== -1) modifier = ' chat-bubble--error';
+            else if (classes.indexOf('success') !== -1) modifier = ' chat-bubble--success';
+
+            var html = '<div class="chat-message chat-message--' + role + ' ' + (type || '') + '">' +
+                buildAvatarHtml(role) +
+                '<div class="chat-bubble chat-bubble--' + role + modifier + '">' + text + '</div>' +
+                '</div>';
             $messages.append(html);
             $messages.scrollTop($messages[0].scrollHeight);
         }
 
+        /* ---------- New question types ---------- */
+        function renderInfoBlock(question) {
+            // Render full-width raw content — no avatar, no bubble, fills the chat area.
+            var content = question.content || question.text || '';
+            if (content) addMessage(content, 'bot raw');
+            // Auto-advance — info block has no input
+            currentQuestionIndex++;
+            setTimeout(function () { moveToNextQuestion(); }, 800);
+        }
+
+        function renderPromptResponse(question) {
+            // In preview mode, simulate without calling LEO
+            if (isPreview) {
+                addMessage('🤖 (preview) AI response would appear here based on prompt:\n\n' + (question.prompt || ''), 'bot ai');
+                currentQuestionIndex++;
+                setTimeout(function () { moveToNextQuestion(); }, 800);
+                return;
+            }
+            showTypingIndicator();
+            // Build context from prior answers
+            var answerList = [];
+            for (var k in answers) {
+                if (Object.prototype.hasOwnProperty.call(answers, k)) {
+                    var qIdx = parseInt(k, 10);
+                    var qObj = questions[qIdx] || {};
+                    answerList.push({ question: qObj.text || ('Question ' + (qIdx + 1)), answer: answers[k] });
+                }
+            }
+            $.ajax({
+                url: chatFormsPublic.ajaxUrl,
+                method: 'POST',
+                timeout: 35000,
+                data: {
+                    action: 'em_leo_complete',
+                    nonce: chatFormsPublic.nonce,
+                    form_id: formId,
+                    prompt_template: question.prompt || '',
+                    answers: answerList,
+                    pays: question.pays || 'site',
+                    pays_user_id: question.pays_user_id || 0
+                }
+            }).done(function (res) {
+                hideTypingIndicator();
+                if (res && res.success && res.data && res.data.text) {
+                    addMessage(res.data.text, 'bot ai');
+                    answers[currentQuestionIndex] = { ai_response: res.data.text };
+                } else {
+                    var msg = (res && res.data && res.data.message) || 'AI response unavailable.';
+                    addMessage('⚠️ ' + msg, 'bot error');
+                }
+                currentQuestionIndex++;
+                setTimeout(function () { moveToNextQuestion(); }, 800);
+            }).fail(function (xhr) {
+                hideTypingIndicator();
+                var msg = (xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) || 'AI request failed.';
+                addMessage('⚠️ ' + msg, 'bot error');
+                currentQuestionIndex++;
+                setTimeout(function () { moveToNextQuestion(); }, 800);
+            });
+        }
+
         function submitForm(id, data) {
             $inputArea.empty();
+
+            // Preview mode: never persist
+            if (isPreview) {
+                addMessage('✅ Preview complete — nothing was saved.', 'bot success');
+                setTimeout(function () {
+                    var $restartBtn = $('<button class="chat-submit-btn restart-btn">Run Again</button>');
+                    $restartBtn.on('click', function () {
+                        $messages.empty();
+                        questionHistory = [];
+                        answers = {};
+                        currentQuestionIndex = 0;
+                        $inputArea.empty();
+                        moveToNextQuestion();
+                    });
+                    $inputArea.html($restartBtn).fadeIn(300);
+                }, 600);
+                return;
+            }
+
             addMessage('✨ Submitting your response...', 'bot');
 
             var performSubmit = function (token) {

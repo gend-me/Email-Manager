@@ -138,13 +138,11 @@ function em_render_email_manager_page()
 
     // Define tabs
     $tabs = array(
-        'engagement' => __('Engagement', 'email-manager'),
-        'proposals' => __('Proposals', 'email-manager'),
+        'email' => __('Email', 'email-manager'),
         'forms' => __('Forms', 'email-manager'),
-        'system-emails' => __('System Emails', 'email-manager'),
-        'app-template' => __('App Template', 'email-manager'),
-        'logs' => __('Logs', 'email-manager'),
-        'sending-settings' => __('Sending Settings', 'email-manager'),
+        'chatflows' => __('Chatflows', 'email-manager'),
+        'applications' => __('Applications', 'email-manager'),
+        'support' => __('Support', 'email-manager'),
     );
 
     // WordPress core system emails (static – these are built into WP core)
@@ -240,6 +238,18 @@ function em_render_email_manager_page()
     ?>
     <div class="wrap gdc-admin-dashboard gdc-app-content">
 
+        <!-- Shared detail drawer (used by Applications + Support tabs) -->
+        <div class="em-drawer" id="em-detail-drawer" aria-hidden="true">
+            <div class="em-drawer__backdrop"></div>
+            <div class="em-drawer__panel" role="dialog" aria-modal="true" aria-labelledby="em-drawer-title">
+                <div class="em-drawer__header">
+                    <h3 class="em-drawer__title" id="em-drawer-title"><?php esc_html_e('Details', 'email-manager'); ?></h3>
+                    <button type="button" class="em-drawer__close" id="em-drawer-close" aria-label="<?php esc_attr_e('Close', 'email-manager'); ?>">&times;</button>
+                </div>
+                <div class="em-drawer__body" id="em-drawer-body"></div>
+            </div>
+        </div>
+
         <!-- Email Tab (Complete Port) -->
         <div class="gdc-tabpanel" data-panel="email"> <!-- Removed hidden attribute as this is the main page -->
             <div class="gdc-admin-surface gdc-email-page<?php echo esc_attr($gdc_email_wrap_class); ?>"
@@ -302,13 +312,11 @@ function em_render_email_manager_page()
                     <?php
                     // Define icons for tabs
                     $tab_icons = array(
-                        'engagement'       => 'dashicons-groups',
-                        'proposals'        => 'dashicons-clipboard',
-                        'forms'            => 'dashicons-feedback',
-                        'system-emails'    => 'dashicons-email-alt',
-                        'app-template'     => 'dashicons-layout',
-                        'logs'             => 'dashicons-list-view',
-                        'sending-settings' => 'dashicons-admin-settings',
+                        'email'        => 'dashicons-email',
+                        'forms'        => 'dashicons-feedback',
+                        'chatflows'    => 'dashicons-format-chat',
+                        'applications' => 'dashicons-id-alt',
+                        'support'      => 'dashicons-sos',
                     );
 
                     // New Tab Structure
@@ -329,8 +337,8 @@ function em_render_email_manager_page()
                 </div>
 
                 <div class="gdc-tabpanels">
-                    <!-- Engagement Tab -->
-                    <section class="gdc-sub-tabpanel" data-panel="engagement" <?php echo $gdc_email_embed_single ? 'hidden' : ''; ?>>
+                    <!-- Email Tab -->
+                    <section class="gdc-sub-tabpanel" data-panel="email" <?php echo $gdc_email_embed_single ? 'hidden' : ''; ?>>
                         <div class="gdc-subtabs">
                             <button type="button" class="gdc-subtab active" data-subtab="lists">
                                 <?php esc_html_e('Lists', 'email-manager'); ?>
@@ -340,6 +348,18 @@ function em_render_email_manager_page()
                             </button>
                             <button type="button" class="gdc-subtab" data-subtab="newsletters">
                                 <?php esc_html_e('Newsletters', 'email-manager'); ?>
+                            </button>
+                            <button type="button" class="gdc-subtab" data-subtab="system-emails">
+                                <?php esc_html_e('System Emails', 'email-manager'); ?>
+                            </button>
+                            <button type="button" class="gdc-subtab" data-subtab="app-template">
+                                <?php esc_html_e('App Template', 'email-manager'); ?>
+                            </button>
+                            <button type="button" class="gdc-subtab" data-subtab="logs">
+                                <?php esc_html_e('Logs', 'email-manager'); ?>
+                            </button>
+                            <button type="button" class="gdc-subtab" data-subtab="sending-settings">
+                                <?php esc_html_e('Sending Settings', 'email-manager'); ?>
                             </button>
                         </div>
 
@@ -542,6 +562,129 @@ function em_render_email_manager_page()
                                 </div>
                             </div>
                         </div>
+
+                        <!-- App Template Subtab Content -->
+                        <div class="gdc-subtab-panel" data-subpanel="app-template" hidden>
+                            <?php
+                            if (class_exists('EM_Email_Templates')) {
+                                $templates = new EM_Email_Templates();
+                                $templates->render();
+                            }
+                            ?>
+                        </div>
+
+                        <!-- Logs Subtab Content -->
+                        <div class="gdc-subtab-panel" data-subpanel="logs" hidden>
+                            <?php
+                            if (class_exists('EM_Email_Logs')) {
+                                EM_Email_Logs::render_logs_tab();
+                            }
+                            ?>
+                        </div>
+
+                        <!-- Sending Settings Subtab Content -->
+                        <div class="gdc-subtab-panel" data-subpanel="sending-settings" hidden>
+                            <?php
+                            if (class_exists('EM_Email_SMTP')) {
+                                EM_Email_SMTP::render_smtp_tab();
+                            }
+                            ?>
+                        </div>
+
+                        <!-- System Emails Subtab Content -->
+                        <div class="gdc-subtab-panel" data-subpanel="system-emails" hidden>
+                            <?php // --- WordPress Core Emails --- ?>
+                            <?php em_system_email_table(__('Login & Account Emails', 'email-manager'), function() use ($gdc_wp_core_emails) {
+                                foreach ($gdc_wp_core_emails as $e) {
+                                    $override_key = 'em_wc_email_override_' . $e['id'];
+                                    $body = get_option($override_key, '');
+                                    em_render_system_email_row($e['title'], $e['description'], $e['recipient'], true, array(
+                                        'section'     => 'store', // treated same as WC for render/save flow
+                                        'id'          => $e['id'],
+                                        'label'       => $e['title'],
+                                        'subject'     => $e['subject'],
+                                        'preheader'   => $e['title'],
+                                        'description' => $e['description'],
+                                        'html'        => $body,
+                                        'is_enabled'  => true,
+                                        'tokens'      => function_exists('em_wp_account_tokens') ? em_wp_account_tokens($e['id']) : array(),
+                                    ));
+                                }
+                            }); ?>
+
+                            <?php // --- WooCommerce Store Emails --- ?>
+                            <?php if (!empty($gdc_store_emails)): ?>
+                                <?php em_system_email_table(__('Store Emails', 'email-manager'), function() use ($gdc_store_emails) {
+                                    foreach ($gdc_store_emails as $email) {
+                                        $subject = $email->get_option('subject', '');
+                                        if (empty($subject) && method_exists($email, 'get_default_subject')) {
+                                            try { $subject = $email->get_default_subject(); } catch (Exception $e) { $subject = ''; }
+                                        }
+                                        $heading = $email->get_option('heading', '');
+                                        if (empty($heading) && method_exists($email, 'get_default_heading')) {
+                                            try { $heading = $email->get_default_heading(); } catch (Exception $e) { $heading = ''; }
+                                        }
+                                        // Use saved override HTML if it exists; otherwise send empty so JS fetches the render
+                                        $override_key = defined('EM_WC_OVERRIDE_PREFIX') ? EM_WC_OVERRIDE_PREFIX . $email->id : 'em_wc_email_override_' . $email->id;
+                                        $body = get_option($override_key, '');
+                                        if ($body === '' && method_exists($email, 'get_default_additional_content')) {
+                                            // Provide default additional_content as a hint but JS will fetch full render
+                                            try { $body = $email->get_default_additional_content(); } catch (Exception $e) { $body = ''; }
+                                        }
+                                        $em_is_customer_email    = (strpos($email->id, 'customer_') === 0);
+                                        $em_raw_recip            = $email->get_recipient();
+                                        $em_display_recip        = $em_is_customer_email
+                                            ? __('Customer', 'email-manager')
+                                            : ($em_raw_recip ?: get_option('admin_email'));
+                                        em_render_system_email_row(
+                                            $email->get_title(),
+                                            $email->get_description(),
+                                            $em_display_recip,
+                                            $email->is_enabled(),
+                                            array(
+                                                'section'          => 'store',
+                                                'id'               => $email->id,
+                                                'label'            => $email->get_title(),
+                                                'subject'          => $subject,
+                                                'preheader'        => $heading,
+                                                'html'             => $body,
+                                                'send_to_customer' => $em_is_customer_email,
+                                                'wc_recipient'     => $em_display_recip,
+                                                'is_enabled'       => $email->is_enabled(),
+                                                'tokens'           => function_exists('em_wc_all_tokens') ? em_wc_all_tokens() : (function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array()),
+                                            )
+                                        );
+                                    }
+                                }); ?>
+                            <?php endif; ?>
+
+                            <?php // --- Social Network / BuddyPress Emails --- ?>
+                            <?php if (!empty($gdc_bp_emails)): ?>
+                                <?php em_system_email_table(__('Social Network Emails', 'email-manager'), function() use ($gdc_bp_emails) {
+                                    foreach ($gdc_bp_emails as $e) {
+                                        em_render_system_email_row($e['title'], $e['description'], $e['recipient'], true, array(
+                                            'section'     => 'community',
+                                            'id'          => $e['id'],
+                                            'label'       => $e['title'],
+                                            'subject'     => $e['subject'],
+                                            'preheader'   => $e['subject'],
+                                            'description' => $e['description'],
+                                            'html'        => isset($e['html']) ? $e['html'] : '',
+                                            'is_enabled'  => true,
+                                            'tokens'      => array(
+                                                '{{sender.name}}', '{{sender.username}}',
+                                                '{{recipient.name}}', '{{recipient.username}}',
+                                                '{{site.name}}', '{{site.url}}',
+                                                '{{group.name}}', '{{group.url}}',
+                                                '{{activity.content}}', '{{comment.content}}',
+                                                '{{thread.subject}}', '{{message.content}}',
+                                                '{{friendship.initiator.name}}',
+                                            ),
+                                        ));
+                                    }
+                                }); ?>
+                            <?php endif; ?>
+                        </div>
                         <!-- Inline Script for Subtabs -->
                         <script>
                             jQuery(document).ready(function ($) {
@@ -571,113 +714,11 @@ function em_render_email_manager_page()
                         </script>
                     </section>
 
-                    <!-- Proposals Tab -->
-                    <section class="gdc-sub-tabpanel" data-panel="proposals" hidden>
-                        <?php
-                        $gdc_proposal_rows    = array();
-                        $saved_proposal_emails = get_option('em_proposal_emails', array());
-                        if (is_array($saved_proposal_emails)) {
-                            foreach ($saved_proposal_emails as $saved_email) {
-                                $gdc_proposal_rows[] = array(
-                                    'type'       => __('Proposal Email', 'email-manager'),
-                                    'type_slug'  => 'proposals',
-                                    'trigger'    => isset($saved_email['trigger']) ? $saved_email['trigger'] : __('Proposal Sent', 'email-manager'),
-                                    'status'     => isset($saved_email['status']) ? ucfirst($saved_email['status']) : __('Draft', 'email-manager'),
-                                    'edit_title' => __('Edit Email', 'email-manager'),
-                                    'email_data' => array(
-                                        '_id'        => $saved_email['id'],
-                                        'section'    => 'proposals',
-                                        'label'      => isset($saved_email['label'])     ? $saved_email['label']     : __('Proposal Email', 'email-manager'),
-                                        'trigger'    => isset($saved_email['trigger'])   ? $saved_email['trigger']   : __('Proposal Sent', 'email-manager'),
-                                        'status'     => isset($saved_email['status'])    ? $saved_email['status']    : 'draft',
-                                        'subject'    => isset($saved_email['subject'])   ? $saved_email['subject']   : '',
-                                        'preheader'  => isset($saved_email['preheader']) ? $saved_email['preheader'] : '',
-                                        'html'       => isset($saved_email['html'])      ? $saved_email['html']      : '',
-                                        'description'=> '',
-                                    ),
-                                );
-                            }
-                        }
-                        ?>
-                        <div class="gdc-email-panel">
-                            <div class="gdc-email-panel__header">
-                                <div>
-                                    <h3>
-                                        <?php esc_html_e('Proposal Emails', 'email-manager'); ?>
-                                    </h3>
-                                    <p class="description" style="margin-top: 5px;">
-                                        <?php esc_html_e('Custom email templates assigned to proposals.', 'email-manager'); ?>
-                                    </p>
-                                </div>
-                                <button type="button" id="gdc-email-add-proposal" class="button button-primary">
-                                    <span class="dashicons dashicons-plus-alt" style="margin-top: 3px;"></span>
-                                    <?php esc_html_e('Add New Email', 'email-manager'); ?>
-                                </button>
-                            </div>
-                            <div class="gdc-table-wrap">
-                                <table class="widefat striped">
-                                    <thead>
-                                        <tr>
-                                            <th>
-                                                <?php esc_html_e('Campaign Name', 'email-manager'); ?>
-                                            </th>
-                                            <th>
-                                                <?php esc_html_e('Trigger', 'email-manager'); ?>
-                                            </th>
-                                            <th>
-                                                <?php esc_html_e('Status', 'email-manager'); ?>
-                                            </th>
-                                            <th>
-                                                <?php esc_html_e('Actions', 'email-manager'); ?>
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php if (empty($gdc_proposal_rows)): ?>
-                                            <tr>
-                                                <td colspan="4" style="text-align:center; color:#888; padding:20px;">
-                                                    <?php esc_html_e('No proposal emails yet. Click "Add New Email" to create one.', 'email-manager'); ?>
-                                                </td>
-                                            </tr>
-                                        <?php else: ?>
-                                            <?php foreach ($gdc_proposal_rows as $row): ?>
-                                                <tr data-email-id="<?php echo esc_attr($row['email_data']['_id']); ?>">
-                                                    <td><strong>
-                                                            <?php echo esc_html($row['email_data']['label']); ?>
-                                                        </strong></td>
-                                                    <td>
-                                                        <?php echo esc_html($row['trigger']); ?>
-                                                    </td>
-                                                    <td>
-                                                        <span class="gdc-status-badge gdc-status-<?php echo esc_attr(strtolower($row['status'])); ?>">
-                                                            <?php echo esc_html($row['status']); ?>
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <button type="button" class="button button-small gdc-email-open-editor"
-                                                            data-email-section="<?php echo esc_attr($row['type_slug']); ?>"
-                                                            data-edit-title="<?php echo esc_attr($row['edit_title']); ?>"
-                                                            data-email='<?php echo esc_attr(wp_json_encode($row['email_data'])); ?>'>
-                                                            <?php esc_html_e('Edit', 'email-manager'); ?>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        <?php endif; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </section>
-
                     <!-- Forms Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="forms" hidden>
                         <div class="gdc-subtabs">
                             <button type="button" class="gdc-subtab active" data-subtab="basic-forms">
                                 <?php esc_html_e('Forms', 'email-manager'); ?>
-                            </button>
-                            <button type="button" class="gdc-subtab" data-subtab="chat-forms">
-                                <?php esc_html_e('Chat Forms', 'email-manager'); ?>
                             </button>
                             <button type="button" class="gdc-subtab" data-subtab="submissions">
                                 <?php esc_html_e('Submissions', 'email-manager'); ?>
@@ -728,58 +769,6 @@ function em_render_email_manager_page()
                                                 <tr>
                                                     <td colspan="4"><?php esc_html_e('No forms found.', 'email-manager'); ?>
                                                     </td>
-                                                </tr>
-                                            <?php endif; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Chat Forms Subtab -->
-                        <div class="gdc-subtab-panel" data-subpanel="chat-forms" hidden>
-                            <div class="gdc-email-panel">
-                                <div class="gdc-email-panel__header">
-                                    <h3><?php esc_html_e('Conversational Chat Forms', 'email-manager'); ?></h3>
-                                    <a href="<?php echo admin_url('post-new.php?post_type=chat_form'); ?>"
-                                        class="button button-primary">
-                                        <span class="dashicons dashicons-plus-alt" style="margin-top: 3px;"></span>
-                                        <?php esc_html_e('Create Chat Form', 'email-manager'); ?>
-                                    </a>
-                                </div>
-                                <div class="gdc-table-wrap">
-                                    <table class="widefat striped">
-                                        <thead>
-                                            <tr>
-                                                <th><?php esc_html_e('Title', 'email-manager'); ?></th>
-                                                <th><?php esc_html_e('Shortcode', 'email-manager'); ?></th>
-                                                <th><?php esc_html_e('Date', 'email-manager'); ?></th>
-                                                <th><?php esc_html_e('Actions', 'email-manager'); ?></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php
-                                            $chat_forms = get_posts(array('post_type' => 'chat_form', 'numberposts' => -1, 'post_status' => 'publish,draft'));
-                                            if ($chat_forms):
-                                                foreach ($chat_forms as $post): ?>
-                                                    <tr>
-                                                        <td><strong><?php echo esc_html($post->post_title); ?></strong></td>
-                                                        <td><input type="text" readonly
-                                                                value="[chat_form id='<?php echo esc_attr($post->ID); ?>']"
-                                                                style="width:100%;" onclick="this.select();" /></td>
-                                                        <td><?php echo esc_html(get_the_date('', $post->ID)); ?></td>
-                                                        <td>
-                                                            <a href="<?php echo admin_url('post.php?post=' . $post->ID . '&action=edit'); ?>"
-                                                                class="button button-small">
-                                                                <?php esc_html_e('Edit', 'email-manager'); ?>
-                                                            </a>
-                                                        </td>
-                                                    </tr>
-                                                <?php endforeach;
-                                            else: ?>
-                                                <tr>
-                                                    <td colspan="4">
-                                                        <?php esc_html_e('No chat forms found.', 'email-manager'); ?></td>
                                                 </tr>
                                             <?php endif; ?>
                                         </tbody>
@@ -907,131 +896,121 @@ function em_render_email_manager_page()
                         </div>
                     </section>
 
-                    <!-- System Emails Tab -->
-                    <section class="gdc-sub-tabpanel" data-panel="system-emails" hidden>
+                    <!-- Chatflows Tab -->
+                    <section class="gdc-sub-tabpanel" data-panel="chatflows" hidden>
+                        <div class="em-app-tab">
+                            <div class="gdc-subtabs">
+                                <button type="button" class="gdc-subtab active" data-subtab="cf-personas" style="--em-i:0;">
+                                    <?php esc_html_e('Personas', 'email-manager'); ?>
+                                </button>
+                                <button type="button" class="gdc-subtab" data-subtab="cf-flows" style="--em-i:1;">
+                                    <?php esc_html_e('Flows', 'email-manager'); ?>
+                                </button>
+                                <button type="button" class="gdc-subtab" data-subtab="cf-chats" style="--em-i:2;">
+                                    <?php esc_html_e('Chats', 'email-manager'); ?>
+                                </button>
+                                <button type="button" class="gdc-subtab" data-subtab="cf-ai-integration" style="--em-i:3;">
+                                    <?php esc_html_e('AI Integration', 'email-manager'); ?>
+                                </button>
+                            </div>
 
-
-                        <?php // --- WordPress Core Emails --- ?>
-                        <?php em_system_email_table(__('Login & Account Emails', 'email-manager'), function() use ($gdc_wp_core_emails) {
-                            foreach ($gdc_wp_core_emails as $e) {
-                                $override_key = 'em_wc_email_override_' . $e['id'];
-                                $body = get_option($override_key, '');
-                                em_render_system_email_row($e['title'], $e['description'], $e['recipient'], true, array(
-                                    'section'     => 'store', // treated same as WC for render/save flow
-                                    'id'          => $e['id'],
-                                    'label'       => $e['title'],
-                                    'subject'     => $e['subject'],
-                                    'preheader'   => $e['title'],
-                                    'description' => $e['description'],
-                                    'html'        => $body,
-                                    'is_enabled'  => true,
-                                    'tokens'      => function_exists('em_wp_account_tokens') ? em_wp_account_tokens($e['id']) : array(),
-                                ));
-                            }
-                        }); ?>
-
-                        <?php // --- WooCommerce Store Emails --- ?>
-                        <?php if (!empty($gdc_store_emails)): ?>
-                            <?php em_system_email_table(__('Store Emails', 'email-manager'), function() use ($gdc_store_emails) {
-                                foreach ($gdc_store_emails as $email) {
-                                    $subject = $email->get_option('subject', '');
-                                    if (empty($subject) && method_exists($email, 'get_default_subject')) {
-                                        try { $subject = $email->get_default_subject(); } catch (Exception $e) { $subject = ''; }
-                                    }
-                                    $heading = $email->get_option('heading', '');
-                                    if (empty($heading) && method_exists($email, 'get_default_heading')) {
-                                        try { $heading = $email->get_default_heading(); } catch (Exception $e) { $heading = ''; }
-                                    }
-                                    // Use saved override HTML if it exists; otherwise send empty so JS fetches the render
-                                    $override_key = defined('EM_WC_OVERRIDE_PREFIX') ? EM_WC_OVERRIDE_PREFIX . $email->id : 'em_wc_email_override_' . $email->id;
-                                    $body = get_option($override_key, '');
-                                    if ($body === '' && method_exists($email, 'get_default_additional_content')) {
-                                        // Provide default additional_content as a hint but JS will fetch full render
-                                        try { $body = $email->get_default_additional_content(); } catch (Exception $e) { $body = ''; }
-                                    }
-                                    $em_is_customer_email    = (strpos($email->id, 'customer_') === 0);
-                                    $em_raw_recip            = $email->get_recipient();
-                                    $em_display_recip        = $em_is_customer_email
-                                        ? __('Customer', 'email-manager')
-                                        : ($em_raw_recip ?: get_option('admin_email'));
-                                    em_render_system_email_row(
-                                        $email->get_title(),
-                                        $email->get_description(),
-                                        $em_display_recip,
-                                        $email->is_enabled(),
-                                        array(
-                                            'section'          => 'store',
-                                            'id'               => $email->id,
-                                            'label'            => $email->get_title(),
-                                            'subject'          => $subject,
-                                            'preheader'        => $heading,
-                                            'html'             => $body,
-                                            'send_to_customer' => $em_is_customer_email,
-                                            'wc_recipient'     => $em_display_recip,
-                                            'is_enabled'       => $email->is_enabled(),
-                                            'tokens'           => function_exists('em_wc_all_tokens') ? em_wc_all_tokens() : (function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array()),
-                                        )
-                                    );
+                            <!-- Personas subtab -->
+                            <div class="gdc-subtab-panel" data-subpanel="cf-personas">
+                                <?php
+                                if (class_exists('EM_Personas')) {
+                                    EM_Personas::render();
                                 }
-                            }); ?>
-                        <?php endif; ?>
+                                ?>
+                            </div>
 
-                        <?php // --- Social Network / BuddyPress Emails --- ?>
-                        <?php if (!empty($gdc_bp_emails)): ?>
-                            <?php em_system_email_table(__('Social Network Emails', 'email-manager'), function() use ($gdc_bp_emails) {
-                                foreach ($gdc_bp_emails as $e) {
-                                    em_render_system_email_row($e['title'], $e['description'], $e['recipient'], true, array(
-                                        'section'     => 'community',
-                                        'id'          => $e['id'],
-                                        'label'       => $e['title'],
-                                        'subject'     => $e['subject'],
-                                        'preheader'   => $e['subject'],
-                                        'description' => $e['description'],
-                                        'html'        => isset($e['html']) ? $e['html'] : '',
-                                        'is_enabled'  => true,
-                                        'tokens'      => array(
-                                            '{{sender.name}}', '{{sender.username}}',
-                                            '{{recipient.name}}', '{{recipient.username}}',
-                                            '{{site.name}}', '{{site.url}}',
-                                            '{{group.name}}', '{{group.url}}',
-                                            '{{activity.content}}', '{{comment.content}}',
-                                            '{{thread.subject}}', '{{message.content}}',
-                                            '{{friendship.initiator.name}}',
-                                        ),
-                                    ));
+                            <!-- Flows subtab -->
+                            <div class="gdc-subtab-panel" data-subpanel="cf-flows" hidden>
+                                <div class="gdc-email-panel em-reveal" style="--em-i:0;">
+                                    <div class="gdc-email-panel__header">
+                                        <h3><?php esc_html_e('Chatflows', 'email-manager'); ?></h3>
+                                        <a href="<?php echo admin_url('post-new.php?post_type=chat_form'); ?>" class="button button-primary">
+                                            <span class="dashicons dashicons-plus-alt" style="margin-top: 3px;"></span>
+                                            <?php esc_html_e('Create Chatflow', 'email-manager'); ?>
+                                        </a>
+                                    </div>
+                                    <div class="gdc-table-wrap">
+                                        <table class="widefat striped">
+                                            <thead>
+                                                <tr>
+                                                    <th><?php esc_html_e('Title', 'email-manager'); ?></th>
+                                                    <th><?php esc_html_e('Shortcode', 'email-manager'); ?></th>
+                                                    <th><?php esc_html_e('Date', 'email-manager'); ?></th>
+                                                    <th><?php esc_html_e('Actions', 'email-manager'); ?></th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <?php
+                                                $chat_forms = get_posts(array('post_type' => 'chat_form', 'numberposts' => -1, 'post_status' => 'publish,draft'));
+                                                if ($chat_forms):
+                                                    foreach ($chat_forms as $i => $post): ?>
+                                                        <tr class="em-row" style="--em-i:<?php echo (int) $i; ?>;">
+                                                            <td><strong><?php echo esc_html($post->post_title); ?></strong></td>
+                                                            <td><input type="text" readonly
+                                                                    value="[chat_form id='<?php echo esc_attr($post->ID); ?>']"
+                                                                    style="width:100%;" onclick="this.select();" /></td>
+                                                            <td><?php echo esc_html(get_the_date('', $post->ID)); ?></td>
+                                                            <td>
+                                                                <a href="<?php echo admin_url('post.php?post=' . $post->ID . '&action=edit'); ?>"
+                                                                    class="button button-small">
+                                                                    <?php esc_html_e('Edit', 'email-manager'); ?>
+                                                                </a>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach;
+                                                else: ?>
+                                                    <tr>
+                                                        <td colspan="4"><?php esc_html_e('No chatflows found.', 'email-manager'); ?></td>
+                                                    </tr>
+                                                <?php endif; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Chats subtab -->
+                            <div class="gdc-subtab-panel" data-subpanel="cf-chats" hidden>
+                                <?php
+                                if (class_exists('EM_Chats')) {
+                                    EM_Chats::render();
                                 }
-                            }); ?>
-                        <?php endif; ?>
+                                ?>
+                            </div>
 
+                            <!-- AI Integration subtab -->
+                            <div class="gdc-subtab-panel" data-subpanel="cf-ai-integration" hidden>
+                                <?php
+                                if (class_exists('EM_Leo')) {
+                                    EM_Leo::render_settings_panel();
+                                }
+                                ?>
+                            </div>
+                        </div>
                     </section>
 
-                    <!-- App Template Tab -->
-                    <section class="gdc-sub-tabpanel" data-panel="app-template" hidden>
+                    <!-- Applications Tab -->
+                    <section class="gdc-sub-tabpanel" data-panel="applications" hidden>
                         <?php
-                        if (class_exists('EM_Email_Templates')) {
-                            $templates = new EM_Email_Templates();
-                            $templates->render();
+                        if (class_exists('EM_Applications')) {
+                            EM_Applications::render();
                         }
                         ?>
                     </section>
 
-                    <!-- Logs Tab -->
-                    <section class="gdc-sub-tabpanel" data-panel="logs" hidden>
+                    <!-- Support Tab -->
+                    <section class="gdc-sub-tabpanel" data-panel="support" hidden>
                         <?php
-                        if (class_exists('EM_Email_Logs')) {
-                            EM_Email_Logs::render_logs_tab();
+                        if (class_exists('EM_Support')) {
+                            EM_Support::render();
                         }
                         ?>
                     </section>
 
-                    <!-- Sending Settings Tab -->
-                    <section class="gdc-sub-tabpanel" data-panel="sending-settings" hidden>
-                        <?php
-                        if (class_exists('EM_Email_SMTP')) {
-                            EM_Email_SMTP::render_smtp_tab();
-                        }
-                        ?>
-                    </section>
                 </div> <!-- .gdc-tabpanels -->
             </div>
         </div>

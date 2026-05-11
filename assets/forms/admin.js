@@ -1,92 +1,7 @@
 jQuery(document).ready(function ($) {
 
-    // Preview Modal
-    $('#preview-form-btn').on('click', function () {
-        // Create modal if it doesn't exist
-        if ($('#chat-form-preview-modal').length === 0) {
-            $('body').append(`
-                <div id="chat-form-preview-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 100000; overflow: auto;">
-                    <div style="max-width: 600px; margin: 50px auto; position: relative;">
-                        <button id="close-preview-modal" style="position: absolute; top: 10px; right: 10px; background: white; border: none; border-radius: 50%; width: 40px; height: 40px; cursor: pointer; font-size: 24px; z-index: 10;">×</button>
-                        <div id="preview-container"></div>
-                    </div>
-                </div>
-            `);
-
-            $('#close-preview-modal, #chat-form-preview-modal').on('click', function (e) {
-                if (e.target === this) {
-                    $('#chat-form-preview-modal').fadeOut();
-                }
-            });
-        }
-
-        // Collect current form data
-        var questions = [];
-        $('.chat-form-question').each(function () {
-            var $q = $(this);
-            var questionData = {
-                text: $q.find('.question-text').val(),
-                type: $q.find('.question-type').val(),
-                options: []
-            };
-
-            // Collect options for multiple choice
-            if (questionData.type === 'multiple' || questionData.type === 'select') {
-                $q.find('.option-item').each(function () {
-                    var $opt = $(this);
-                    var label = $opt.find('.option-label').val();
-                    var value = $opt.find('.option-value').val();
-                    var image = $opt.find('.option-image-url').val();
-
-                    if (label || value) {
-                        questionData.options.push({
-                            label: label || value,
-                            value: value || label,
-                            image: image || ''
-                        });
-                    }
-                });
-            }
-
-            questions.push(questionData);
-        });
-
-        // Generate preview HTML
-        var previewHTML = `
-            <div class="chat-form-container" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; border-radius: 12px;">
-                <div class="chat-box" style="background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); border-radius: 12px; padding: 30px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); max-height: 500px; overflow-y: auto;">
-                    <div class="chat-messages">
-                        <h3 style="margin: 0 0 20px 0; color: #333; text-align: center;">Form Preview</h3>`;
-
-        questions.forEach(function (q, index) {
-            previewHTML += `
-                <div class="chat-message bot" style="background: #f0f0f0; padding: 15px; border-radius: 12px; margin-bottom: 15px;">
-                    <strong>Question ${index + 1}:</strong> ${q.text || 'Untitled Question'}
-                    <div style="margin-top: 10px; font-size: 12px; color: #666;">Type: ${q.type}</div>`;
-
-            if (q.options && q.options.length > 0) {
-                previewHTML += '<div style="margin-top: 10px;">';
-                q.options.forEach(function (opt) {
-                    previewHTML += `<div style="background: white; padding: 8px; margin: 5px 0; border-radius: 6px; border: 2px solid #667eea;">`;
-                    if (opt.image) {
-                        previewHTML += `<img src="${opt.image}" style="max-width: 100px; height: auto; margin-right: 10px; border-radius: 4px; vertical-align: middle;">`;
-                    }
-                    previewHTML += `${opt.label}</div>`;
-                });
-                previewHTML += '</div>';
-            }
-
-            previewHTML += '</div>';
-        });
-
-        previewHTML += `
-                    </div>
-                </div>
-            </div>`;
-
-        $('#preview-container').html(previewHTML);
-        $('#chat-form-preview-modal').fadeIn();
-    });
+    // Live preview is now handled by chat-widget-launcher.js (mounts the actual chat).
+    // The legacy static preview was removed in favour of testing the real flow.
 
     var questionTemplate = `
         <div class="chat-form-question">
@@ -103,12 +18,60 @@ jQuery(document).ready(function ($) {
                 <select name="chat_form_questions[INDEX][type]" class="question-type">
                     <option value="text">Text</option>
                     <option value="email">Email</option>
-                    <option value="tel">Telephone</option>
+                    <option value="telephone">Telephone</option>
                     <option value="multiple">Multiple Choice</option>
                     <option value="file">File Upload</option>
                     <option value="account_registration">Account Registration</option>
+                    <option value="info_block">📝 Info Block (no input)</option>
+                    <option value="prompt_response">🤖 Prompt Response (LEO AI)</option>
                 </select>
             </p>
+
+            <div class="info-block-editor" style="display:none;margin:10px 0;padding:12px;background:#fff8e6;border-left:4px solid #f0b429;border-radius:4px;">
+                <p style="margin:0 0 6px;"><strong>📝 Block content:</strong></p>
+                <small style="display:block;margin-bottom:8px;color:#666;">Visual + Text tabs let you write rich content or paste raw HTML.</small>
+                <textarea
+                    id="info_block_INDEX"
+                    name="chat_form_questions[INDEX][content]"
+                    class="info-block-content"
+                    rows="6"
+                    style="width:100%;"></textarea>
+            </div>
+
+            <div class="prompt-response-editor" style="display:none;margin:10px 0;padding:12px;background:#eef2ff;border-left:4px solid #6366f1;border-radius:4px;">
+                <p style="margin:0 0 6px;"><strong>🤖 Prompt template:</strong></p>
+                <small style="display:block;margin-bottom:8px;color:#666;">Sent to LEO AI when this step runs. Click a token below to insert it.</small>
+                <textarea name="chat_form_questions[INDEX][prompt]" rows="5" class="widefat prompt-response-template" style="font-family:monospace;font-size:12px;" placeholder="You are a helpful assistant. The user said: {previous}. Reply in a friendly, concise way."></textarea>
+                <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                    <button type="button" class="button button-small em-prompt-token" data-token="{previous}">{previous}</button>
+                    <button type="button" class="button button-small em-prompt-token" data-token="{answer:1}">{answer:1}</button>
+                    <button type="button" class="button button-small em-prompt-token" data-token="{question:1}">{question:1}</button>
+                    <button type="button" class="button button-small em-prompt-token" data-token="{site_name}">{site_name}</button>
+                    <button type="button" class="button button-small em-prompt-token" data-token="{site_url}">{site_url}</button>
+                    <button type="button" class="button button-small em-prompt-token" data-token="{user_email}">{user_email}</button>
+                    <button type="button" class="button button-small em-prompt-token" data-token="{user_name}">{user_name}</button>
+                </div>
+
+                <hr style="margin:14px 0 10px;border:0;border-top:1px solid #c7d2fe;" />
+                <p style="margin:0 0 6px;"><strong>💳 Who pays for this AI response?</strong></p>
+                <select name="chat_form_questions[INDEX][pays]" class="widefat prompt-response-pays">
+                    <option value="site">Site default (configured site token)</option>
+                    <option value="admin">My balance (the admin building this)</option>
+                    <option value="chat_user">Chat user (their own LEO balance)</option>
+                    <option value="member">Specific app member</option>
+                </select>
+                <div class="prompt-response-pays-member" style="display:none;margin-top:8px;">
+                    <small style="display:block;margin-bottom:4px;color:#666;">Member email — resolved to that WP user on save.</small>
+                    <input type="email" name="chat_form_questions[INDEX][pays_user_email]" class="widefat" placeholder="member@example.com" />
+                </div>
+                <div class="prompt-response-pays-admin" style="display:none;margin-top:8px;padding:10px;background:#fff;border:1px solid #c7d2fe;border-radius:6px;">
+                    <span class="em-leo-admin-status" style="font-size:12px;color:#666;">Checking your LEO connection…</span>
+                </div>
+                <div class="prompt-response-pays-chat-user" style="display:none;margin-top:8px;font-size:11px;color:#475569;">
+                    A balance bar will appear at the top of the chat asking the user to log in with their LEO account before this prompt runs.
+                </div>
+            </div>
+
             <div class="options-manager" style="display:none;">
                 <label>Options:</label>
                 <div class="options-container"></div>
@@ -133,12 +96,19 @@ jQuery(document).ready(function ($) {
     `;
 
     var optionTemplate = `
-        <div class="option-item">
-            <input type="text" name="chat_form_questions[QINDEX][options][OINDEX][label]" placeholder="Label (e.g., Red)" class="option-label" />
-            <input type="text" name="chat_form_questions[QINDEX][options][OINDEX][value]" placeholder="Value (e.g., red)" class="option-value" />
-            <input type="hidden" name="chat_form_questions[QINDEX][options][OINDEX][image]" class="option-image-url" />
-            <button type="button" class="button upload-image-btn">📷 Add Image</button>
-            <button type="button" class="remove-option">Remove</button>
+        <div class="option-item" style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:8px;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="text" name="chat_form_questions[QINDEX][options][OINDEX][label]" placeholder="Label (e.g., Red)" class="option-label" />
+                <input type="text" name="chat_form_questions[QINDEX][options][OINDEX][value]" placeholder="Value (e.g., red)" class="option-value" />
+                <input type="hidden" name="chat_form_questions[QINDEX][options][OINDEX][image]" class="option-image-url" />
+                <button type="button" class="button upload-image-btn">📷 Add Image</button>
+                <button type="button" class="button option-toggle-response" title="Configure branching response">💬 Response</button>
+                <button type="button" class="remove-option">Remove</button>
+            </div>
+            <div class="option-response-wrap" style="display:none;margin-top:8px;padding:10px;background:#f0f5ff;border-radius:4px;">
+                <small style="display:block;margin-bottom:4px;color:#666;">📨 Reply shown when this option is picked (HTML allowed):</small>
+                <textarea name="chat_form_questions[QINDEX][options][OINDEX][response_html]" rows="3" class="widefat option-response-html" placeholder="Great choice! Here's what happens next…"></textarea>
+            </div>
         </div>
     `;
 
@@ -335,11 +305,55 @@ jQuery(document).ready(function ($) {
         });
     });
 
-    $('#add-question').on('click', function () {
+    function appendNewQuestion(presetType) {
         var currentCount = $('.chat-form-question').length;
+        var $container = $('#chat-forms-questions-container');
         var newQuestionHtml = questionTemplate.replace(/INDEX/g, currentCount);
-        $('#chat-forms-questions-container').append(newQuestionHtml);
+        $container.append(newQuestionHtml);
+
+        var $added = $container.children('.chat-form-question').last();
+        if (presetType) {
+            // Triggering 'change' lets the type-change handler do all needed setup
+            // (showing the right pane + initializing TinyMCE for info_block).
+            $added.find('.question-type').val(presetType).trigger('change');
+        }
+
         updateQuestionNumbers();
+        return $added;
+    }
+
+    function initInfoBlockEditor($question, index) {
+        var editorId = 'info_block_' + index;
+        if (!window.wp || !wp.editor || !wp.editor.initialize) return;
+        // Already initialized as a TinyMCE instance — bail.
+        if (window.tinymce && tinymce.get(editorId)) return;
+        // wp_editor() server-side rendering already produced a wrapper — bail.
+        if (document.getElementById('wp-' + editorId + '-wrap')) return;
+        // The textarea needs to exist with the right id
+        if (!document.getElementById(editorId)) {
+            $question.find('textarea.info-block-content').attr('id', editorId).attr('name', 'chat_form_questions[' + index + '][content]');
+        }
+        wp.editor.initialize(editorId, {
+            tinymce: {
+                wpautop: true,
+                toolbar1: 'formatselect,bold,italic,bullist,numlist,blockquote,alignleft,aligncenter,alignright,link,unlink,wp_more,fullscreen,wp_adv',
+                toolbar2: 'strikethrough,hr,forecolor,pastetext,removeformat,charmap,outdent,indent,undo,redo,wp_help'
+            },
+            quicktags: true,
+            mediaButtons: true
+        });
+    }
+
+    $('#add-question').on('click', function () {
+        appendNewQuestion();
+    });
+
+    // Shortcut buttons — explicit entry points for the new types
+    $(document).on('click', '#add-content-block', function () {
+        appendNewQuestion('info_block');
+    });
+    $(document).on('click', '#add-ai-prompt', function () {
+        appendNewQuestion('prompt_response');
     });
 
     // Remove question
@@ -372,8 +386,11 @@ jQuery(document).ready(function ($) {
     $(document).on('change', '.question-type', function () {
         var $question = $(this).closest('.chat-form-question');
         var $optionsManager = $question.find('.options-manager');
+        var $infoBlock = $question.find('.info-block-editor');
+        var $promptResponse = $question.find('.prompt-response-editor');
+        var val = $(this).val();
 
-        if ($(this).val() === 'select' || $(this).val() === 'multiple') {
+        if (val === 'select' || val === 'multiple') {
             $optionsManager.show();
             if ($optionsManager.find('.option-item').length === 0) {
                 addOptionToQuestion($question);
@@ -381,6 +398,137 @@ jQuery(document).ready(function ($) {
         } else {
             $optionsManager.hide();
         }
+        $infoBlock.toggle(val === 'info_block');
+        $promptResponse.toggle(val === 'prompt_response');
+
+        // Lazily initialize TinyMCE when a question is switched to Info Block
+        if (val === 'info_block') {
+            initInfoBlockEditor($question, $question.index());
+        }
+    });
+
+    // Toggle per-option branching response editor
+    $(document).on('click', '.option-toggle-response', function () {
+        var $wrap = $(this).closest('.option-item').find('.option-response-wrap');
+        $wrap.toggle();
+    });
+
+    // Toggle the per-mode info/edit panels when payer mode changes
+    $(document).on('change', '.prompt-response-pays', function () {
+        var val = $(this).val();
+        var $editor = $(this).closest('.prompt-response-editor');
+        $editor.find('.prompt-response-pays-member').toggle(val === 'member');
+        $editor.find('.prompt-response-pays-admin').toggle(val === 'admin');
+        $editor.find('.prompt-response-pays-chat-user').toggle(val === 'chat_user');
+        if (val === 'admin') {
+            renderAdminLeoStatus($editor.find('.em-leo-admin-status'));
+        }
+    });
+
+    // Render admin's LEO connection status + Connect button (shared across all
+    // prompt_response editors on the page).
+    function renderAdminLeoStatus($el) {
+        if (!$el || !$el.length || !window.wpApiSettings) {
+            // Fall back to the REST URL we know
+        }
+        var statusUrl = (window.emLeoConfig && emLeoConfig.statusUrl) || '/wp-json/em/v1/oauth/status';
+        $.get(statusUrl).done(function (s) {
+            if (!s || !s.configured) {
+                $el.html('<span style="color:#b45309;">⚠️ The site\'s OAuth Client ID is not set yet. Configure it in Email Manager → AI Integration.</span>');
+                return;
+            }
+            if (s.connected) {
+                $el.html('<span style="color:#15803d;font-weight:600;">✅ Your LEO account is connected.</span> <button type="button" class="button em-leo-disconnect-inline" style="margin-left:8px;">Disconnect</button>');
+            } else {
+                $el.html('<span style="color:#b45309;">Your account isn\'t connected yet.</span> <button type="button" class="button button-primary em-leo-connect-inline" style="margin-left:8px;">🔗 Connect to gend.me</button>');
+            }
+        });
+    }
+
+    // Reusable OAuth popup launcher
+    window.emLeoStartOAuth = function () {
+        var cfg = window.emLeoConfig || {};
+        if (!cfg.clientId) { alert('OAuth Client ID is not configured yet (Email Manager → AI Integration).'); return; }
+        var hub = cfg.hubUrl || 'https://gend.me';
+        var redirectUri = 'https://gend.me/oauth-bridge/';
+        var b64url = function (bytes) {
+            var s = ''; bytes.forEach(function (b) { s += String.fromCharCode(b); });
+            return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        };
+        var stBytes = new Uint8Array(32); crypto.getRandomValues(stBytes);
+        var vBytes  = new Uint8Array(32); crypto.getRandomValues(vBytes);
+        var state = b64url(stBytes);
+        var verifier = b64url(vBytes);
+        crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)).then(function (digest) {
+            var challenge = b64url(new Uint8Array(digest));
+            try { sessionStorage.setItem('em_leo_oauth_attempt', JSON.stringify({ state: state, codeVerifier: verifier, ts: Date.now() })); }
+            catch (e) { alert('Session storage unavailable.'); return; }
+            var params = new URLSearchParams({
+                client_id: cfg.clientId,
+                response_type: 'code',
+                redirect_uri: redirectUri,
+                state: state,
+                code_challenge: challenge,
+                code_challenge_method: 'S256'
+            });
+            var authorizeUrl = hub + '/oauth/authorize?' + params.toString();
+            var w = 600, h = 700;
+            var l = (window.innerWidth / 2) - w / 2;
+            var t = (window.innerHeight / 2) - h / 2;
+            var win = window.open(authorizeUrl, 'GenDLogin', 'width=' + w + ',height=' + h + ',left=' + l + ',top=' + t);
+            var hubOrigin = new URL(hub).origin;
+            var onMsg = function (ev) {
+                if (ev.origin !== hubOrigin) return;
+                var d = ev.data || {};
+                if (d.type !== 'gdc-auth' || !d.code) return;
+                window.removeEventListener('message', onMsg);
+                if (win) try { win.close(); } catch(_) {}
+                var attempt = {};
+                try { attempt = JSON.parse(sessionStorage.getItem('em_leo_oauth_attempt') || '{}'); } catch(_){}
+                sessionStorage.removeItem('em_leo_oauth_attempt');
+                if (!attempt.state || attempt.state !== d.state) { alert('Login aborted: state mismatch.'); return; }
+                $.ajax({
+                    url: cfg.exchangeUrl || '/wp-json/em/v1/oauth/exchange',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ code: d.code, redirect_uri: redirectUri, code_verifier: attempt.codeVerifier, state: d.state })
+                }).done(function () {
+                    // Refresh any visible admin-status spans
+                    $('.em-leo-admin-status').each(function () { renderAdminLeoStatus($(this)); });
+                }).fail(function (x) { alert('Exchange failed: ' + ((x.responseJSON && x.responseJSON.message) || x.statusText)); });
+            };
+            window.addEventListener('message', onMsg);
+        });
+    };
+
+    $(document).on('click', '.em-leo-connect-inline', function () { window.emLeoStartOAuth(); });
+    $(document).on('click', '.em-leo-disconnect-inline', function () {
+        var cfg = window.emLeoConfig || {};
+        $.post(cfg.revokeUrl || '/wp-json/em/v1/oauth/revoke').done(function () {
+            $('.em-leo-admin-status').each(function () { renderAdminLeoStatus($(this)); });
+        });
+    });
+
+    // Initial render for any prompt_response editors loaded with pays=admin
+    $('.prompt-response-pays').each(function () {
+        if ($(this).val() === 'admin') {
+            renderAdminLeoStatus($(this).closest('.prompt-response-editor').find('.em-leo-admin-status'));
+        }
+    });
+
+    // Insert token at cursor in nearest prompt template textarea
+    $(document).on('click', '.em-prompt-token', function () {
+        var token = $(this).data('token') || '';
+        if (!token) return;
+        var $textarea = $(this).closest('.prompt-response-editor').find('.prompt-response-template');
+        if (!$textarea.length) return;
+        var el = $textarea[0];
+        var start = el.selectionStart || 0;
+        var end   = el.selectionEnd   || 0;
+        var val = el.value;
+        el.value = val.slice(0, start) + token + val.slice(end);
+        el.selectionStart = el.selectionEnd = start + token.length;
+        el.focus();
     });
 
     $(document).on('click', '.add-option-btn', function () {
