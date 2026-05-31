@@ -34,6 +34,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/email-rest-handlers.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-logs.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-smtp.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-webhook.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-threading.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/applications.php';
@@ -64,6 +65,9 @@ function em_activate_plugin()
     if (function_exists('em_inbox_maybe_create_tables')) {
         em_inbox_maybe_create_tables();
     }
+    if (function_exists('em_inbox_thread_maybe_create_tables')) {
+        em_inbox_thread_maybe_create_tables();
+    }
     if (function_exists('em_inbox_get_or_create_hmac_secret')) {
         em_inbox_get_or_create_hmac_secret();
     }
@@ -79,6 +83,9 @@ function em_admin_init()
     }
     if (function_exists('em_inbox_maybe_create_tables')) {
         em_inbox_maybe_create_tables();
+    }
+    if (function_exists('em_inbox_thread_maybe_create_tables')) {
+        em_inbox_thread_maybe_create_tables();
     }
 }
 

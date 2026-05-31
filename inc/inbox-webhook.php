@@ -175,8 +175,17 @@ function em_inbox_receive_handler(WP_REST_Request $request) {
         return new WP_Error('em_inbox_db_error', $wpdb->last_error ?: 'insert failed', array('status' => 500));
     }
 
+    $raw_id = (int) $wpdb->insert_id;
+
+    // Synchronous threading — zero-latency path. The cron fallback handles
+    // rows where this call fatally errors (PHP timeout, etc.); leaving
+    // processed=0 here is the recovery hook.
+    if (function_exists('em_inbox_thread_one')) {
+        em_inbox_thread_one($raw_id);
+    }
+
     return rest_ensure_response(array(
         'ok' => true,
-        'id' => (int) $wpdb->insert_id,
+        'id' => $raw_id,
     ));
 }
