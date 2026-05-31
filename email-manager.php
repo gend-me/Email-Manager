@@ -36,6 +36,8 @@ require_once EMAIL_MANAGER_PATH . 'inc/email-smtp.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-webhook.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-threading.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-attachments.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-rest-list.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-admin.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/applications.php';

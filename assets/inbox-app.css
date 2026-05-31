@@ -1,0 +1,106 @@
+/* Member Inbox — slice 2c styles. Two-pane layout: thread feed left,
+ * thread reader right. @wordpress/components provides the buttons /
+ * cards / notices; this file only handles the layout + minor density
+ * tweaks so the inbox feels at home inside wp-admin.
+ */
+
+.em-inbox-wrap { max-width: 1400px; }
+
+.em-inbox-toolbar {
+    margin-bottom: 16px;
+    max-width: 480px;
+}
+
+.em-inbox-body {
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) 1fr;
+    gap: 16px;
+    min-height: 600px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+}
+
+.em-inbox-feed {
+    border-right: 1px solid #f0f0f1;
+    overflow-y: auto;
+    max-height: 75vh;
+}
+.em-inbox-feed-header {
+    padding: 12px 16px;
+    font-weight: 600;
+    color: #50575e;
+    border-bottom: 1px solid #f0f0f1;
+    background: #f6f7f7;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.em-inbox-thread-list {
+    margin: 0;
+    list-style: none;
+    padding: 0;
+}
+.em-inbox-thread-row {
+    padding: 10px 16px;
+    border-bottom: 1px solid #f0f0f1;
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+.em-inbox-thread-row:hover { background-color: #f6f7f7; }
+.em-inbox-thread-row.is-open { background-color: #e8f0fe; }
+.em-inbox-thread-sender { font-weight: 600; font-size: 13px; color: #1d2327; }
+.em-inbox-thread-subject {
+    font-size: 13px;
+    color: #2c3338;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+.em-inbox-thread-meta { font-size: 11px; color: #646970; margin-top: 4px; }
+.em-inbox-empty { padding: 16px; color: #646970; font-style: italic; }
+
+.em-inbox-thread {
+    padding: 16px;
+    overflow-y: auto;
+    max-height: 75vh;
+}
+.em-inbox-thread-header { margin-bottom: 16px; }
+.em-inbox-thread-header h2 { margin: 8px 0 4px; font-size: 18px; }
+.em-inbox-thread-inbox { color: #646970; font-size: 12px; margin: 0; }
+
+.em-inbox-messages > * + * { margin-top: 12px; }
+
+.em-inbox-message-from { font-weight: 600; font-size: 13px; }
+.em-inbox-message-date { font-size: 12px; color: #646970; }
+
+.em-inbox-message-body { font-size: 14px; line-height: 1.5; }
+.em-inbox-message-body img { max-width: 100%; height: auto; }
+
+.em-inbox-message-plain {
+    margin: 0;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    background: transparent;
+}
+
+.em-inbox-attachments {
+    margin: 16px 0 0;
+    padding: 12px;
+    background: #f6f7f7;
+    border-radius: 4px;
+    list-style: none;
+}
+.em-inbox-attachments li { padding: 4px 0; font-size: 13px; }
+.em-inbox-att-meta { color: #646970; margin-left: 8px; font-size: 12px; }
+
+.em-inbox-pane-placeholder {
+    padding: 32px;
+    color: #646970;
+    font-style: italic;
+    text-align: center;
+    align-self: center;
+}
