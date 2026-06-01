@@ -88,7 +88,13 @@
         }
 
         var inboxOptions = inboxes.map(function (r) {
-            return { value: r.inbox_address, label: r.inbox_address + ' (' + r.thread_count + ')' };
+            var label = r.inbox_address;
+            if (r.unread_count !== null && r.unread_count !== undefined && Number(r.unread_count) > 0) {
+                label += ' · ' + r.unread_count + ' unread';
+            } else {
+                label += ' (' + r.thread_count + ')';
+            }
+            return { value: r.inbox_address, label: label };
         });
 
         return html`
@@ -124,6 +130,9 @@
                             subject: thread.subject_first ? ('Re: ' + thread.subject_first.replace(/^\s*Re:\s*/i, '')) : '',
                         });
                     }}
+                    onArchived=${function () { setOpenThreadId(null); bumpTick(tick + 1); }}
+                    onMarkedUnread=${function () { setOpenThreadId(null); bumpTick(tick + 1); }}
+                    onLoaded=${function () { bumpTick(tick + 1); }}
                     refreshKey=${tick} />`
                 : html`<div class="em-inbox-pane-placeholder">Select a thread to read.</div>`}
             </div>
@@ -197,41 +206,63 @@
     }
 
     function FeedView(props) {
-        var st = useState({ loading: true, items: [], total: 0, page: 1, err: null });
+        var st = useState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
         var state = st[0], setState = st[1];
+        var filterState = useState('all'); var filter = filterState[0], setFilter = filterState[1];
         var inbox = props.inbox;
 
         useEffect(function () {
             if (!inbox) return;
-            setState({ loading: true, items: [], total: 0, page: 1, err: null });
-            restGet('threads?inbox=' + encodeURIComponent(inbox) + '&per_page=50')
-                .then(function (data) { setState({ loading: false, items: data.items || [], total: data.total, page: data.page, err: null }); })
-                .catch(function (e) { setState({ loading: false, items: [], total: 0, page: 1, err: e.message || 'Failed to load threads' }); });
-        }, [inbox, props.refreshKey]);
+            setState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
+            var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=50';
+            if (filter === 'unread')   q += '&unread=1';
+            if (filter === 'archived') q += '&archived=1';
+            restGet(q)
+                .then(function (data) { setState({ loading: false, items: data.items || [], total: data.total, page: data.page, err: null, counts: data.counts || null }); })
+                .catch(function (e) { setState({ loading: false, items: [], total: 0, page: 1, err: e.message || 'Failed to load threads', counts: null }); });
+        }, [inbox, filter, props.refreshKey]);
 
         if (state.loading) return html`<aside class="em-inbox-feed"><${Spinner} /></aside>`;
         if (state.err)     return html`<aside class="em-inbox-feed"><${Notice} status="error" isDismissible=${false}>${state.err}<//></aside>`;
-        if (!state.items.length) return html`<aside class="em-inbox-feed"><p class="em-inbox-empty">No threads yet.</p></aside>`;
+
+        var counts = state.counts || {};
+        var btn = function (key, label) {
+            return html`<button
+                type="button"
+                class="em-inbox-filter ${filter === key ? 'is-active' : ''}"
+                onClick=${function () { setFilter(key); }}>${label}</button>`;
+        };
 
         return html`
           <aside class="em-inbox-feed">
-            <header class="em-inbox-feed-header">${state.total} thread${state.total === 1 ? '' : 's'}</header>
-            <ul class="em-inbox-thread-list">
-              ${state.items.map(function (t) {
-                  var open = props.openThreadId === Number(t.id) || props.openThreadId === t.id;
-                  return html`
-                    <li
-                      key=${t.id}
-                      class="em-inbox-thread-row${open ? ' is-open' : ''}"
-                      onClick=${function () { props.onOpenThread(Number(t.id)); }}
-                    >
-                      <div class="em-inbox-thread-sender">${t.last_sender || '(no sender)'}</div>
-                      <div class="em-inbox-thread-subject">${t.subject_first || '(no subject)'}</div>
-                      <div class="em-inbox-thread-meta">${t.message_count} msg · ${formatDate(t.updated_at)}</div>
-                    </li>
-                  `;
-              })}
-            </ul>
+            <header class="em-inbox-feed-header">
+              <div class="em-inbox-filters">
+                ${btn('all',      'All' + (counts.total != null ? ' · ' + counts.total : ''))}
+                ${btn('unread',   'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
+                ${btn('archived', 'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
+              </div>
+            </header>
+            ${state.items.length === 0
+              ? html`<p class="em-inbox-empty">No threads ${filter === 'all' ? 'yet' : 'in ' + filter}.</p>`
+              : html`
+                <ul class="em-inbox-thread-list">
+                  ${state.items.map(function (t) {
+                      var open   = props.openThreadId === Number(t.id) || props.openThreadId === t.id;
+                      var unread = Number(t.is_read) === 0;
+                      return html`
+                        <li
+                          key=${t.id}
+                          class="em-inbox-thread-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}"
+                          onClick=${function () { props.onOpenThread(Number(t.id)); }}
+                        >
+                          <div class="em-inbox-thread-sender">${t.last_sender || '(no sender)'}</div>
+                          <div class="em-inbox-thread-subject">${t.subject_first || '(no subject)'}</div>
+                          <div class="em-inbox-thread-meta">${t.message_count} msg · ${formatDate(t.updated_at)}</div>
+                        </li>
+                      `;
+                  })}
+                </ul>
+              `}
           </aside>
         `;
     }
@@ -243,7 +274,13 @@
         useEffect(function () {
             setState({ loading: true, thread: null, messages: [], err: null });
             restGet('threads/' + props.threadId)
-                .then(function (data) { setState({ loading: false, thread: data.thread, messages: data.messages, err: null }); })
+                .then(function (data) {
+                    setState({ loading: false, thread: data.thread, messages: data.messages, err: null });
+                    // GET /threads/{id} implicitly marks the thread read
+                    // server-side for the owner — let App refresh the feed
+                    // so the bold-unread row clears.
+                    props.onLoaded && props.onLoaded();
+                })
                 .catch(function (e) { setState({ loading: false, thread: null, messages: [], err: e.message || 'Failed to load thread' }); });
         }, [props.threadId, props.refreshKey]);
 
@@ -267,7 +304,18 @@
               <${Button} variant="tertiary" onClick=${props.onBack}>← Back<//>
               <h2>${state.thread.subject_first || '(no subject)'}</h2>
               <p class="em-inbox-thread-inbox">to ${state.thread.inbox_address} · ${state.messages.length} message${state.messages.length === 1 ? '' : 's'}</p>
-              <${Button} variant="primary" onClick=${function () { props.onReply && props.onReply(state.thread, lastMsg); }}>Reply<//>
+              <div class="em-inbox-thread-actions">
+                <${Button} variant="primary" onClick=${function () { props.onReply && props.onReply(state.thread, lastMsg); }}>Reply<//>
+                <${Button} variant="secondary" onClick=${function () {
+                    var archived = Number(state.thread.is_archived) === 1;
+                    restPost('threads/' + state.thread.id + '/' + (archived ? 'unarchive' : 'archive'), {})
+                        .then(function () { props.onArchived && props.onArchived(); });
+                }}>${Number(state.thread.is_archived) === 1 ? 'Unarchive' : 'Archive'}<//>
+                <${Button} variant="tertiary" onClick=${function () {
+                    restPost('threads/' + state.thread.id + '/unread', {})
+                        .then(function () { props.onMarkedUnread && props.onMarkedUnread(); });
+                }}>Mark unread<//>
+              </div>
             </header>
             <div class="em-inbox-messages">
               ${state.messages.map(function (m, idx) {

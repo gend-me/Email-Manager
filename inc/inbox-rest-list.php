@@ -67,11 +67,30 @@ function em_inbox_user_can_read_inbox($inbox_address) {
 function em_inbox_list_inboxes(WP_REST_Request $request) {
     global $wpdb;
     $threads = $wpdb->prefix . 'gdc_inbox_threads';
+    $part    = $wpdb->prefix . 'gdc_inbox_participants';
+    $user    = wp_get_current_user();
+    $uid     = ($user && $user->ID) ? (int) $user->ID : 0;
+    // Per-row unread aggregate: only counts threads the current user
+    // hasn't read AND hasn't archived. Admins viewing other users'
+    // inboxes get NULL for unread (they're not the owner — no concept
+    // of "unread for the admin").
+    $unread_subquery = $uid > 0
+        ? $wpdb->prepare(
+            "(SELECT COUNT(*) FROM $threads t2
+              LEFT JOIN $part p2 ON p2.thread_id = t2.id AND p2.user_id = %d
+              WHERE t2.inbox_address = inbox_address
+                AND COALESCE(p2.is_read,1) = 0
+                AND COALESCE(p2.is_archived,0) = 0)",
+            $uid
+        )
+        : 'NULL';
 
     if (current_user_can('manage_options')) {
-        // Admin sees every inbox address with at least one thread.
         $rows = $wpdb->get_results(
-            "SELECT inbox_address, COUNT(*) AS thread_count, MAX(updated_at) AS last_received
+            "SELECT inbox_address,
+                    COUNT(*) AS thread_count,
+                    MAX(updated_at) AS last_received,
+                    $unread_subquery AS unread_count
              FROM $threads GROUP BY inbox_address ORDER BY last_received DESC",
             ARRAY_A
         );
@@ -91,7 +110,10 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
             $ph = implode(',', array_fill(0, count($candidates), '%s'));
             $sql_args = array_merge($candidates, array($u->ID));
             $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT inbox_address, COUNT(*) AS thread_count, MAX(updated_at) AS last_received
+                "SELECT inbox_address,
+                        COUNT(*) AS thread_count,
+                        MAX(updated_at) AS last_received,
+                        $unread_subquery AS unread_count
                  FROM $threads
                  WHERE inbox_address IN ($ph) OR owner_user_id = %d
                  GROUP BY inbox_address",
@@ -99,7 +121,10 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
             ), ARRAY_A);
         } else {
             $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT inbox_address, COUNT(*) AS thread_count, MAX(updated_at) AS last_received
+                "SELECT inbox_address,
+                        COUNT(*) AS thread_count,
+                        MAX(updated_at) AS last_received,
+                        $unread_subquery AS unread_count
                  FROM $threads WHERE owner_user_id = %d GROUP BY inbox_address",
                 $u->ID
             ), ARRAY_A);
@@ -138,26 +163,64 @@ function em_inbox_list_threads(WP_REST_Request $request) {
 
     $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $threads_table t $where");
 
-    // Single-table query for the feed (denormalized last_message_id keeps
-    // this a clean ORDER BY updated_at DESC). Pull the latest message's
-    // sender + subject inline so the feed row is self-contained.
+    // Filters: ?unread=1 or ?archived=1
+    $only_unread   = (int) $request->get_param('unread')   === 1;
+    $only_archived = (int) $request->get_param('archived') === 1;
+    $part_table    = $wpdb->prefix . 'gdc_inbox_participants';
+    $user          = wp_get_current_user();
+    $user_id       = ($user && $user->ID) ? (int) $user->ID : 0;
+
+    // Build optional WHERE additions for unread/archived filters.
+    $extra_where = '';
+    if ($user_id > 0 && $only_unread) {
+        $extra_where = $wpdb->prepare(' AND COALESCE(p.is_read, 0) = 0 AND COALESCE(p.is_archived, 0) = 0 ');
+    } elseif ($user_id > 0 && $only_archived) {
+        $extra_where = ' AND COALESCE(p.is_archived, 0) = 1 ';
+    } elseif ($user_id > 0) {
+        // Default: hide archived from the main feed.
+        $extra_where = ' AND COALESCE(p.is_archived, 0) = 0 ';
+    }
+
+    $part_join = $user_id > 0
+        ? $wpdb->prepare("LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = %d", $user_id)
+        : '';
+
     $sql = $wpdb->prepare(
         "SELECT t.id, t.inbox_address, t.subject_first, t.message_count, t.updated_at,
-                m.sender AS last_sender, m.subject AS last_subject, m.received_at AS last_received_at
+                m.sender AS last_sender, m.subject AS last_subject, m.received_at AS last_received_at,
+                COALESCE(p.is_read, 1)     AS is_read,
+                COALESCE(p.is_archived, 0) AS is_archived
          FROM $threads_table t
          LEFT JOIN $messages_table m ON m.id = t.last_message_id
-         $where
+         $part_join
+         $where $extra_where
          ORDER BY t.updated_at DESC
          LIMIT %d OFFSET %d",
         $per_page, $offset
     );
     $rows = $wpdb->get_results($sql, ARRAY_A);
 
+    // Per-inbox aggregate: unread + total counts for the current user.
+    $counts = array();
+    if ($user_id > 0 && $inbox !== '') {
+        $counts = $wpdb->get_row($wpdb->prepare(
+            "SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN COALESCE(p.is_read,1) = 0 AND COALESCE(p.is_archived,0) = 0 THEN 1 ELSE 0 END) AS unread,
+                SUM(CASE WHEN COALESCE(p.is_archived,0) = 1 THEN 1 ELSE 0 END) AS archived
+             FROM $threads_table t
+             LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = %d
+             WHERE t.inbox_address = %s",
+            $user_id, $inbox
+        ), ARRAY_A);
+    }
+
     return rest_ensure_response(array(
         'items'    => $rows ?: array(),
         'total'    => $total,
         'page'     => $page,
         'per_page' => $per_page,
+        'counts'   => $counts ?: null,
     ));
 }
 
@@ -178,6 +241,16 @@ function em_inbox_get_thread(WP_REST_Request $request) {
 
     if (! em_inbox_user_can_read_inbox($thread['inbox_address'])) {
         return new WP_Error('em_inbox_forbidden', 'Not authorized', array('status' => 403));
+    }
+
+    // Implicit mark-as-read on open. Only for the logged-in user; admins
+    // viewing someone else's inbox don't flip the owner's read flag.
+    $u = wp_get_current_user();
+    if ($u && $u->ID && function_exists('em_inbox_part_apply')) {
+        $owner_user_id = (int) $thread['owner_user_id'];
+        if ($owner_user_id === (int) $u->ID) {
+            em_inbox_part_apply((int) $thread['id'], (int) $u->ID, /*is_read=*/ true, /*is_archived=*/ null);
+        }
     }
 
     $messages = $wpdb->get_results($wpdb->prepare(

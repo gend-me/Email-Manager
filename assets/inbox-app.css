@@ -23,6 +23,33 @@
 
 .em-inbox-message.is-mine .em-inbox-message-from { color: #2271b1; }
 
+.em-inbox-filters { display: flex; gap: 0; }
+.em-inbox-filter {
+    background: transparent;
+    border: 1px solid #c3c4c7;
+    border-right: none;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    color: #2c3338;
+}
+.em-inbox-filter:first-child { border-radius: 3px 0 0 3px; }
+.em-inbox-filter:last-child  { border-radius: 0 3px 3px 0; border-right: 1px solid #c3c4c7; }
+.em-inbox-filter.is-active   { background: #2271b1; color: #fff; border-color: #2271b1; }
+
+.em-inbox-thread-row.is-unread .em-inbox-thread-sender,
+.em-inbox-thread-row.is-unread .em-inbox-thread-subject {
+    font-weight: 700;
+}
+.em-inbox-thread-row.is-unread { background: #fff; }
+.em-inbox-thread-row:not(.is-unread) .em-inbox-thread-sender,
+.em-inbox-thread-row:not(.is-unread) .em-inbox-thread-subject {
+    font-weight: 400;
+    color: #50575e;
+}
+
+.em-inbox-thread-actions { display: flex; gap: 6px; margin-top: 8px; }
+
 .em-inbox-body {
     display: grid;
     grid-template-columns: minmax(280px, 360px) 1fr;

@@ -41,6 +41,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/inbox-rest-list.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-admin.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-hub-registry.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-send.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-participants.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/applications.php';
