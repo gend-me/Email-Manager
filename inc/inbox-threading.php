@@ -180,6 +180,7 @@ function em_inbox_thread_one($raw_id) {
 
     $now = current_time('mysql', 1);
 
+    $thread_just_created = false;
     if (! $thread_id) {
         $wpdb->insert($threads_table, array(
             'inbox_address'   => $raw['recipient'],
@@ -191,6 +192,7 @@ function em_inbox_thread_one($raw_id) {
             'updated_at'      => $now,
         ), array('%s', '%s', '%d', '%d', '%d', '%s', '%s'));
         $thread_id = (int) $wpdb->insert_id;
+        $thread_just_created = true;
     }
 
     $inserted = $wpdb->insert($msg_table, array(
@@ -237,6 +239,12 @@ function em_inbox_thread_one($raw_id) {
 
     // Mark raw processed.
     $wpdb->update($raw_table, array('processed' => 1), array('id' => $raw_id), array('%d'), array('%d'));
+
+    // Notify listeners (slice 2e: user-provisioning stamps owner_user_id).
+    if ($thread_just_created) {
+        do_action('em_inbox_thread_created', $thread_id, $raw);
+    }
+    do_action('em_inbox_message_inserted', $msg_id, $thread_id, $raw);
 
     return $msg_id;
 }

@@ -51,6 +51,10 @@ add_action('rest_api_init', function () {
  * ------------------------------------------------------------------------- */
 
 function em_inbox_user_can_read_inbox($inbox_address) {
+    if (function_exists('em_inbox_current_user_can_read_address')) {
+        return em_inbox_current_user_can_read_address($inbox_address);
+    }
+    // 2c fallback if user-provisioning module not loaded.
     if (current_user_can('manage_options')) return true;
     $u = wp_get_current_user();
     return $u && $u->user_email && strcasecmp($u->user_email, $inbox_address) === 0;
@@ -72,14 +76,34 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
             ARRAY_A
         );
     } else {
+        // Non-admin: union of inboxes by owner_user_id stamp (post-2e) and
+        // the user's user_email + em_inbox_address (slice 2c fallback that
+        // still picks up legacy threads which never got stamped).
         $u = wp_get_current_user();
-        if (! $u || ! $u->user_email) return rest_ensure_response(array());
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT inbox_address, COUNT(*) AS thread_count, MAX(updated_at) AS last_received
-             FROM $threads WHERE inbox_address = %s
-             GROUP BY inbox_address",
-            $u->user_email
-        ), ARRAY_A);
+        if (! $u || $u->ID === 0) return rest_ensure_response(array());
+        $candidates = array();
+        if ($u->user_email) $candidates[] = $u->user_email;
+        $meta_addr = get_user_meta($u->ID, 'em_inbox_address', true);
+        if ($meta_addr) $candidates[] = $meta_addr;
+        $candidates = array_unique(array_filter($candidates));
+
+        if (! empty($candidates)) {
+            $ph = implode(',', array_fill(0, count($candidates), '%s'));
+            $sql_args = array_merge($candidates, array($u->ID));
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT inbox_address, COUNT(*) AS thread_count, MAX(updated_at) AS last_received
+                 FROM $threads
+                 WHERE inbox_address IN ($ph) OR owner_user_id = %d
+                 GROUP BY inbox_address",
+                ...$sql_args
+            ), ARRAY_A);
+        } else {
+            $rows = $wpdb->get_results($wpdb->prepare(
+                "SELECT inbox_address, COUNT(*) AS thread_count, MAX(updated_at) AS last_received
+                 FROM $threads WHERE owner_user_id = %d GROUP BY inbox_address",
+                $u->ID
+            ), ARRAY_A);
+        }
     }
     return rest_ensure_response($rows ?: array());
 }

@@ -89,12 +89,20 @@ function em_inbox_serve_attachment(WP_REST_Request $request) {
         $attachments_json = $raw ? $raw['attachments_json'] : null;
     }
 
-    // Access check: admin OR matching email.
-    $user = wp_get_current_user();
-    $is_admin = current_user_can('manage_options');
-    $is_owner = $user && $user->user_email && strcasecmp($user->user_email, $recipient) === 0;
-    if (! $is_admin && ! $is_owner) {
-        return new WP_Error('em_inbox_forbidden', 'Not authorized for this inbox', array('status' => 403));
+    // Access check — admin OR owner (by em_inbox_address user_meta)
+    // OR legacy email-match fallback. Routed through the shared helper
+    // so all surfaces share one policy.
+    if (function_exists('em_inbox_current_user_can_read_address')) {
+        if (! em_inbox_current_user_can_read_address($recipient)) {
+            return new WP_Error('em_inbox_forbidden', 'Not authorized for this inbox', array('status' => 403));
+        }
+    } else {
+        // 2b.2 fallback if user-provisioning module not loaded for any reason.
+        $user = wp_get_current_user();
+        if (! current_user_can('manage_options') &&
+            !($user && $user->user_email && strcasecmp($user->user_email, $recipient) === 0)) {
+            return new WP_Error('em_inbox_forbidden', 'Not authorized for this inbox', array('status' => 403));
+        }
     }
 
     $attachments = json_decode((string) $attachments_json, true);
