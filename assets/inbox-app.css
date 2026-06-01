@@ -8,8 +8,20 @@
 
 .em-inbox-toolbar {
     margin-bottom: 16px;
-    max-width: 480px;
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
 }
+.em-inbox-toolbar > div { flex: 0 1 360px; }
+
+.em-inbox-thread-header > .components-button { margin-right: 8px; }
+.em-inbox-thread-header h2 { margin: 8px 0 4px; font-size: 18px; }
+
+.em-inbox-composer-modal .components-modal__content { max-width: 720px; }
+.em-inbox-composer-from { margin: 0 0 12px; color: #50575e; font-size: 13px; }
+.em-inbox-composer-actions { margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; }
+
+.em-inbox-message.is-mine .em-inbox-message-from { color: #2271b1; }
 
 .em-inbox-body {
     display: grid;

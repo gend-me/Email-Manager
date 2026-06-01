@@ -9,21 +9,9 @@
 (function () {
     'use strict';
 
-    // Diagnostic: change the placeholder so we know the JS file actually
-    // executed at all. If the user still sees "Loading inbox…" after this
-    // ships, the <script> tag itself isn't reaching the browser.
-    try {
-        var diag = document.getElementById('em-inbox-root');
-        if (diag) diag.textContent = 'JS ran. Probing wp deps…';
-    } catch (e) {}
-
-    console.log('em-inbox: script start. wp present?', !!window.wp,
-        'element?', !!(window.wp && wp.element),
-        'components?', !!(window.wp && wp.components),
-        'apiFetch?', !!(window.wp && wp.apiFetch));
-
     if (!window.wp || !wp.element || !wp.components || !wp.apiFetch) {
-        if (diag) diag.textContent = 'em-inbox: missing wp dependencies (see console).';
+        var fallback = document.getElementById('em-inbox-root');
+        if (fallback) fallback.textContent = 'Inbox UI needs the WordPress block editor scripts (wp-element / wp-components / wp-api-fetch).';
         console.error('em-inbox: wp.element / wp.components / wp.apiFetch missing');
         return;
     }
@@ -55,13 +43,17 @@
     var Card = wp.components.Card;
     var CardBody = wp.components.CardBody;
     var CardHeader = wp.components.CardHeader;
-    var Panel = wp.components.Panel;
-    var PanelBody = wp.components.PanelBody;
+    var Modal = wp.components.Modal;
+    var TextControl = wp.components.TextControl;
+    var TextareaControl = wp.components.TextareaControl;
 
     // ── REST helpers ────────────────────────────────────────────────────
     function restGet(path) {
         // path is relative to the inbox root (e.g. 'threads?inbox=foo' or 'threads/3')
         return apiFetch({ url: cfg.restRoot + path, method: 'GET' });
+    }
+    function restPost(path, data) {
+        return apiFetch({ url: cfg.restRoot + path, method: 'POST', data: data });
     }
 
     // ── Components ──────────────────────────────────────────────────────
@@ -72,6 +64,10 @@
         var threadState = useState(null);         var openThreadId = threadState[0], setOpenThreadId = threadState[1];
         var loadingState = useState(true);        var loading = loadingState[0], setLoading = loadingState[1];
         var errState = useState(null);            var err = errState[0], setErr = errState[1];
+        var composerState = useState(null);       var composerProps = composerState[0], setComposerProps = composerState[1];
+        // Refresh counter — bumped after a successful send so the feed
+        // re-fetches and the new sent message shows up immediately.
+        var refreshTick = useState(0);            var tick = refreshTick[0], bumpTick = refreshTick[1];
 
         useEffect(function () {
             setLoading(true);
@@ -104,17 +100,99 @@
                 options=${inboxOptions}
                 onChange=${function (v) { setSelected(v); setOpenThreadId(null); }}
               />
+              <${Button}
+                variant="primary"
+                onClick=${function () { setComposerProps({ from: selected, mode: 'new' }); }}
+              >Compose<//>
             </div>
             <div class="em-inbox-body">
               <${FeedView}
                 inbox=${selected}
                 openThreadId=${openThreadId}
-                onOpenThread=${setOpenThreadId} />
+                onOpenThread=${setOpenThreadId}
+                refreshKey=${tick} />
               ${openThreadId
-                ? html`<${ThreadView} threadId=${openThreadId} onBack=${function () { setOpenThreadId(null); }} />`
+                ? html`<${ThreadView}
+                    threadId=${openThreadId}
+                    onBack=${function () { setOpenThreadId(null); }}
+                    onReply=${function (thread, lastMsg) {
+                        setComposerProps({
+                            from: thread.inbox_address,
+                            mode: 'reply',
+                            threadId: thread.id,
+                            to: lastMsg && lastMsg.sender ? [lastMsg.sender] : [],
+                            subject: thread.subject_first ? ('Re: ' + thread.subject_first.replace(/^\s*Re:\s*/i, '')) : '',
+                        });
+                    }}
+                    refreshKey=${tick} />`
                 : html`<div class="em-inbox-pane-placeholder">Select a thread to read.</div>`}
             </div>
+            ${composerProps && html`
+              <${Composer}
+                initial=${composerProps}
+                onClose=${function () { setComposerProps(null); }}
+                onSent=${function () {
+                    setComposerProps(null);
+                    bumpTick(tick + 1);
+                }} />
+            `}
           </div>
+        `;
+    }
+
+    function Composer(props) {
+        var initial = props.initial || {};
+        var toState = useState((initial.to || []).join(', '));     var to = toState[0], setTo = toState[1];
+        var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
+        var bodyState = useState('');                              var body = bodyState[0], setBody = bodyState[1];
+        var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
+        var errState = useState(null);                             var err = errState[0], setErr = errState[1];
+
+        function submit() {
+            setSending(true); setErr(null);
+            restPost('send', {
+                to:         to,
+                subject:    subject,
+                body_plain: body,
+                thread_id:  initial.threadId || undefined,
+            }).then(function () {
+                setSending(false);
+                props.onSent && props.onSent();
+            }).catch(function (e) {
+                setSending(false);
+                setErr((e && e.message) || 'Send failed');
+            });
+        }
+
+        var title = initial.mode === 'reply' ? 'Reply' : 'New message';
+        return html`
+          <${Modal} title=${title} onRequestClose=${props.onClose} className="em-inbox-composer-modal">
+            <p class="em-inbox-composer-from">From: <strong>${initial.from || '(no inbox)'}</strong></p>
+            <${TextControl}
+              label="To"
+              help="Comma-separate multiple recipients."
+              value=${to}
+              onChange=${setTo}
+              __nextHasNoMarginBottom=${true} />
+            <${TextControl}
+              label="Subject"
+              value=${subject}
+              onChange=${setSubject}
+              __nextHasNoMarginBottom=${true} />
+            <${TextareaControl}
+              label="Message"
+              value=${body}
+              rows=${10}
+              onChange=${setBody}
+              __nextHasNoMarginBottom=${true} />
+            ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
+            <div class="em-inbox-composer-actions">
+              <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
+              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || !to || !body}>
+                ${sending ? html`<${Spinner} />` : 'Send'}
+              <//>
+            </div>
+          <//>
         `;
     }
 
@@ -129,7 +207,7 @@
             restGet('threads?inbox=' + encodeURIComponent(inbox) + '&per_page=50')
                 .then(function (data) { setState({ loading: false, items: data.items || [], total: data.total, page: data.page, err: null }); })
                 .catch(function (e) { setState({ loading: false, items: [], total: 0, page: 1, err: e.message || 'Failed to load threads' }); });
-        }, [inbox]);
+        }, [inbox, props.refreshKey]);
 
         if (state.loading) return html`<aside class="em-inbox-feed"><${Spinner} /></aside>`;
         if (state.err)     return html`<aside class="em-inbox-feed"><${Notice} status="error" isDismissible=${false}>${state.err}<//></aside>`;
@@ -167,10 +245,21 @@
             restGet('threads/' + props.threadId)
                 .then(function (data) { setState({ loading: false, thread: data.thread, messages: data.messages, err: null }); })
                 .catch(function (e) { setState({ loading: false, thread: null, messages: [], err: e.message || 'Failed to load thread' }); });
-        }, [props.threadId]);
+        }, [props.threadId, props.refreshKey]);
 
         if (state.loading) return html`<section class="em-inbox-thread"><${Spinner} /></section>`;
         if (state.err)     return html`<section class="em-inbox-thread"><${Notice} status="error" isDismissible=${false}>${state.err}<//></section>`;
+
+        // Reply default-To is the last *external* sender on the thread —
+        // skip messages we sent ourselves (sender === inbox owner).
+        var lastInbound = null;
+        for (var i = state.messages.length - 1; i >= 0; i--) {
+            var m = state.messages[i];
+            if (m.sender && m.sender.toLowerCase() !== (state.thread.inbox_address || '').toLowerCase()) {
+                lastInbound = m; break;
+            }
+        }
+        var lastMsg = lastInbound || state.messages[state.messages.length - 1];
 
         return html`
           <section class="em-inbox-thread">
@@ -178,10 +267,12 @@
               <${Button} variant="tertiary" onClick=${props.onBack}>← Back<//>
               <h2>${state.thread.subject_first || '(no subject)'}</h2>
               <p class="em-inbox-thread-inbox">to ${state.thread.inbox_address} · ${state.messages.length} message${state.messages.length === 1 ? '' : 's'}</p>
+              <${Button} variant="primary" onClick=${function () { props.onReply && props.onReply(state.thread, lastMsg); }}>Reply<//>
             </header>
             <div class="em-inbox-messages">
               ${state.messages.map(function (m, idx) {
-                  return html`<${MessageCard} key=${m.id} message=${m} initialOpen=${idx === state.messages.length - 1} />`;
+                  var isMine = m.sender && state.thread.inbox_address && m.sender.toLowerCase() === state.thread.inbox_address.toLowerCase();
+                  return html`<${MessageCard} key=${m.id} message=${m} initialOpen=${idx === state.messages.length - 1} isMine=${isMine} />`;
               })}
             </div>
           </section>
@@ -194,9 +285,9 @@
         var open = openState[0], setOpen = openState[1];
 
         return html`
-          <${Card} className="em-inbox-message ${open ? 'is-open' : 'is-collapsed'}">
+          <${Card} className="em-inbox-message ${open ? 'is-open' : 'is-collapsed'} ${props.isMine ? 'is-mine' : ''}">
             <${CardHeader} onClick=${function () { setOpen(!open); }}>
-              <div class="em-inbox-message-from">${msg.sender}</div>
+              <div class="em-inbox-message-from">${props.isMine ? 'Me' : msg.sender}</div>
               <div class="em-inbox-message-date">${formatDate(msg.received_at)}</div>
             <//>
             ${open && html`
