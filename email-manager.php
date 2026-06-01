@@ -113,8 +113,11 @@ function em_resolve_email_data_by_id( $id ) {
         return array_merge( array( 'id' => $id, 'html' => '', 'description' => '' ), $core_ids[ $id ] );
     }
 
-    // 2. WooCommerce emails
-    if ( class_exists( 'WC_Emails' ) || ( function_exists('WC') && WC()->mailer() ) ) {
+    // 2. WooCommerce emails. WC() fatals when WooCommerce's helper function
+    // exists but the WooCommerce class never finished loading (the
+    // "installation incomplete" mode). Gate on class_exists('WooCommerce')
+    // before calling WC() — see same fix in inc/email-manager-admin.php.
+    if ( class_exists( 'WC_Emails' ) || ( class_exists('WooCommerce') && function_exists('WC') && WC()->mailer() ) ) {
         try {
             $emails = class_exists('WC_Emails')
                 ? WC_Emails::instance()->get_emails()

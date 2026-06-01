@@ -181,15 +181,19 @@ function em_render_email_manager_page()
         ),
     );
 
-    // WooCommerce store emails
+    // WooCommerce store emails. WC() returns WooCommerce::instance(), which
+    // fatals if the WooCommerce class itself never loaded (the "WooCommerce
+    // installation incomplete" mode this install sometimes lands in). Guard
+    // with class_exists('WooCommerce'), and broaden catch to \Throwable so
+    // any other Error (not just Exception) downgrades to "no WC emails".
     $gdc_store_emails = array();
     try {
         if (class_exists('WC_Emails')) {
             $gdc_store_emails = WC_Emails::instance()->get_emails();
-        } elseif (function_exists('WC') && WC()->mailer()) {
+        } elseif (class_exists('WooCommerce') && function_exists('WC') && WC()->mailer()) {
             $gdc_store_emails = WC()->mailer()->get_emails();
         }
-    } catch (Exception $e) {
+    } catch (\Throwable $e) {
         $gdc_store_emails = array();
     }
 
