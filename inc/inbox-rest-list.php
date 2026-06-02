@@ -163,10 +163,11 @@ function em_inbox_list_threads(WP_REST_Request $request) {
 
     $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $threads_table t $where");
 
-    // Filters: ?unread=1, ?archived=1, ?trashed=1
+    // Filters: ?unread=1, ?archived=1, ?trashed=1, ?starred=1
     $only_unread   = (int) $request->get_param('unread')   === 1;
     $only_archived = (int) $request->get_param('archived') === 1;
     $only_trashed  = (int) $request->get_param('trashed')  === 1;
+    $only_starred  = (int) $request->get_param('starred')  === 1;
     $part_table    = $wpdb->prefix . 'gdc_inbox_participants';
     $user          = wp_get_current_user();
     $user_id       = ($user && $user->ID) ? (int) $user->ID : 0;
@@ -176,6 +177,8 @@ function em_inbox_list_threads(WP_REST_Request $request) {
     $extra_where = '';
     if ($user_id > 0 && $only_trashed) {
         $extra_where = ' AND COALESCE(p.is_trashed, 0) = 1 ';
+    } elseif ($user_id > 0 && $only_starred) {
+        $extra_where = ' AND COALESCE(p.is_starred, 0) = 1 AND COALESCE(p.is_trashed, 0) = 0 ';
     } elseif ($user_id > 0 && $only_unread) {
         $extra_where = ' AND COALESCE(p.is_read, 0) = 0 AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0 ';
     } elseif ($user_id > 0 && $only_archived) {
@@ -194,7 +197,8 @@ function em_inbox_list_threads(WP_REST_Request $request) {
                 m.sender AS last_sender, m.subject AS last_subject, m.received_at AS last_received_at,
                 COALESCE(p.is_read, 1)     AS is_read,
                 COALESCE(p.is_archived, 0) AS is_archived,
-                COALESCE(p.is_trashed, 0)  AS is_trashed
+                COALESCE(p.is_trashed, 0)  AS is_trashed,
+                COALESCE(p.is_starred, 0)  AS is_starred
          FROM $threads_table t
          LEFT JOIN $messages_table m ON m.id = t.last_message_id
          $part_join
@@ -213,7 +217,8 @@ function em_inbox_list_threads(WP_REST_Request $request) {
                 COUNT(*) AS total,
                 SUM(CASE WHEN COALESCE(p.is_read,1) = 0 AND COALESCE(p.is_archived,0) = 0 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS unread,
                 SUM(CASE WHEN COALESCE(p.is_archived,0) = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS archived,
-                SUM(CASE WHEN COALESCE(p.is_trashed,0)  = 1 THEN 1 ELSE 0 END) AS trashed
+                SUM(CASE WHEN COALESCE(p.is_trashed,0)  = 1 THEN 1 ELSE 0 END) AS trashed,
+                SUM(CASE WHEN COALESCE(p.is_starred,0)  = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS starred
              FROM $threads_table t
              LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = %d
              WHERE t.inbox_address = %s",
@@ -273,6 +278,16 @@ function em_inbox_get_thread(WP_REST_Request $request) {
          ORDER BY m.received_at ASC, m.id ASC",
         $id
     ), ARRAY_A);
+
+    // Pull starred state for the current viewer onto the thread row so
+    // the ThreadView header can render an accurate star button.
+    if ($u && $u->ID) {
+        $starred = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(is_starred,0) FROM {$wpdb->prefix}gdc_inbox_participants WHERE thread_id = %d AND user_id = %d",
+            (int) $thread['id'], (int) $u->ID
+        ));
+        $thread['is_starred'] = $starred;
+    }
 
     // Sanitize HTML bodies + decode attachment JSON. Slice 2q hardens
     // the wp_kses pass and applies default-off remote-image blocking

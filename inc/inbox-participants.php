@@ -32,7 +32,7 @@
 
 defined('ABSPATH') || exit;
 
-define('EM_INBOX_PART_DB_VERSION', '1.1.0');  // bumped for is_trashed (slice 2p)
+define('EM_INBOX_PART_DB_VERSION', '1.2.0');  // bumped for is_starred (slice 2r)
 
 /* -------------------------------------------------------------------------
  * Schema
@@ -50,6 +50,7 @@ function em_inbox_part_create_table() {
         is_read tinyint(1) NOT NULL DEFAULT 0,
         is_archived tinyint(1) NOT NULL DEFAULT 0,
         is_trashed tinyint(1) NOT NULL DEFAULT 0,
+        is_starred tinyint(1) NOT NULL DEFAULT 0,
         trashed_at datetime DEFAULT NULL,
         last_read_at datetime DEFAULT NULL,
         created_at datetime NOT NULL,
@@ -58,6 +59,7 @@ function em_inbox_part_create_table() {
         UNIQUE KEY uniq_thread_user (thread_id, user_id),
         KEY idx_user_state (user_id, is_archived, is_read),
         KEY idx_trashed (is_trashed, trashed_at),
+        KEY idx_starred (user_id, is_starred),
         KEY idx_thread (thread_id)
     ) $charset_collate;";
 
@@ -79,6 +81,12 @@ function em_inbox_part_maybe_create_table() {
                 ADD COLUMN is_trashed TINYINT(1) NOT NULL DEFAULT 0,
                 ADD COLUMN trashed_at DATETIME NULL,
                 ADD KEY idx_trashed (is_trashed, trashed_at)");
+            $cols[] = 'is_trashed'; $cols[] = 'trashed_at';
+        }
+        if (! in_array('is_starred', $cols, true)) {
+            $wpdb->query("ALTER TABLE $tbl
+                ADD COLUMN is_starred TINYINT(1) NOT NULL DEFAULT 0,
+                ADD KEY idx_starred (user_id, is_starred)");
         }
     }
 }
@@ -167,7 +175,7 @@ function em_inbox_part_upsert_for_thread($thread_id, $is_read_on_new_arrival) {
 
 add_action('rest_api_init', function () {
     $args = array('id' => array('type' => 'integer', 'required' => true));
-    foreach (array('read','unread','archive','unarchive','trash','restore') as $action) {
+    foreach (array('read','unread','archive','unarchive','trash','restore','star','unstar') as $action) {
         register_rest_route('em/v1', '/inbox/threads/(?P<id>\d+)/' . $action, array(
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => 'em_inbox_part_action_' . $action,
@@ -200,12 +208,14 @@ function em_inbox_part_bulk_handler(WP_REST_Request $request) {
     $thread_ids = array_values(array_filter($thread_ids, function ($n) { return $n > 0; }));
 
     $valid = array(
-        'read'      => array(true,  null,  null),
-        'unread'    => array(false, null,  null),
-        'archive'   => array(null,  true,  null),
-        'unarchive' => array(null,  false, null),
-        'trash'     => array(null,  null,  true),
-        'restore'   => array(null,  null,  false),
+        'read'      => array(true,  null,  null,  null),
+        'unread'    => array(false, null,  null,  null),
+        'archive'   => array(null,  true,  null,  null),
+        'unarchive' => array(null,  false, null,  null),
+        'trash'     => array(null,  null,  true,  null),
+        'restore'   => array(null,  null,  false, null),
+        'star'      => array(null,  null,  null,  true),
+        'unstar'    => array(null,  null,  null,  false),
     );
     if (! isset($valid[$action])) {
         return new WP_Error('em_inbox_bulk_bad_action', 'Unknown action', array('status' => 400));
@@ -231,7 +241,7 @@ function em_inbox_part_bulk_handler(WP_REST_Request $request) {
     ), ARRAY_A);
 
     $applied = 0; $skipped = array();
-    list($is_read, $is_archived, $is_trashed) = $valid[$action];
+    list($is_read, $is_archived, $is_trashed, $is_starred) = $valid[$action];
     foreach ($threads as $t) {
         $is_admin   = current_user_can('manage_options');
         $is_owner   = (int) $t['owner_user_id'] === (int) $user->ID;
@@ -242,7 +252,7 @@ function em_inbox_part_bulk_handler(WP_REST_Request $request) {
             $skipped[] = (int) $t['id'];
             continue;
         }
-        em_inbox_part_apply((int) $t['id'], (int) $user->ID, $is_read, $is_archived, $is_trashed);
+        em_inbox_part_apply((int) $t['id'], (int) $user->ID, $is_read, $is_archived, $is_trashed, $is_starred);
         $applied++;
     }
     return rest_ensure_response(array(
@@ -260,6 +270,8 @@ function em_inbox_part_action_archive($r)   { return em_inbox_part_set_state($r,
 function em_inbox_part_action_unarchive($r) { return em_inbox_part_set_state($r, null,  false, null); }
 function em_inbox_part_action_trash($r)     { return em_inbox_part_set_state($r, null,  null,  true); }
 function em_inbox_part_action_restore($r)   { return em_inbox_part_set_state($r, null,  null,  false); }
+function em_inbox_part_action_star($r)      { return em_inbox_part_set_state($r, null,  null,  null, true); }
+function em_inbox_part_action_unstar($r)    { return em_inbox_part_set_state($r, null,  null,  null, false); }
 
 function em_inbox_part_action_delete_forever(WP_REST_Request $request) {
     global $wpdb;
@@ -289,7 +301,7 @@ function em_inbox_part_action_delete_forever(WP_REST_Request $request) {
     return rest_ensure_response(array('ok' => true, 'thread_id' => $tid, 'deleted' => true));
 }
 
-function em_inbox_part_set_state(WP_REST_Request $request, $is_read, $is_archived, $is_trashed = null) {
+function em_inbox_part_set_state(WP_REST_Request $request, $is_read, $is_archived, $is_trashed = null, $is_starred = null) {
     global $wpdb;
     $tid = (int) $request['id'];
     $user = wp_get_current_user();
@@ -314,11 +326,11 @@ function em_inbox_part_set_state(WP_REST_Request $request, $is_read, $is_archive
         return new WP_Error('em_inbox_part_forbidden', 'Not authorized', array('status' => 403));
     }
 
-    em_inbox_part_apply($tid, $user->ID, $is_read, $is_archived, $is_trashed);
+    em_inbox_part_apply($tid, $user->ID, $is_read, $is_archived, $is_trashed, $is_starred);
     return rest_ensure_response(array('ok' => true, 'thread_id' => $tid));
 }
 
-function em_inbox_part_apply($thread_id, $user_id, $is_read, $is_archived, $is_trashed = null) {
+function em_inbox_part_apply($thread_id, $user_id, $is_read, $is_archived, $is_trashed = null, $is_starred = null) {
     global $wpdb;
     $part = $wpdb->prefix . 'gdc_inbox_participants';
     $now  = current_time('mysql', 1);
@@ -342,6 +354,10 @@ function em_inbox_part_apply($thread_id, $user_id, $is_read, $is_archived, $is_t
         $set['is_trashed'] = $is_trashed ? 1 : 0;
         $set['trashed_at'] = $is_trashed ? $now : null;
         $fmt[] = '%d'; $fmt[] = '%s';
+    }
+    if ($is_starred !== null) {
+        $set['is_starred'] = $is_starred ? 1 : 0;
+        $fmt[] = '%d';
     }
 
     if ($row) {

@@ -321,6 +321,7 @@
             if (filter === 'unread')   q += '&unread=1';
             if (filter === 'archived') q += '&archived=1';
             if (filter === 'trashed')  q += '&trashed=1';
+            if (filter === 'starred')  q += '&starred=1';
             return restGet(q);
         }
 
@@ -377,6 +378,7 @@
               <div class="em-inbox-filters">
                 ${btn('all',      'All' + (counts.total != null ? ' · ' + counts.total : ''))}
                 ${btn('unread',   'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
+                ${btn('starred',  '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
                 ${btn('archived', 'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
                 ${btn('trashed',  'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
               </div>
@@ -424,6 +426,7 @@
                   ${state.items.map(function (t) {
                       var open   = props.openThreadId === Number(t.id) || props.openThreadId === t.id;
                       var unread = Number(t.is_read) === 0;
+                      var starred = Number(t.is_starred) === 1;
                       var tid    = Number(t.id);
                       return html`
                         <li
@@ -435,6 +438,16 @@
                             checked=${!!selected[tid]}
                             onClick=${function (e) { e.stopPropagation(); toggleSelected(tid); }}
                           />
+                          <button
+                            type="button"
+                            class="em-inbox-star ${starred ? 'is-starred' : ''}"
+                            title=${starred ? 'Unstar' : 'Star'}
+                            onClick=${function (e) {
+                                e.stopPropagation();
+                                restPost('threads/' + tid + '/' + (starred ? 'unstar' : 'star'), {})
+                                    .then(function () { props.onBulkApplied && props.onBulkApplied(); });
+                            }}
+                          >${starred ? '★' : '☆'}</button>
                           <div class="em-inbox-thread-body" onClick=${function () { props.onOpenThread(tid); }}>
                             <div class="em-inbox-thread-sender">${t.last_sender || '(no sender)'}</div>
                             <div class="em-inbox-thread-subject">${t.subject_first || '(no subject)'}</div>
@@ -498,6 +511,19 @@
               <h2>${state.thread.subject_first || '(no subject)'}</h2>
               <p class="em-inbox-thread-inbox">to ${state.thread.inbox_address} · ${state.messages.length} message${state.messages.length === 1 ? '' : 's'}</p>
               <div class="em-inbox-thread-actions">
+                <button
+                  type="button"
+                  class="em-inbox-star em-inbox-star-header ${Number(state.thread.is_starred) === 1 ? 'is-starred' : ''}"
+                  title=${Number(state.thread.is_starred) === 1 ? 'Unstar' : 'Star'}
+                  onClick=${function () {
+                      var st = Number(state.thread.is_starred) === 1;
+                      restPost('threads/' + state.thread.id + '/' + (st ? 'unstar' : 'star'), {})
+                          .then(function () {
+                              setState(Object.assign({}, state, { thread: Object.assign({}, state.thread, { is_starred: st ? 0 : 1 }) }));
+                              props.onArchived && props.onArchived();
+                          });
+                  }}
+                >${Number(state.thread.is_starred) === 1 ? '★' : '☆'}</button>
                 <${Button} variant="primary" onClick=${function () { props.onReply && props.onReply(state.thread, lastMsg); }}>Reply<//>
                 <${Button} variant="secondary" onClick=${function () {
                     var archived = Number(state.thread.is_archived) === 1;
