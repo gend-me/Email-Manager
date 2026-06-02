@@ -32,7 +32,7 @@
 
 defined('ABSPATH') || exit;
 
-define('EM_INBOX_PART_DB_VERSION', '1.2.0');  // bumped for is_starred (slice 2r)
+define('EM_INBOX_PART_DB_VERSION', '1.3.0');  // bumped for snoozed_until (slice 2aa)
 
 /* -------------------------------------------------------------------------
  * Schema
@@ -52,6 +52,7 @@ function em_inbox_part_create_table() {
         is_trashed tinyint(1) NOT NULL DEFAULT 0,
         is_starred tinyint(1) NOT NULL DEFAULT 0,
         trashed_at datetime DEFAULT NULL,
+        snoozed_until datetime DEFAULT NULL,
         last_read_at datetime DEFAULT NULL,
         created_at datetime NOT NULL,
         updated_at datetime NOT NULL,
@@ -60,6 +61,7 @@ function em_inbox_part_create_table() {
         KEY idx_user_state (user_id, is_archived, is_read),
         KEY idx_trashed (is_trashed, trashed_at),
         KEY idx_starred (user_id, is_starred),
+        KEY idx_snooze (user_id, snoozed_until),
         KEY idx_thread (thread_id)
     ) $charset_collate;";
 
@@ -87,6 +89,12 @@ function em_inbox_part_maybe_create_table() {
             $wpdb->query("ALTER TABLE $tbl
                 ADD COLUMN is_starred TINYINT(1) NOT NULL DEFAULT 0,
                 ADD KEY idx_starred (user_id, is_starred)");
+            $cols[] = 'is_starred';
+        }
+        if (! in_array('snoozed_until', $cols, true)) {
+            $wpdb->query("ALTER TABLE $tbl
+                ADD COLUMN snoozed_until DATETIME NULL,
+                ADD KEY idx_snooze (user_id, snoozed_until)");
         }
     }
 }
@@ -175,7 +183,7 @@ function em_inbox_part_upsert_for_thread($thread_id, $is_read_on_new_arrival) {
 
 add_action('rest_api_init', function () {
     $args = array('id' => array('type' => 'integer', 'required' => true));
-    foreach (array('read','unread','archive','unarchive','trash','restore','star','unstar') as $action) {
+    foreach (array('read','unread','archive','unarchive','trash','restore','star','unstar','unsnooze') as $action) {
         register_rest_route('em/v1', '/inbox/threads/(?P<id>\d+)/' . $action, array(
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => 'em_inbox_part_action_' . $action,
@@ -183,6 +191,13 @@ add_action('rest_api_init', function () {
             'args'                => $args,
         ));
     }
+
+    register_rest_route('em/v1', '/inbox/threads/(?P<id>\d+)/snooze', array(
+        'methods'             => WP_REST_Server::CREATABLE,
+        'callback'            => 'em_inbox_part_action_snooze',
+        'permission_callback' => function () { return is_user_logged_in(); },
+        'args'                => $args,
+    ));
     // Permanent delete is destructive — separate endpoint, separate
     // permission gate (must own thread; admin can delete any).
     register_rest_route('em/v1', '/inbox/threads/(?P<id>\d+)/delete-forever', array(
@@ -272,6 +287,57 @@ function em_inbox_part_action_trash($r)     { return em_inbox_part_set_state($r,
 function em_inbox_part_action_restore($r)   { return em_inbox_part_set_state($r, null,  null,  false); }
 function em_inbox_part_action_star($r)      { return em_inbox_part_set_state($r, null,  null,  null, true); }
 function em_inbox_part_action_unstar($r)    { return em_inbox_part_set_state($r, null,  null,  null, false); }
+function em_inbox_part_action_unsnooze($r)  { return em_inbox_part_set_snooze($r, null); }
+function em_inbox_part_action_snooze($r) {
+    $until = (string) $r->get_param('until');
+    // Accept ISO 8601 (with or without Z); coerce to UTC mysql datetime.
+    $ts = strtotime($until);
+    if (! $ts || $ts <= time()) {
+        return new WP_Error('em_snooze_bad', 'until must be a future ISO 8601 timestamp', array('status' => 400));
+    }
+    return em_inbox_part_set_snooze($r, gmdate('Y-m-d H:i:s', $ts));
+}
+
+function em_inbox_part_set_snooze(WP_REST_Request $request, $until_or_null) {
+    global $wpdb;
+    $tid  = (int) $request['id'];
+    $u    = wp_get_current_user();
+    if (! $u || ! $u->ID) return new WP_Error('em_snooze_no_user', 'Login required', array('status' => 401));
+
+    $threads = $wpdb->prefix . 'gdc_inbox_threads';
+    $thread  = $wpdb->get_row($wpdb->prepare("SELECT id, inbox_address, owner_user_id FROM $threads WHERE id = %d", $tid), ARRAY_A);
+    if (! $thread) return new WP_Error('em_snooze_404', 'Thread not found', array('status' => 404));
+    $is_admin = current_user_can('manage_options');
+    $is_owner = (int) $thread['owner_user_id'] === (int) $u->ID;
+    $meta_addr = get_user_meta($u->ID, 'em_inbox_address', true);
+    $owns_addr = ($u->user_email && strcasecmp($u->user_email, $thread['inbox_address']) === 0)
+              || ($meta_addr    && strcasecmp($meta_addr,        $thread['inbox_address']) === 0);
+    if (! ($is_admin || $is_owner || $owns_addr)) return new WP_Error('em_snooze_forbidden', 'Not authorized', array('status' => 403));
+
+    $part = $wpdb->prefix . 'gdc_inbox_participants';
+    $now  = current_time('mysql', 1);
+    $row  = $wpdb->get_row($wpdb->prepare("SELECT id FROM $part WHERE thread_id = %d AND user_id = %d", $tid, (int) $u->ID), ARRAY_A);
+    if ($row) {
+        $wpdb->update($part,
+            array('snoozed_until' => $until_or_null, 'updated_at' => $now),
+            array('id' => (int) $row['id']),
+            array('%s', '%s'), array('%d')
+        );
+    } else {
+        $wpdb->insert($part, array(
+            'thread_id'     => $tid,
+            'user_id'       => (int) $u->ID,
+            'is_read'       => 0,
+            'is_archived'   => 0,
+            'is_trashed'    => 0,
+            'is_starred'    => 0,
+            'snoozed_until' => $until_or_null,
+            'created_at'    => $now,
+            'updated_at'    => $now,
+        ));
+    }
+    return rest_ensure_response(array('ok' => true, 'thread_id' => $tid, 'snoozed_until' => $until_or_null));
+}
 
 function em_inbox_part_action_delete_forever(WP_REST_Request $request) {
     global $wpdb;

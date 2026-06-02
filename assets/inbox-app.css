@@ -537,3 +537,44 @@ img.em-inbox-blocked-img {
     text-align: center;
     align-self: center;
 }
+
+/* Slice 2aa — snooze threads */
+.em-inbox-snooze-wrap { position: relative; display: inline-block; }
+.em-inbox-snooze-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    min-width: 220px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    padding: 6px 0;
+    z-index: 10;
+}
+.em-inbox-snooze-menu button {
+    display: flex;
+    width: 100%;
+    padding: 8px 14px;
+    background: transparent;
+    border: 0;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: #1d2327;
+    justify-content: space-between;
+    gap: 12px;
+}
+.em-inbox-snooze-menu button:hover { background: #f0f0f1; }
+.em-inbox-snooze-menu button .em-snooze-when { color: #646970; font-size: 12px; }
+.em-inbox-snooze-menu .em-snooze-unsnooze { color: #b32d2e; border-top: 1px solid #f0f0f1; margin-top: 4px; padding-top: 10px; }
+.em-inbox-snoozed-pill {
+    display: inline-block;
+    background: #f0eaff;
+    color: #5524a7;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    margin-left: 8px;
+}

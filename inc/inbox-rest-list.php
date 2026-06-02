@@ -163,11 +163,12 @@ function em_inbox_list_threads(WP_REST_Request $request) {
 
     $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $threads_table t $where");
 
-    // Filters: ?unread=1, ?archived=1, ?trashed=1, ?starred=1, ?label_id=N
+    // Filters: ?unread=1, ?archived=1, ?trashed=1, ?starred=1, ?snoozed=1, ?label_id=N
     $only_unread   = (int) $request->get_param('unread')   === 1;
     $only_archived = (int) $request->get_param('archived') === 1;
     $only_trashed  = (int) $request->get_param('trashed')  === 1;
     $only_starred  = (int) $request->get_param('starred')  === 1;
+    $only_snoozed  = (int) $request->get_param('snoozed')  === 1;
     $only_label_id = (int) $request->get_param('label_id');
     $part_table    = $wpdb->prefix . 'gdc_inbox_participants';
     $user          = wp_get_current_user();
@@ -186,15 +187,18 @@ function em_inbox_list_threads(WP_REST_Request $request) {
         $extra_where = ' AND COALESCE(p.is_trashed, 0) = 0 ';
     } elseif ($user_id > 0 && $only_trashed) {
         $extra_where = ' AND COALESCE(p.is_trashed, 0) = 1 ';
+    } elseif ($user_id > 0 && $only_snoozed) {
+        $extra_where = ' AND p.snoozed_until IS NOT NULL AND p.snoozed_until > UTC_TIMESTAMP() AND COALESCE(p.is_trashed, 0) = 0 ';
     } elseif ($user_id > 0 && $only_starred) {
-        $extra_where = ' AND COALESCE(p.is_starred, 0) = 1 AND COALESCE(p.is_trashed, 0) = 0 ';
+        $extra_where = ' AND COALESCE(p.is_starred, 0) = 1 AND COALESCE(p.is_trashed, 0) = 0 AND (p.snoozed_until IS NULL OR p.snoozed_until <= UTC_TIMESTAMP()) ';
     } elseif ($user_id > 0 && $only_unread) {
-        $extra_where = ' AND COALESCE(p.is_read, 0) = 0 AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0 ';
+        $extra_where = ' AND COALESCE(p.is_read, 0) = 0 AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0 AND (p.snoozed_until IS NULL OR p.snoozed_until <= UTC_TIMESTAMP()) ';
     } elseif ($user_id > 0 && $only_archived) {
         $extra_where = ' AND COALESCE(p.is_archived, 0) = 1 AND COALESCE(p.is_trashed, 0) = 0 ';
     } elseif ($user_id > 0) {
-        // Default: hide archived AND trashed from the main feed.
-        $extra_where = ' AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0 ';
+        // Default: hide archived, trashed, AND not-yet-resurfaced
+        // snoozed threads from the main feed.
+        $extra_where = ' AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0 AND (p.snoozed_until IS NULL OR p.snoozed_until <= UTC_TIMESTAMP()) ';
     }
 
     $part_join = $user_id > 0
@@ -207,7 +211,8 @@ function em_inbox_list_threads(WP_REST_Request $request) {
                 COALESCE(p.is_read, 1)     AS is_read,
                 COALESCE(p.is_archived, 0) AS is_archived,
                 COALESCE(p.is_trashed, 0)  AS is_trashed,
-                COALESCE(p.is_starred, 0)  AS is_starred
+                COALESCE(p.is_starred, 0)  AS is_starred,
+                p.snoozed_until            AS snoozed_until
          FROM $threads_table t
          LEFT JOIN $messages_table m ON m.id = t.last_message_id
          $part_join
@@ -254,7 +259,8 @@ function em_inbox_list_threads(WP_REST_Request $request) {
                 SUM(CASE WHEN COALESCE(p.is_read,1) = 0 AND COALESCE(p.is_archived,0) = 0 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS unread,
                 SUM(CASE WHEN COALESCE(p.is_archived,0) = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS archived,
                 SUM(CASE WHEN COALESCE(p.is_trashed,0)  = 1 THEN 1 ELSE 0 END) AS trashed,
-                SUM(CASE WHEN COALESCE(p.is_starred,0)  = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS starred
+                SUM(CASE WHEN COALESCE(p.is_starred,0)  = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS starred,
+                SUM(CASE WHEN p.snoozed_until IS NOT NULL AND p.snoozed_until > UTC_TIMESTAMP() AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS snoozed
              FROM $threads_table t
              LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = %d
              WHERE t.inbox_address = %s",

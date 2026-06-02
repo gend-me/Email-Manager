@@ -462,6 +462,42 @@
         `;
     }
 
+    function SnoozeButton(props) {
+        var openState = useState(false); var open = openState[0], setOpen = openState[1];
+        var snoozed = !!props.snoozedUntil;
+        function snoozeUntil(date) {
+            apiFetch({ url: cfg.restRoot + 'threads/' + props.threadId + '/snooze', method: 'POST', data: { until: date.toISOString() } })
+                .then(function () { setOpen(false); props.onChanged && props.onChanged(); });
+        }
+        function unsnooze() {
+            apiFetch({ url: cfg.restRoot + 'threads/' + props.threadId + '/unsnooze', method: 'POST', data: {} })
+                .then(function () { setOpen(false); props.onChanged && props.onChanged(); });
+        }
+        var now = new Date();
+        var presets = [
+            ['In 1 hour',  new Date(now.getTime() + 60 * 60 * 1000)],
+            ['Tomorrow 9am', (function () { var d = new Date(now); d.setDate(d.getDate() + 1); d.setHours(9,0,0,0); return d; })()],
+            ['Next week',  (function () { var d = new Date(now); d.setDate(d.getDate() + 7); d.setHours(9,0,0,0); return d; })()],
+        ];
+        return html`
+          <div class="em-inbox-snooze-wrap">
+            <button type="button" class="components-button is-tertiary" onClick=${function () { setOpen(!open); }}>
+              ${snoozed ? '⏰ Snoozed' : 'Snooze'}
+            </button>
+            ${open && html`
+              <div class="em-inbox-snooze-menu">
+                ${presets.map(function (p, i) {
+                    return html`<button key=${i} type="button" onClick=${function () { snoozeUntil(p[1]); }}>${p[0]} <span class="em-snooze-when">${p[1].toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}</span></button>`;
+                })}
+                ${snoozed && html`
+                  <button type="button" class="em-snooze-unsnooze" onClick=${unsnooze}>↺ Unsnooze (was: ${props.snoozedUntil} UTC)</button>
+                `}
+              </div>
+            `}
+          </div>
+        `;
+    }
+
     function ContactTokenField(props) {
         var sugState = useState([]);  var suggestions = sugState[0], setSuggestions = sugState[1];
         var lastFetchRef = wp.element.useRef ? wp.element.useRef('') : { current: '' };
@@ -784,6 +820,7 @@
                 if (filter === 'archived') q += '&archived=1';
                 if (filter === 'trashed')  q += '&trashed=1';
                 if (filter === 'starred')  q += '&starred=1';
+                if (filter === 'snoozed')  q += '&snoozed=1';
             }
             return restGet(q);
         }
@@ -842,6 +879,7 @@
                 ${btn('all',      'All' + (counts.total != null ? ' · ' + counts.total : ''))}
                 ${btn('unread',   'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
                 ${btn('starred',  '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
+                ${btn('snoozed',  '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
                 ${btn('archived', 'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
                 ${btn('trashed',  'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
               </div>
@@ -1026,6 +1064,10 @@
                     restPost('threads/' + state.thread.id + '/trash', {})
                         .then(function () { props.onArchived && props.onArchived(); });
                 }}>Trash<//>
+                <${SnoozeButton}
+                  threadId=${state.thread.id}
+                  snoozedUntil=${state.thread.snoozed_until || null}
+                  onChanged=${function () { props.onArchived && props.onArchived(); }} />
                 <${ThreadLabelPicker}
                   threadId=${state.thread.id}
                   threadLabels=${state.thread.labels || []}
