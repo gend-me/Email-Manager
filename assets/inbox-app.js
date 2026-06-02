@@ -127,6 +127,52 @@
         `;
     }
 
+    // ── Vacation responder modal (slice 2z) ────────────────────────
+    function VacationModal(props) {
+        var st = useState({ loading: true, cfg: null, savedAt: 0, err: null });
+        var state = st[0], setState = st[1];
+        useEffect(function () {
+            restGet('vacation').then(function (d) {
+                setState({ loading: false, cfg: d, savedAt: 0, err: null });
+            }).catch(function (e) { setState({ loading: false, cfg: null, savedAt: 0, err: e.message || 'load failed' }); });
+        }, []);
+        function update(k, v) {
+            setState(Object.assign({}, state, { cfg: Object.assign({}, state.cfg, k === '_obj' ? v : (function () { var o = {}; o[k] = v; return o; })()) }));
+        }
+        function save() {
+            setState(Object.assign({}, state, { err: null }));
+            restPost('vacation', state.cfg).then(function (d) {
+                setState({ loading: false, cfg: d, savedAt: Date.now(), err: null });
+                props.onChanged && props.onChanged(d);
+            }).catch(function (e) { setState(Object.assign({}, state, { err: e.message || 'save failed' })); });
+        }
+        if (state.loading) return html`<${Modal} title="Vacation responder" onRequestClose=${props.onClose}><${Spinner} /><//>`;
+        if (!state.cfg)    return html`<${Modal} title="Vacation responder" onRequestClose=${props.onClose}><${Notice} status="error" isDismissible=${false}>${state.err || 'load failed'}<//><//>`;
+        var c = state.cfg;
+        return html`
+          <${Modal} title="Vacation responder" onRequestClose=${props.onClose} className="em-inbox-vacation-modal">
+            <label class="em-inbox-track-toggle">
+              <input type="checkbox" checked=${!!c.enabled} onChange=${function (e) { update('enabled', e.target.checked); }} />
+              <span>Auto-reply to incoming messages</span>
+            </label>
+            <div class="em-vac-row">
+              <${TextControl} type="date" label="Start" value=${c.start_at || ''} onChange=${function (v) { update('start_at', v); }} __nextHasNoMarginBottom=${true} />
+              <${TextControl} type="date" label="End"   value=${c.end_at   || ''} onChange=${function (v) { update('end_at',   v); }} __nextHasNoMarginBottom=${true} />
+            </div>
+            <${TextControl} label="Subject" value=${c.subject || ''} onChange=${function (v) { update('subject', v); }} __nextHasNoMarginBottom=${true} />
+            <${TextareaControl} label="Plain-text body" value=${c.body_plain || ''} rows=${4} onChange=${function (v) { update('body_plain', v); }} __nextHasNoMarginBottom=${true} />
+            <label class="em-inbox-rte-label">HTML body (optional — overrides plain when recipient supports HTML)</label>
+            <${RichTextEditor} value=${c.body_html || ''} onChange=${function (v) { update('body_html', v); }} />
+            ${state.err && html`<${Notice} status="error"   isDismissible=${false}>${state.err}<//>`}
+            ${state.savedAt > 0 && html`<${Notice} status="success" isDismissible=${false}>Saved.<//>`}
+            <div class="em-inbox-composer-actions">
+              <${Button} variant="tertiary" onClick=${props.onClose}>Close<//>
+              <${Button} variant="primary"  onClick=${save}>Save<//>
+            </div>
+          <//>
+        `;
+    }
+
     function App() {
         var inboxState = useState([]);            var inboxes = inboxState[0], setInboxes = inboxState[1];
         var selectedState = useState('');         var selected = selectedState[0], setSelected = selectedState[1];
@@ -140,6 +186,9 @@
         var labelsState = useState([]);           var labels = labelsState[0], setLabels = labelsState[1];
         var manageLabelsState = useState(false);  var showManageLabels = manageLabelsState[0], setShowManageLabels = manageLabelsState[1];
         var helpState = useState(false);          var showHelp = helpState[0], setShowHelp = helpState[1];
+        var vacationState = useState(false);      var showVacation = vacationState[0], setShowVacation = vacationState[1];
+        var vacationCfgState = useState(null);    var vacationCfg = vacationCfgState[0], setVacationCfg = vacationCfgState[1];
+        useEffect(function () { restGet('vacation').then(setVacationCfg); }, [tick]);
         var focusedThreadState = useState(null);  var focusedThreadId = focusedThreadState[0], setFocusedThreadId = focusedThreadState[1];
         // searchInputRef so '/' can focus the search bar.
         var searchInputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
@@ -242,6 +291,12 @@
                 title="Keyboard shortcuts (?)"
                 onClick=${function () { setShowHelp(true); }}
               >?</button>
+              <button
+                type="button"
+                class="em-inbox-vac-btn ${vacationCfg && vacationCfg.enabled ? 'is-active' : ''}"
+                title=${vacationCfg && vacationCfg.enabled ? 'Vacation responder ON' : 'Vacation responder'}
+                onClick=${function () { setShowVacation(true); }}
+              >${vacationCfg && vacationCfg.enabled ? '🌴 ON' : '🌴'}</button>
             </div>
             <div class="em-inbox-body">
               ${searchQ.length >= 2
@@ -334,6 +389,7 @@
                 onChanged=${function () { reloadLabels(); bumpTick(tick + 1); }} />
             `}
             ${showHelp && html`<${ShortcutHelpOverlay} onClose=${function () { setShowHelp(false); }} />`}
+            ${showVacation && html`<${VacationModal} onClose=${function () { setShowVacation(false); }} onChanged=${setVacationCfg} />`}
           </div>
         `;
     }

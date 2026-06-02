@@ -239,6 +239,27 @@ img.em-inbox-blocked-img {
     font-size: 14px;
 }
 .em-inbox-help-btn:hover { background: #f0f0f1; }
+
+.em-inbox-vac-btn {
+    background: transparent;
+    border: 1px solid #c3c4c7;
+    color: #50575e;
+    border-radius: 14px;
+    height: 28px;
+    padding: 0 10px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.em-inbox-vac-btn.is-active {
+    background: #ecf7ed;
+    color: #00692b;
+    border-color: #00692b;
+    font-weight: 600;
+}
+.em-inbox-vac-btn:hover { background: #f0f0f1; }
+
+.em-vac-row { display: flex; gap: 12px; margin-top: 8px; }
+.em-vac-row > .components-base-control { flex: 1; }
 .em-inbox-help-table {
     width: 100%; border-collapse: collapse; font-size: 13px;
 }
