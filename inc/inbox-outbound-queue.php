@@ -151,10 +151,12 @@ function em_inbox_outq_drain($limit = 10) {
     global $wpdb;
     $raw = $wpdb->prefix . 'gdc_inbox_raw';
 
+    // Picks up BOTH 'pending' (post-undo-window first-attempts, slice 2y)
+    // and 'retrying' (failed deliveries waiting on backoff, slice 2f.2).
     $rows = $wpdb->get_results($wpdb->prepare(
         "SELECT * FROM $raw
          WHERE kind = 'outbound'
-           AND delivery_status = 'retrying'
+           AND delivery_status IN ('pending','retrying')
            AND (delivery_next_attempt_at IS NULL OR delivery_next_attempt_at <= UTC_TIMESTAMP())
          ORDER BY delivery_next_attempt_at ASC, id ASC
          LIMIT %d", $limit

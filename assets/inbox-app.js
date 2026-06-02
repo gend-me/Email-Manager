@@ -59,6 +59,36 @@
 
     // ── Components ──────────────────────────────────────────────────────
 
+    // ── Undo-send snackbar (slice 2y) ──────────────────────────────
+    function UndoSnack(props) {
+        var remainState = useState(Math.max(0, Math.round((props.state.deadline - Date.now()) / 1000)));
+        var remain = remainState[0], setRemain = remainState[1];
+        useEffect(function () {
+            var t = setInterval(function () {
+                var s = Math.max(0, Math.round((props.state.deadline - Date.now()) / 1000));
+                setRemain(s);
+                if (s <= 0) { clearInterval(t); props.onExpired && props.onExpired(); }
+            }, 250);
+            return function () { clearInterval(t); };
+        }, [props.state.deadline]);
+        function undo() {
+            apiFetch({ url: cfg.restRoot + 'messages/' + props.state.rawId + '/cancel', method: 'DELETE' })
+                .then(function () { props.onUndone && props.onUndone(); })
+                .catch(function (e) {
+                    // If the cron already picked it up (status != pending), the
+                    // API returns 409 — just dismiss the snack so the user
+                    // sees the actual delivery status.
+                    props.onUndone && props.onUndone();
+                });
+        }
+        return html`
+          <div class="em-inbox-undo-snack">
+            <span>Sent. Cancel in ${remain}s</span>
+            <button type="button" class="em-inbox-undo-btn" onClick=${undo}>Undo</button>
+          </div>
+        `;
+    }
+
     // ── Keyboard shortcuts (slice 2x) ──────────────────────────────
     // Returns true when key events should be IGNORED (because the user
     // is typing in an editable surface).
@@ -104,6 +134,7 @@
         var loadingState = useState(true);        var loading = loadingState[0], setLoading = loadingState[1];
         var errState = useState(null);            var err = errState[0], setErr = errState[1];
         var composerState = useState(null);       var composerProps = composerState[0], setComposerProps = composerState[1];
+        var undoState = useState(null);           var undoSnack = undoState[0], setUndoSnack = undoState[1];
         var searchQState = useState('');          var searchQ = searchQState[0], setSearchQ = searchQState[1];
         var labelFilterState = useState(0);       var labelFilterId = labelFilterState[0], setLabelFilterId = labelFilterState[1];
         var labelsState = useState([]);           var labels = labelsState[0], setLabels = labelsState[1];
@@ -282,11 +313,20 @@
               <${Composer}
                 initial=${composerProps}
                 onClose=${function () { setComposerProps(null); }}
-                onSent=${function () {
+                onSent=${function (res) {
                     setComposerProps(null);
                     bumpTick(tick + 1);
+                    // Slice 2y: if the send was deferred (pending),
+                    // surface the undo snackbar with a countdown.
+                    if (res && res.delivery_status === 'pending' && res.raw_id && res.undo_seconds > 0) {
+                        setUndoSnack({ rawId: res.raw_id, deadline: Date.now() + res.undo_seconds * 1000 });
+                    }
                 }} />
             `}
+            ${undoSnack && html`<${UndoSnack}
+              state=${undoSnack}
+              onExpired=${function () { setUndoSnack(null); }}
+              onUndone=${function () { setUndoSnack(null); bumpTick(tick + 1); }} />`}
             ${showManageLabels && html`
               <${ManageLabels}
                 labels=${labels}
@@ -522,10 +562,11 @@
                 body_html:   finalHtml,
                 thread_id:   initial.threadId || undefined,
                 track_open:  track,
+                undo_seconds: 10,
                 attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
-            }).then(function () {
+            }).then(function (res) {
                 setSending(false);
-                props.onSent && props.onSent();
+                props.onSent && props.onSent(res);
             }).catch(function (e) {
                 setSending(false);
                 setErr((e && e.message) || 'Send failed');

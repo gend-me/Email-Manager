@@ -83,6 +83,14 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         return new WP_Error('em_inbox_send_empty', 'Message body is empty', array('status' => 400));
     }
     $track_open = ! empty($payload['track_open']);
+    // Slice 2y: optional undo-send window. The send endpoint inserts
+    // the mirror with delivery_status='pending' + a deferred
+    // next_attempt_at so the cron worker doesn't deliver for N
+    // seconds. The React UI shows an Undo snackbar; if pressed within
+    // the window, /cancel deletes the mirror before relay.
+    $undo_seconds = isset($payload['undo_seconds']) ? (int) $payload['undo_seconds'] : 10;
+    if ($undo_seconds < 0)   $undo_seconds = 0;
+    if ($undo_seconds > 300) $undo_seconds = 300;
 
     // Attachments: client sends as base64. Cap total size to keep
     // memory bounded; 25 MiB matches typical inbound limits.
@@ -151,15 +159,20 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     if (! function_exists('em_inbox_outq_submit_one')) {
         return new WP_Error('em_inbox_send_outq_missing', 'Outbound queue module not loaded', array('status' => 500));
     }
-    // The outq helper accepts an optional cc/bcc-aware payload via an
-    // extras array (slice 2u). Older callers still pass the positional
-    // signature so it's backward-compat.
-    $result = em_inbox_outq_submit_one(
-        $from, $to, $subject, $body_plain, $body_html,
-        $extra_headers, $message_id, $attachments,
-        array('cc' => $cc, 'bcc' => $bcc)
-    );
-    $relay  = $result['relay'] ?? null;
+    // With undo window > 0 we DON'T attempt immediate relay — the cron
+    // worker picks up 'pending' rows whose next_attempt_at has passed.
+    // With undo=0 we attempt synchronously, same as before slice 2y.
+    if ($undo_seconds > 0) {
+        $result = array('ok' => false, 'http' => 0, 'error' => null, 'relay' => null);
+        $relay = null;
+    } else {
+        $result = em_inbox_outq_submit_one(
+            $from, $to, $subject, $body_plain, $body_html,
+            $extra_headers, $message_id, $attachments,
+            array('cc' => $cc, 'bcc' => $bcc)
+        );
+        $relay  = $result['relay'] ?? null;
+    }
 
     // ── mirror into wp_gdc_inbox_raw so it shows in the sender's thread,
     // regardless of whether the relay succeeded. Status reflects what
@@ -195,21 +208,32 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     }
 
     $now           = current_time('mysql', 1);
-    $delivery_data = $result['ok']
-        ? array(
-            'delivery_status'         => 'sent',
-            'delivery_attempts'       => 1,
-            'delivery_completed_at'   => $now,
-            'delivery_last_error'     => null,
-            'delivery_next_attempt_at'=> null,
-        )
-        : array(
-            'delivery_status'         => 'retrying',
-            'delivery_attempts'       => 1,
+    if ($undo_seconds > 0) {
+        // Pending until cron picks it up after the undo window.
+        $delivery_data = array(
+            'delivery_status'         => 'pending',
+            'delivery_attempts'       => 0,
             'delivery_completed_at'   => null,
-            'delivery_last_error'     => (string) ($result['error'] ?? 'unknown'),
-            'delivery_next_attempt_at'=> em_inbox_outq_next_attempt_at(1),
+            'delivery_last_error'     => null,
+            'delivery_next_attempt_at'=> gmdate('Y-m-d H:i:s', time() + $undo_seconds),
         );
+    } else {
+        $delivery_data = $result['ok']
+            ? array(
+                'delivery_status'         => 'sent',
+                'delivery_attempts'       => 1,
+                'delivery_completed_at'   => $now,
+                'delivery_last_error'     => null,
+                'delivery_next_attempt_at'=> null,
+            )
+            : array(
+                'delivery_status'         => 'retrying',
+                'delivery_attempts'       => 1,
+                'delivery_completed_at'   => null,
+                'delivery_last_error'     => (string) ($result['error'] ?? 'unknown'),
+                'delivery_next_attempt_at'=> em_inbox_outq_next_attempt_at(1),
+            );
+    }
 
     $wpdb->insert($raw_table, array_merge(array(
         'message_id'  => $message_id,
@@ -253,12 +277,70 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     // (e.g. via UUID) or do a two-phase send.
 
     return rest_ensure_response(array(
-        'ok'              => $result['ok'],
+        'ok'              => $undo_seconds > 0 ? true : $result['ok'],
         'message_id'      => $message_id,
         'raw_id'          => $raw_id,
         'delivery_status' => $delivery_data['delivery_status'],
         'delivery_error'  => $delivery_data['delivery_last_error'],
+        'undo_seconds'    => $undo_seconds,
+        'undo_until'      => $delivery_data['delivery_next_attempt_at'],
         'tracking'        => $track_open,
         'relay'           => $relay,
     ));
+}
+
+/* -------------------------------------------------------------------------
+ * Cancel a pending outbound (slice 2y undo-send)
+ * ------------------------------------------------------------------------- */
+
+add_action('rest_api_init', function () {
+    register_rest_route('em/v1', '/inbox/messages/(?P<raw_id>\d+)/cancel', array(
+        'methods'             => array('DELETE', 'POST'),
+        'callback'            => 'em_inbox_cancel_pending',
+        'permission_callback' => function () { return is_user_logged_in(); },
+    ));
+});
+
+function em_inbox_cancel_pending(WP_REST_Request $request) {
+    global $wpdb;
+    $raw_id = (int) $request['raw_id'];
+    $u = wp_get_current_user();
+    if (! $u || ! $u->ID) return new WP_Error('em_cancel_no_user', 'Login required', array('status' => 401));
+
+    $raw = $wpdb->prefix . 'gdc_inbox_raw';
+    $row = $wpdb->get_row($wpdb->prepare(
+        "SELECT id, sender, kind, delivery_status FROM $raw WHERE id = %d", $raw_id
+    ), ARRAY_A);
+    if (! $row) return new WP_Error('em_cancel_404', 'Message not found', array('status' => 404));
+
+    // Only the sender (or admin) can cancel.
+    $is_admin = current_user_can('manage_options');
+    $meta_addr = get_user_meta($u->ID, 'em_inbox_address', true);
+    $is_sender = ($u->user_email && strcasecmp($u->user_email, $row['sender']) === 0)
+              || ($meta_addr   && strcasecmp($meta_addr,        $row['sender']) === 0);
+    if (! ($is_admin || $is_sender)) {
+        return new WP_Error('em_cancel_forbidden', 'Not authorized', array('status' => 403));
+    }
+    if ($row['kind'] !== 'outbound' || $row['delivery_status'] !== 'pending') {
+        return new WP_Error('em_cancel_not_pending',
+            'Cancel only works on outbound messages in "pending" state — this one is ' . $row['delivery_status'],
+            array('status' => 409));
+    }
+
+    // Wipe the mirror row + its message/thread linkage. Threading
+    // worker may have already inserted a messages row; clean that too.
+    $msg_table = $wpdb->prefix . 'gdc_inbox_messages';
+    $thread_id = (int) $wpdb->get_var($wpdb->prepare("SELECT thread_id FROM $msg_table WHERE raw_id = %d", $raw_id));
+    $wpdb->query($wpdb->prepare("DELETE FROM $msg_table WHERE raw_id = %d", $raw_id));
+    $wpdb->query($wpdb->prepare("DELETE FROM $raw WHERE id = %d", $raw_id));
+
+    // If that was the only message in its thread, drop the thread too.
+    if ($thread_id) {
+        $remaining = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $msg_table WHERE thread_id = %d", $thread_id));
+        if (! $remaining) {
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_threads WHERE id = %d", $thread_id));
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_participants WHERE thread_id = %d", $thread_id));
+        }
+    }
+    return rest_ensure_response(array('ok' => true, 'raw_id' => $raw_id, 'cancelled' => true));
 }

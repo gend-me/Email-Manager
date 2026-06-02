@@ -253,6 +253,34 @@ img.em-inbox-blocked-img {
 
 .em-inbox-search-wrap { flex: 1 1 280px; }
 
+.em-inbox-undo-snack {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1d2327;
+    color: #fff;
+    border-radius: 4px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 1000;
+}
+.em-inbox-undo-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.4);
+    color: #fff;
+    border-radius: 3px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+}
+.em-inbox-undo-btn:hover { background: rgba(255,255,255,0.1); }
+
 .em-inbox-star {
     background: transparent;
     border: none;
