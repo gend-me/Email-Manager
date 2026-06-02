@@ -161,7 +161,70 @@ add_action('rest_api_init', function () {
             'args'                => $args,
         ));
     }
+
+    // Bulk action endpoint — body: { action, thread_ids:[int,…] }
+    register_rest_route('em/v1', '/inbox/threads/bulk', array(
+        'methods'             => WP_REST_Server::CREATABLE,
+        'callback'            => 'em_inbox_part_bulk_handler',
+        'permission_callback' => function () { return is_user_logged_in(); },
+    ));
 });
+
+function em_inbox_part_bulk_handler(WP_REST_Request $request) {
+    global $wpdb;
+    $body       = $request->get_json_params() ?: array();
+    $action     = isset($body['action']) ? (string) $body['action'] : '';
+    $thread_ids = isset($body['thread_ids']) && is_array($body['thread_ids']) ? array_map('intval', $body['thread_ids']) : array();
+    $thread_ids = array_values(array_filter($thread_ids, function ($n) { return $n > 0; }));
+
+    $valid = array('read' => array(true, null), 'unread' => array(false, null),
+                   'archive' => array(null, true), 'unarchive' => array(null, false));
+    if (! isset($valid[$action])) {
+        return new WP_Error('em_inbox_bulk_bad_action', 'Unknown action', array('status' => 400));
+    }
+    if (empty($thread_ids)) {
+        return new WP_Error('em_inbox_bulk_empty', 'No thread_ids provided', array('status' => 400));
+    }
+    if (count($thread_ids) > 200) {
+        return new WP_Error('em_inbox_bulk_too_many', 'Bulk capped at 200 threads', array('status' => 400));
+    }
+
+    $user = wp_get_current_user();
+    if (! $user || ! $user->ID) {
+        return new WP_Error('em_inbox_bulk_no_user', 'Login required', array('status' => 401));
+    }
+
+    // Filter to threads the current user can act on.
+    $threads_table = $wpdb->prefix . 'gdc_inbox_threads';
+    $placeholders  = implode(',', array_fill(0, count($thread_ids), '%d'));
+    $threads = $wpdb->get_results($wpdb->prepare(
+        "SELECT id, inbox_address, owner_user_id FROM $threads_table WHERE id IN ($placeholders)",
+        ...$thread_ids
+    ), ARRAY_A);
+
+    $applied = 0; $skipped = array();
+    list($is_read, $is_archived) = $valid[$action];
+    foreach ($threads as $t) {
+        $is_admin   = current_user_can('manage_options');
+        $is_owner   = (int) $t['owner_user_id'] === (int) $user->ID;
+        $meta_addr  = get_user_meta($user->ID, 'em_inbox_address', true);
+        $email_owns = $user->user_email && strcasecmp($user->user_email, $t['inbox_address']) === 0;
+        $meta_owns  = $meta_addr && strcasecmp($meta_addr, $t['inbox_address']) === 0;
+        if (! ($is_admin || $is_owner || $email_owns || $meta_owns)) {
+            $skipped[] = (int) $t['id'];
+            continue;
+        }
+        em_inbox_part_apply((int) $t['id'], (int) $user->ID, $is_read, $is_archived);
+        $applied++;
+    }
+    return rest_ensure_response(array(
+        'ok'         => true,
+        'action'     => $action,
+        'applied'    => $applied,
+        'skipped'    => $skipped,
+        'requested'  => count($thread_ids),
+    ));
+}
 
 function em_inbox_part_action_read($r)      { return em_inbox_part_set_state($r, true,  null); }
 function em_inbox_part_action_unread($r)    { return em_inbox_part_set_state($r, false, null); }

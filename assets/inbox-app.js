@@ -130,6 +130,7 @@
                     inbox=${selected}
                     openThreadId=${openThreadId}
                     onOpenThread=${setOpenThreadId}
+                    onBulkApplied=${function () { bumpTick(tick + 1); }}
                     refreshKey=${tick} />`}
               ${openThreadId
                 ? html`<${ThreadView}
@@ -309,18 +310,50 @@
         var st = useState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
         var state = st[0], setState = st[1];
         var filterState = useState('all'); var filter = filterState[0], setFilter = filterState[1];
+        var selState = useState({});      var selected = selState[0], setSelected = selState[1];
+        var loadingMoreState = useState(false); var loadingMore = loadingMoreState[0], setLoadingMore = loadingMoreState[1];
         var inbox = props.inbox;
+        var PER_PAGE = 50;
+
+        function fetchPage(page, append) {
+            var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=' + PER_PAGE + '&page=' + page;
+            if (filter === 'unread')   q += '&unread=1';
+            if (filter === 'archived') q += '&archived=1';
+            return restGet(q);
+        }
 
         useEffect(function () {
             if (!inbox) return;
             setState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
-            var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=50';
-            if (filter === 'unread')   q += '&unread=1';
-            if (filter === 'archived') q += '&archived=1';
-            restGet(q)
+            setSelected({});
+            fetchPage(1, false)
                 .then(function (data) { setState({ loading: false, items: data.items || [], total: data.total, page: data.page, err: null, counts: data.counts || null }); })
                 .catch(function (e) { setState({ loading: false, items: [], total: 0, page: 1, err: e.message || 'Failed to load threads', counts: null }); });
         }, [inbox, filter, props.refreshKey]);
+
+        function loadMore() {
+            if (loadingMore) return;
+            setLoadingMore(true);
+            fetchPage(state.page + 1, true)
+                .then(function (data) {
+                    setState({ loading: false, items: state.items.concat(data.items || []), total: data.total, page: data.page, err: null, counts: data.counts || state.counts });
+                    setLoadingMore(false);
+                })
+                .catch(function () { setLoadingMore(false); });
+        }
+
+        function toggleSelected(id) {
+            var next = Object.assign({}, selected);
+            if (next[id]) { delete next[id]; } else { next[id] = true; }
+            setSelected(next);
+        }
+        var selIds = Object.keys(selected).map(Number);
+
+        function bulk(action) {
+            if (selIds.length === 0) return;
+            restPost('threads/bulk', { action: action, thread_ids: selIds })
+                .then(function () { setSelected({}); props.onBulkApplied && props.onBulkApplied(); });
+        }
 
         if (state.loading) return html`<aside class="em-inbox-feed"><${Spinner} /></aside>`;
         if (state.err)     return html`<aside class="em-inbox-feed"><${Notice} status="error" isDismissible=${false}>${state.err}<//></aside>`;
@@ -330,8 +363,11 @@
             return html`<button
                 type="button"
                 class="em-inbox-filter ${filter === key ? 'is-active' : ''}"
-                onClick=${function () { setFilter(key); }}>${label}</button>`;
+                onClick=${function () { setFilter(key); setSelected({}); }}>${label}</button>`;
         };
+
+        var hasMore = state.items.length < (Number(state.total) || 0);
+        var allOnPageSelected = state.items.length > 0 && state.items.every(function (t) { return selected[Number(t.id)]; });
 
         return html`
           <aside class="em-inbox-feed">
@@ -341,27 +377,65 @@
                 ${btn('unread',   'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
                 ${btn('archived', 'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
               </div>
+              ${selIds.length > 0 && html`
+                <div class="em-inbox-bulk-bar">
+                  <span>${selIds.length} selected</span>
+                  <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk('read'); }}>Mark read</button>
+                  <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk('unread'); }}>Mark unread</button>
+                  <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk(filter === 'archived' ? 'unarchive' : 'archive'); }}>${filter === 'archived' ? 'Unarchive' : 'Archive'}</button>
+                  <button type="button" class="em-inbox-bulk-clear" onClick=${function () { setSelected({}); }}>Clear</button>
+                </div>
+              `}
             </header>
             ${state.items.length === 0
               ? html`<p class="em-inbox-empty">No threads ${filter === 'all' ? 'yet' : 'in ' + filter}.</p>`
               : html`
                 <ul class="em-inbox-thread-list">
+                  ${state.items.length > 0 && html`
+                    <li class="em-inbox-thread-row em-inbox-selectall-row">
+                      <input type="checkbox" checked=${allOnPageSelected} onClick=${function (e) {
+                          e.stopPropagation();
+                          if (allOnPageSelected) {
+                              setSelected({});
+                          } else {
+                              var next = {};
+                              state.items.forEach(function (t) { next[Number(t.id)] = true; });
+                              setSelected(next);
+                          }
+                      }} />
+                      <span class="em-inbox-thread-subject">Select page (${state.items.length}/${state.total})</span>
+                    </li>
+                  `}
                   ${state.items.map(function (t) {
                       var open   = props.openThreadId === Number(t.id) || props.openThreadId === t.id;
                       var unread = Number(t.is_read) === 0;
+                      var tid    = Number(t.id);
                       return html`
                         <li
                           key=${t.id}
-                          class="em-inbox-thread-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}"
-                          onClick=${function () { props.onOpenThread(Number(t.id)); }}
+                          class="em-inbox-thread-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}${selected[tid] ? ' is-selected' : ''}"
                         >
-                          <div class="em-inbox-thread-sender">${t.last_sender || '(no sender)'}</div>
-                          <div class="em-inbox-thread-subject">${t.subject_first || '(no subject)'}</div>
-                          <div class="em-inbox-thread-meta">${t.message_count} msg · ${formatDate(t.updated_at)}</div>
+                          <input
+                            type="checkbox"
+                            checked=${!!selected[tid]}
+                            onClick=${function (e) { e.stopPropagation(); toggleSelected(tid); }}
+                          />
+                          <div class="em-inbox-thread-body" onClick=${function () { props.onOpenThread(tid); }}>
+                            <div class="em-inbox-thread-sender">${t.last_sender || '(no sender)'}</div>
+                            <div class="em-inbox-thread-subject">${t.subject_first || '(no subject)'}</div>
+                            <div class="em-inbox-thread-meta">${t.message_count} msg · ${formatDate(t.updated_at)}</div>
+                          </div>
                         </li>
                       `;
                   })}
                 </ul>
+                ${hasMore && html`
+                  <div class="em-inbox-load-more">
+                    <button type="button" class="components-button is-tertiary" onClick=${loadMore} disabled=${loadingMore}>
+                      ${loadingMore ? html`<${Spinner} />` : ('Load more (' + (state.total - state.items.length) + ' remaining)')}
+                    </button>
+                  </div>
+                `}
               `}
           </aside>
         `;
