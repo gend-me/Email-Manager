@@ -173,6 +173,105 @@
         `;
     }
 
+    // ── Sharing / delegation modal (slice 2ee) ────────────────────────
+    function SharingModal(props) {
+        var st = useState({ loading: true, given: [], received: [], err: null });
+        var state = st[0], setState = st[1];
+        var formState = useState({ grantee_email: '', scope: 'read', expires_at: '' });
+        var form = formState[0], setForm = formState[1];
+        var saveErrState = useState(null); var saveErr = saveErrState[0], setSaveErr = saveErrState[1];
+
+        function reload() {
+            setState(Object.assign({}, state, { loading: true, err: null }));
+            restGet('grants')
+                .then(function (d) { setState({ loading: false, given: d.given || [], received: d.received || [], err: null }); })
+                .catch(function (e) { setState({ loading: false, given: [], received: [], err: e.message || 'load failed' }); });
+        }
+        useEffect(reload, []);
+
+        function grant() {
+            setSaveErr(null);
+            apiFetch({ url: cfg.restRoot + 'grants', method: 'POST', data: form })
+                .then(function () {
+                    setForm({ grantee_email: '', scope: 'read', expires_at: '' });
+                    reload();
+                })
+                .catch(function (e) { setSaveErr((e && e.message) || 'grant failed'); });
+        }
+        function revoke(id) {
+            if (! window.confirm('Revoke this access? The other person will lose access immediately.')) return;
+            apiFetch({ url: cfg.restRoot + 'grants/' + id, method: 'DELETE' }).then(reload);
+        }
+
+        return html`
+          <${Modal} title="Sharing — inbox access" onRequestClose=${props.onClose} className="em-inbox-filters-modal">
+            ${state.loading ? html`<${Spinner} />`
+              : state.err   ? html`<${Notice} status="error" isDismissible=${false}>${state.err}<//>`
+              : html`<div>
+                <h3 class="em-inbox-filters-h3">People you've given access to</h3>
+                ${state.given.length === 0
+                  ? html`<p class="em-inbox-empty">You haven't shared your inbox with anyone.</p>`
+                  : html`<ul class="em-inbox-filters-list">
+                      ${state.given.map(function (g) {
+                          return html`
+                            <li key=${g.id} class="em-inbox-filters-row-item">
+                              <div class="em-inbox-filters-meta">
+                                <div class="em-inbox-filters-name">${g.grantee_email}</div>
+                                <div class="em-inbox-filters-cond">scope: <strong>${g.scope}</strong>${g.expires_at ? ' · expires ' + formatDate(g.expires_at) : ''}</div>
+                              </div>
+                              <button type="button" class="components-button is-tertiary em-inbox-filters-rm" onClick=${function () { revoke(g.id); }}>Revoke</button>
+                            </li>
+                          `;
+                      })}
+                    </ul>`}
+
+                <h3 class="em-inbox-filters-h3">Grant new access</h3>
+                <${TextControl}
+                  label="Grantee email"
+                  help="Must be an existing member account on this site."
+                  value=${form.grantee_email}
+                  onChange=${function (v) { setForm(Object.assign({}, form, { grantee_email: v })); }}
+                  __nextHasNoMarginBottom=${true} />
+                <label class="em-inbox-rte-label">Scope</label>
+                <select value=${form.scope} onChange=${function (e) { setForm(Object.assign({}, form, { scope: e.target.value })); }}>
+                  <option value="read">Read only</option>
+                  <option value="read_send">Read + send as me</option>
+                </select>
+                <${TextControl}
+                  type="datetime-local"
+                  label="Expires (optional)"
+                  value=${form.expires_at}
+                  onChange=${function (v) { setForm(Object.assign({}, form, { expires_at: v })); }}
+                  __nextHasNoMarginBottom=${true} />
+                ${saveErr && html`<${Notice} status="error" isDismissible=${false}>${saveErr}<//>`}
+                <div class="em-inbox-composer-actions">
+                  <${Button} variant="primary" onClick=${grant} disabled=${! form.grantee_email}>Grant access<//>
+                </div>
+
+                <h3 class="em-inbox-filters-h3">Access others have given you</h3>
+                ${state.received.length === 0
+                  ? html`<p class="em-inbox-empty">Nobody has shared their inbox with you.</p>`
+                  : html`<ul class="em-inbox-filters-list">
+                      ${state.received.map(function (g) {
+                          return html`
+                            <li key=${g.id} class="em-inbox-filters-row-item">
+                              <div class="em-inbox-filters-meta">
+                                <div class="em-inbox-filters-name">${g.owner_email}</div>
+                                <div class="em-inbox-filters-cond">scope: <strong>${g.scope}</strong>${g.expires_at ? ' · expires ' + formatDate(g.expires_at) : ''}</div>
+                              </div>
+                              <button type="button" class="components-button is-tertiary em-inbox-filters-rm" onClick=${function () { revoke(g.id); }}>Remove</button>
+                            </li>
+                          `;
+                      })}
+                    </ul>`}
+              </div>`}
+            <div class="em-inbox-composer-actions">
+              <${Button} variant="tertiary" onClick=${props.onClose}>Close<//>
+            </div>
+          <//>
+        `;
+    }
+
     // ── Filters engine modal (slice 2cc) ────────────────────────
     function FiltersModal(props) {
         var st = useState({ loading: true, items: [], err: null });
@@ -383,6 +482,7 @@
         var vacationCfgState = useState(null);    var vacationCfg = vacationCfgState[0], setVacationCfg = vacationCfgState[1];
         useEffect(function () { restGet('vacation').then(setVacationCfg); }, [tick]);
         var filtersState = useState(false);       var showFilters = filtersState[0], setShowFilters = filtersState[1];
+        var sharingState = useState(false);       var showSharing = sharingState[0], setShowSharing = sharingState[1];
         var focusedThreadState = useState(null);  var focusedThreadId = focusedThreadState[0], setFocusedThreadId = focusedThreadState[1];
         // searchInputRef so '/' can focus the search bar.
         var searchInputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
@@ -497,6 +597,12 @@
                 title="Filter rules"
                 onClick=${function () { setShowFilters(true); }}
               >⚙ Filters</button>
+              <button
+                type="button"
+                class="em-inbox-filters-btn"
+                title="Sharing — grant or revoke inbox access"
+                onClick=${function () { setShowSharing(true); }}
+              >👥 Sharing</button>
             </div>
             <div class="em-inbox-body">
               ${searchQ.length >= 2
@@ -591,6 +697,7 @@
             ${showHelp && html`<${ShortcutHelpOverlay} onClose=${function () { setShowHelp(false); }} />`}
             ${showVacation && html`<${VacationModal} onClose=${function () { setShowVacation(false); }} onChanged=${setVacationCfg} />`}
             ${showFilters && html`<${FiltersModal} labels=${labels} onClose=${function () { setShowFilters(false); }} />`}
+            ${showSharing && html`<${SharingModal} onClose=${function () { setShowSharing(false); bumpTick(tick + 1); }} />`}
           </div>
         `;
     }

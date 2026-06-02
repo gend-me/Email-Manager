@@ -89,6 +89,7 @@ foreach (array(
     'em_inbox_part_db_version'     => '1.3.0',
     'em_inbox_outq_db_version'     => '1.1.0',
     'em_inbox_filters_db_version'  => '1.0.0',
+    'em_inbox_grants_db_version'   => '1.0.0',
 ) as $opt => $expect) {
     $v = get_option($opt);
     smoke_assert('schema', $v === $expect, "$opt = $expect", "got: " . var_export($v, true));
@@ -269,6 +270,102 @@ smoke_assert('idem', function_exists('em_inbox_ledger_maybe_create_table'), 'ide
 
 // ─── 15. TRACKING (slice 2s) ────────────────────────────────────────
 smoke_assert('track', function_exists('em_inbox_track_inject_pixel'), 'tracking inject_pixel loaded');
+
+// ─── 16. GRANTS / DELEGATION (slice 2ee) ─────────────────────────────
+// Create a second user so we have someone to grant to. If a smoke-test
+// grantee already exists, reuse it.
+$grantee_email = 'smoke-grantee-' . $run_tag . '@example.invalid';
+$grantee = get_user_by('email', $grantee_email);
+if (! $grantee) {
+    $grantee_id = wp_create_user(
+        'smoke_grantee_' . substr(bin2hex(random_bytes(3)), 0, 6),
+        wp_generate_password(20, true),
+        $grantee_email
+    );
+    $grantee = get_user_by('id', $grantee_id);
+}
+smoke_assert('grant', $grantee && $grantee->ID > 0, 'grantee user created/found');
+
+// Grant read access from current user to grantee.
+$res = post_json('/em/v1/inbox/grants', array(
+    'grantee_email' => $grantee_email,
+    'scope' => 'read',
+));
+$d = $res->get_data();
+smoke_assert('grant', $res->get_status() === 200 && ! empty($d['id']), 'grant create 200 + id');
+$grant_id = (int) ($d['id'] ?? 0);
+
+// Verify grants_received_by returns the grant for grantee.
+$received = em_inbox_grants_received_by((int) $grantee->ID);
+smoke_assert('grant', count($received) >= 1, 'grants_received_by returns >=1');
+
+// Verify the address-permission check passes for the grantee.
+$prev_user_id = get_current_user_id();
+wp_set_current_user((int) $grantee->ID);
+smoke_assert('grant', em_inbox_current_user_can_read_address($inbox), 'grantee passes read predicate');
+smoke_assert('grant', ! em_inbox_current_user_can_send_as($inbox), 'grantee with read-only cannot send-as owner');
+
+// Upgrade to read_send.
+wp_set_current_user($prev_user_id);
+$res = post_json('/em/v1/inbox/grants', array(
+    'grantee_email' => $grantee_email,
+    'scope' => 'read_send',
+));
+$d = $res->get_data();
+smoke_assert('grant', $res->get_status() === 200 && ! empty($d['updated']), 'upsert flips scope (updated=true)');
+
+wp_set_current_user((int) $grantee->ID);
+smoke_assert('grant', em_inbox_current_user_can_send_as($inbox), 'grantee with read_send CAN send-as owner');
+
+// Self-grant rejected.
+wp_set_current_user($prev_user_id);
+$res = post_json('/em/v1/inbox/grants', array(
+    'grantee_email' => $inbox,
+    'scope' => 'read',
+));
+smoke_assert('grant', $res->get_status() === 400, 'self-grant rejected with 400');
+
+// Unknown grantee rejected.
+$res = post_json('/em/v1/inbox/grants', array(
+    'grantee_email' => 'nobody-' . $run_tag . '@example.invalid',
+    'scope' => 'read',
+));
+smoke_assert('grant', $res->get_status() === 404, 'unknown grantee rejected with 404');
+
+// Bad expiry rejected.
+$res = post_json('/em/v1/inbox/grants', array(
+    'grantee_email' => $grantee_email,
+    'scope' => 'read',
+    'expires_at' => gmdate('c', time() - 60),
+));
+smoke_assert('grant', $res->get_status() === 400, 'past expires_at rejected with 400');
+
+// /inboxes from grantee perspective includes owner's address with shared=true.
+wp_set_current_user((int) $grantee->ID);
+$req = new WP_REST_Request('GET', '/em/v1/inbox/inboxes');
+$res = rest_do_request($req);
+$d = $res->get_data();
+$shared_found = false;
+foreach ((array) $d as $row) {
+    if (! empty($row['shared']) && strtolower($row['inbox_address']) === $inbox) { $shared_found = true; break; }
+}
+smoke_assert('grant', $shared_found, '/inboxes from grantee includes owner inbox with shared=true');
+
+// Revoke.
+wp_set_current_user($prev_user_id);
+$req = new WP_REST_Request('DELETE', "/em/v1/inbox/grants/$grant_id");
+$res = rest_do_request($req);
+smoke_assert('grant', $res->get_status() === 200, 'revoke 200');
+$still = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}gdc_inbox_grants WHERE id = %d", $grant_id));
+smoke_assert('grant', $still === 0, 'revoke removed the row');
+
+// After revoke, grantee no longer passes the read predicate.
+wp_set_current_user((int) $grantee->ID);
+smoke_assert('grant', ! em_inbox_current_user_can_read_address($inbox), 'grantee read predicate fails after revoke');
+
+// Cleanup: delete the grantee user.
+wp_set_current_user($prev_user_id);
+wp_delete_user((int) $grantee->ID);
 
 // ─── CLEANUP ─────────────────────────────────────────────────────────
 foreach ($created_filter_ids as $id) $wpdb->delete($wpdb->prefix . 'gdc_inbox_filters', array('id' => $id));

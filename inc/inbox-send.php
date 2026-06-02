@@ -45,8 +45,19 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     // ── derive sender ────────────────────────────────────────────────
     $user = wp_get_current_user();
     $from = '';
-    if (current_user_can('manage_options') && ! empty($payload['from_override'])) {
-        $from = strtolower(trim((string) $payload['from_override']));
+    if (! empty($payload['from_override'])) {
+        $candidate = strtolower(trim((string) $payload['from_override']));
+        // Admins can impersonate freely; non-admins need a read_send grant
+        // (slice 2ee). Self-address always allowed (it's a no-op override).
+        $can_send_as = function_exists('em_inbox_current_user_can_send_as')
+            ? em_inbox_current_user_can_send_as($candidate)
+            : current_user_can('manage_options');
+        if (! $can_send_as) {
+            return new WP_Error('em_inbox_send_no_grant',
+                'You do not have permission to send as ' . $candidate,
+                array('status' => 403));
+        }
+        $from = $candidate;
     } else {
         $from = strtolower(trim((string) get_user_meta($user->ID, 'em_inbox_address', true)));
     }
@@ -54,6 +65,15 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         return new WP_Error('em_inbox_send_no_address',
             'You do not have a configured inbox address. The site admin must set em_inbox_default_domain and run `wp em-inbox backfill`.',
             array('status' => 400));
+    }
+    // If acting on behalf of someone else (i.e. from != current user's own
+    // address), stamp an audit header so the recipient + the owner can see
+    // who actually pressed Send.
+    $acted_as_delegate = false;
+    $own_addr = strtolower(trim((string) get_user_meta($user->ID, 'em_inbox_address', true)));
+    if ($own_addr === '' && $user->user_email) $own_addr = strtolower($user->user_email);
+    if ($own_addr && $own_addr !== $from) {
+        $acted_as_delegate = true;
     }
 
     // ── normalize recipients ─────────────────────────────────────────
@@ -167,6 +187,13 @@ function em_inbox_send_handler(WP_REST_Request $request) {
                 }
             }
         }
+    }
+
+    // Slice 2ee: when a delegate sends on behalf of an owner, leave an
+    // audit trail. The header survives onto the wire copy + the mirror
+    // row so the owner sees who acted in their name.
+    if ($acted_as_delegate) {
+        $extra_headers[] = array('name' => 'X-EM-Acted-By', 'value' => $own_addr);
     }
 
     // Synthesize Message-ID before relay so the mirror + the wire copy share it.

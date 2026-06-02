@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2cc shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2ee shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -77,6 +77,7 @@ All in the active site's WordPress DB, prefixed with `wp_`:
 | `wp_gdc_inbox_opens` | Open-tracking events keyed by HMAC token | inbox-tracking.php |
 | `wp_gdc_inbox_vacation_log` | Dedup for auto-reply (RFC 3834 guards) | inbox-vacation.php |
 | `wp_gdc_inbox_filters` | Per-user filter rules | inbox-filters.php |
+| `wp_gdc_inbox_grants` | Per-(owner, grantee) read/read_send delegation | inbox-grants.php |
 
 DB-version options (gate migrations; bump in code → next request runs ALTER):
 
@@ -84,6 +85,7 @@ DB-version options (gate migrations; bump in code → next request runs ALTER):
 em_inbox_part_db_version       = 1.3.0  (slice 2aa adds snoozed_until)
 em_inbox_outq_db_version       = 1.1.0  (slice 2bb adds 'scheduled' enum)
 em_inbox_filters_db_version    = 1.0.0  (slice 2cc initial)
+em_inbox_grants_db_version     = 1.0.0  (slice 2ee initial)
 em_inbox_labels_db_version     = ...    (see inbox-labels.php)
 em_inbox_contacts_db_version   = ...
 em_inbox_ledger_db_version     = ...
@@ -122,6 +124,9 @@ GET    /vacation
 POST   /vacation                       body: {enabled, start_at, end_at, subject, body_plain, body_html}
 GET/POST/PUT/DELETE /filters
 POST   /filters/{id}/test              body: {from, to, subject, body} → {match: bool}
+GET    /grants                         {given: [...], received: [...]}
+POST   /grants                         body: {grantee_email, scope: read|read_send, expires_at?}
+DELETE /grants/{id}                    either party can revoke
 POST   /track/{token}.gif              open-tracking pixel
 ```
 
@@ -221,7 +226,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 41   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 56   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -236,6 +241,7 @@ Expected output ends with `PASS: 41   FAIL: 0`. Exits non-zero on any fail. Run 
 - vacation responder loaded
 - signature endpoint
 - diagnostics + idempotency + tracking module presence
+- grants/delegation CRUD + permission check before & after revoke (slice 2ee)
 
 The script bypasses actual SMTP relay, so it passes even before the Workspace allowlist is in place.
 
@@ -263,7 +269,7 @@ Each slice left small TODOs intentionally:
 - **2bb** (scheduled): no recurring sends, no per-user timezone resolution beyond browser locale
 - **2aa** (snooze): no per-message snooze, no smart resurface time
 - **2y** (undo): if `track_open=true` and the first attempt SUCCEEDED, the recipient's copy won't have the pixel (raw_id post-insert)
-- **Delegation / shared inboxes** (slice 2ee, never started): per-(grantee, owner) ACL on every list/read/send; would also need filter-engine awareness
+- **2ee** (delegation): UI doesn't yet let grantee switch the composer's From dropdown to a delegated inbox — only the API path supports it via `from_override`; filters fire only on the OWNER's user_id (so a grantee won't trigger their own filter rules on someone else's incoming mail — intentional but worth noting)
 
 ## 15 · Memory pointers
 
@@ -276,4 +282,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 (slice 2dd). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 (slice 2ee). Run `bin/inbox-smoke-test.php` after every change.

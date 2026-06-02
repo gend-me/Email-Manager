@@ -121,7 +121,9 @@ function em_inbox_current_user_can_read_address($address) {
     $assigned = get_user_meta($u->ID, 'em_inbox_address', true);
     if ($assigned && strcasecmp($assigned, $address) === 0) return true;
     if ($u->user_email && strcasecmp($u->user_email, $address) === 0) return true;
-    return false;
+    // Slice 2ee: grant-based delegation. Hook lets other modules extend
+    // the read predicate without touching this function.
+    return (bool) apply_filters('em_inbox_can_read_address', false, $address, (int) $u->ID);
 }
 
 /* -------------------------------------------------------------------------

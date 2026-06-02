@@ -54,6 +54,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/inbox-contacts.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-signature.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-vacation.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-filters.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-grants.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/applications.php';

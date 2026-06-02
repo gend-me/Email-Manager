@@ -129,6 +129,37 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
                 $u->ID
             ), ARRAY_A);
         }
+
+        // Slice 2ee: append inboxes the user has been granted access to.
+        if (function_exists('em_inbox_grants_received_by')) {
+            $grants = em_inbox_grants_received_by((int) $u->ID);
+            $existing_addrs = array();
+            foreach ((array) $rows as $r) $existing_addrs[strtolower($r['inbox_address'])] = true;
+            foreach ($grants as $g) {
+                // The grant's owner_email IS the inbox address (owners use
+                // their email as inbox address by default).
+                $addr = strtolower((string) $g['owner_email']);
+                if ($addr === '' || isset($existing_addrs[$addr])) continue;
+                $row = $wpdb->get_row($wpdb->prepare(
+                    "SELECT inbox_address,
+                            COUNT(*) AS thread_count,
+                            MAX(updated_at) AS last_received
+                     FROM $threads
+                     WHERE inbox_address = %s OR owner_user_id = %d
+                     GROUP BY inbox_address",
+                    $addr, (int) $g['owner_user_id']
+                ), ARRAY_A);
+                if (! $row) {
+                    $row = array('inbox_address' => $addr, 'thread_count' => 0, 'last_received' => null);
+                }
+                $row['unread_count'] = null;  // delegate's unread is owner-scoped; out of scope for v1
+                $row['shared']       = true;
+                $row['scope']        = $g['scope'];
+                $row['granted_by']   = (int) $g['owner_user_id'];
+                $rows[] = $row;
+                $existing_addrs[$addr] = true;
+            }
+        }
     }
     return rest_ensure_response($rows ?: array());
 }
