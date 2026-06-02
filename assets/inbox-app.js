@@ -316,9 +316,50 @@
         `;
     }
 
+    function SignatureEditor(props) {
+        var st = useState({ loading: true, html: '', err: null, savedAt: 0 });
+        var state = st[0], setState = st[1];
+        useEffect(function () {
+            restGet('signature').then(function (d) {
+                setState({ loading: false, html: (d && d.html) || '', err: null, savedAt: 0 });
+            }).catch(function (e) { setState({ loading: false, html: '', err: e.message || 'load failed', savedAt: 0 }); });
+        }, []);
+        function save() {
+            setState(Object.assign({}, state, { err: null }));
+            restPost('signature', { html: state.html })
+                .then(function (d) { setState({ loading: false, html: (d && d.html) || '', err: null, savedAt: Date.now() }); props.onSaved && props.onSaved(); })
+                .catch(function (e) { setState(Object.assign({}, state, { err: e.message || 'save failed' })); });
+        }
+        return html`
+          <${Modal} title="Email signature" onRequestClose=${props.onClose} className="em-inbox-sig-modal">
+            ${state.loading
+              ? html`<${Spinner} />`
+              : html`
+                <p class="em-inbox-help">Appears at the bottom of every new compose, reply, or forward unless you uncheck "Include signature" before sending.</p>
+                <${RichTextEditor} value=${state.html} onChange=${function (v) { setState(Object.assign({}, state, { html: v })); }} />
+                ${state.err && html`<${Notice} status="error" isDismissible=${false}>${state.err}<//>`}
+                ${state.savedAt > 0 && html`<${Notice} status="success" isDismissible=${false}>Saved.<//>`}
+                <div class="em-inbox-composer-actions">
+                  <${Button} variant="tertiary" onClick=${props.onClose}>Close<//>
+                  <${Button} variant="primary"  onClick=${save}>Save<//>
+                </div>
+              `}
+          <//>
+        `;
+    }
+
     function Composer(props) {
         var initial = props.initial || {};
         var toState = useState(initial.to || []);                  var to = toState[0], setTo = toState[1];
+        var includeSigState = useState(true);                      var includeSig = includeSigState[0], setIncludeSig = includeSigState[1];
+        var sigState = useState('');                               var sig = sigState[0], setSig = sigState[1];
+        var sigEditState = useState(false);                        var showSigEdit = sigEditState[0], setShowSigEdit = sigEditState[1];
+        // Fetch the user's signature once per Composer mount so we can
+        // append it on submit. Storing in state means a "preview" of
+        // what's about to ship is also possible later.
+        useEffect(function () {
+            restGet('signature').then(function (d) { setSig((d && d.html) || ''); });
+        }, []);
         var ccState = useState(initial.cc || []);                  var cc = ccState[0], setCc = ccState[1];
         var bccState = useState(initial.bcc || []);                var bcc = bccState[0], setBcc = bccState[1];
         var showCcBccState = useState(!!(initial.cc && initial.cc.length) || !!(initial.bcc && initial.bcc.length));
@@ -369,14 +410,29 @@
         }
         function submit() {
             setSending(true); setErr(null);
-            var bodyPlain = htmlToPlain(bodyHtml);
+            // Append signature to the body unless the user opted out.
+            // Signature goes BEFORE any forward/reply quoted content,
+            // which conventionally sits at the END of bodyHtml — so we
+            // splice it in just before the first <blockquote> if any,
+            // otherwise just append.
+            var finalHtml = bodyHtml;
+            if (includeSig && sig) {
+                var sep = '<br><br>--<br>';
+                var quoteIdx = finalHtml.toLowerCase().indexOf('<blockquote');
+                if (quoteIdx >= 0) {
+                    finalHtml = finalHtml.slice(0, quoteIdx) + sep + sig + finalHtml.slice(quoteIdx);
+                } else {
+                    finalHtml = finalHtml + sep + sig;
+                }
+            }
+            var bodyPlain = htmlToPlain(finalHtml);
             restPost('send', {
                 to:          extractEmails(to),
                 cc:          extractEmails(cc),
                 bcc:         extractEmails(bcc),
                 subject:     subject,
                 body_plain:  bodyPlain,
-                body_html:   bodyHtml,
+                body_html:   finalHtml,
                 thread_id:   initial.threadId || undefined,
                 track_open:  track,
                 attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
@@ -442,6 +498,15 @@
               <input type="checkbox" checked=${track} onChange=${function (e) { setTrack(e.target.checked); }} />
               <span>Track when opened <small>(injects a tiny tracking pixel; recipients with image-blocking won't trigger it)</small></span>
             </label>
+            <label class="em-inbox-track-toggle">
+              <input type="checkbox" checked=${includeSig} onChange=${function (e) { setIncludeSig(e.target.checked); }} />
+              <span>Include signature
+                <button type="button" class="em-inbox-link-btn" onClick=${function () { setShowSigEdit(true); }}>${sig ? 'Edit' : 'Set up'}</button>
+              </span>
+            </label>
+            ${showSigEdit && html`<${SignatureEditor}
+              onClose=${function () { setShowSigEdit(false); }}
+              onSaved=${function () { restGet('signature').then(function (d) { setSig((d && d.html) || ''); }); }} />`}
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
