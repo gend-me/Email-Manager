@@ -19,7 +19,24 @@
 
 .em-inbox-composer-modal .components-modal__content { max-width: 720px; }
 .em-inbox-composer-from { margin: 0 0 12px; color: #50575e; font-size: 13px; }
+.em-inbox-composer-from .em-inbox-link-btn {
+    background: transparent; border: none; color: #2271b1;
+    cursor: pointer; text-decoration: underline;
+    font-size: 12px; margin-left: 8px;
+}
 .em-inbox-composer-actions { margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end; }
+
+.em-inbox-composer-dropzone { position: relative; }
+.em-inbox-composer-dropzone.is-dragging { outline: 2px dashed #2271b1; outline-offset: 4px; }
+.em-inbox-drop-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(34, 113, 177, 0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; color: #2271b1;
+    pointer-events: none;
+    border-radius: 4px;
+}
 
 .em-inbox-message.is-mine .em-inbox-message-from { color: #2271b1; }
 

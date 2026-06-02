@@ -57,18 +57,23 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     }
 
     // ── normalize recipients ─────────────────────────────────────────
-    $to_raw = isset($payload['to']) ? $payload['to'] : array();
-    if (is_string($to_raw)) $to_raw = preg_split('/[,;\s]+/', $to_raw, -1, PREG_SPLIT_NO_EMPTY);
-    if (! is_array($to_raw) || count($to_raw) === 0) {
+    $normalize = function ($raw) {
+        if (is_string($raw)) $raw = preg_split('/[,;\s]+/', $raw, -1, PREG_SPLIT_NO_EMPTY);
+        if (! is_array($raw)) return array();
+        $out = array();
+        foreach ($raw as $addr) {
+            // Tokens from the React FormTokenField are "Name <addr>" or "addr".
+            $addr = trim((string) $addr);
+            if (preg_match('/<([^<>]+)>/', $addr, $m)) $addr = trim($m[1]);
+            if ($addr !== '' && is_email($addr)) $out[] = strtolower($addr);
+        }
+        return $out;
+    };
+    $to  = $normalize($payload['to']  ?? array());
+    $cc  = $normalize($payload['cc']  ?? array());
+    $bcc = $normalize($payload['bcc'] ?? array());
+    if (empty($to) && empty($cc) && empty($bcc)) {
         return new WP_Error('em_inbox_send_no_to', 'At least one recipient is required', array('status' => 400));
-    }
-    $to = array();
-    foreach ($to_raw as $addr) {
-        $addr = trim((string) $addr);
-        if ($addr !== '' && is_email($addr)) $to[] = strtolower($addr);
-    }
-    if (empty($to)) {
-        return new WP_Error('em_inbox_send_bad_to', 'No valid recipient addresses', array('status' => 400));
     }
 
     $subject    = (string) ($payload['subject']    ?? '');
@@ -146,9 +151,13 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     if (! function_exists('em_inbox_outq_submit_one')) {
         return new WP_Error('em_inbox_send_outq_missing', 'Outbound queue module not loaded', array('status' => 500));
     }
+    // The outq helper accepts an optional cc/bcc-aware payload via an
+    // extras array (slice 2u). Older callers still pass the positional
+    // signature so it's backward-compat.
     $result = em_inbox_outq_submit_one(
         $from, $to, $subject, $body_plain, $body_html,
-        $extra_headers, $message_id, $attachments
+        $extra_headers, $message_id, $attachments,
+        array('cc' => $cc, 'bcc' => $bcc)
     );
     $relay  = $result['relay'] ?? null;
 
@@ -162,9 +171,11 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         array(
             array('name' => 'From',    'value' => $from),
             array('name' => 'To',      'value' => implode(', ', $to)),
-            array('name' => 'Subject', 'value' => $subject),
         )
     );
+    if (! empty($cc))  $mirror_headers[] = array('name' => 'Cc',  'value' => implode(', ', $cc));
+    if (! empty($bcc)) $mirror_headers[] = array('name' => 'Bcc', 'value' => implode(', ', $bcc));
+    $mirror_headers[]  = array('name' => 'Subject', 'value' => $subject);
     // For the sent-mail mirror, prefer GCS refs returned by the MTA
     // (object keys it uploaded as part of relay). Falls back to the
     // base64 we already had so attachments still render in the thread

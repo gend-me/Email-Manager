@@ -85,13 +85,18 @@ function em_inbox_outq_next_attempt_at($attempts) {
  * ------------------------------------------------------------------------- */
 
 function em_inbox_outq_submit_one($from, $to, $subject, $body_plain, $body_html,
-                                  $headers, $message_id, $attachments) {
+                                  $headers, $message_id, $attachments, $extras = array()) {
     $secret = get_option('em_inbox_hmac_secret');
     if (! $secret) return array('ok' => false, 'http' => 500, 'error' => 'HMAC secret missing');
+
+    $cc  = is_array($extras['cc']  ?? null) ? $extras['cc']  : array();
+    $bcc = is_array($extras['bcc'] ?? null) ? $extras['bcc'] : array();
 
     $body_json = wp_json_encode(array(
         'from'        => $from,
         'to'          => $to,
+        'cc'          => $cc,
+        'bcc'         => $bcc,
         'subject'     => $subject,
         'body_plain'  => $body_plain,
         'body_html'   => $body_html,

@@ -159,6 +159,33 @@
                             subject: thread.subject_first ? ('Re: ' + thread.subject_first.replace(/^\s*Re:\s*/i, '')) : '',
                         });
                     }}
+                    onForward=${function (thread, lastMsg) {
+                        // Pre-quote the latest message's content, attribution-stamped.
+                        var attr = '';
+                        if (lastMsg) {
+                            attr = '<br><br><blockquote style="margin:0 0 0 12px;padding-left:12px;border-left:3px solid #c3c4c7;">' +
+                                   '<p style="color:#646970;">On ' + (lastMsg.received_at || '?') + ' UTC, ' +
+                                   (lastMsg.sender || '?').replace(/[<>&]/g, '') + ' wrote:</p>' +
+                                   (lastMsg.body_html ? lastMsg.body_html : ('<pre>' + (lastMsg.body_plain || '') + '</pre>')) +
+                                   '</blockquote>';
+                        }
+                        setComposerProps({
+                            from: thread.inbox_address,
+                            mode: 'forward',
+                            // NOTE: forward intentionally does NOT pass threadId — a forward starts a new thread
+                            to: [],
+                            subject: thread.subject_first ? ('Fwd: ' + thread.subject_first.replace(/^\s*(Fwd?|Re):\s*/i, '')) : '',
+                            bodyHtml: attr,
+                            atts: (lastMsg && lastMsg.attachments && lastMsg.attachments.length)
+                                ? lastMsg.attachments.map(function (a) {
+                                    // Forwarded attachments: we have filename + content_type + size but
+                                    // NOT the bytes. For MVP 2u, forward-with-attachments would require
+                                    // server-side fetch of the original; punt to 2u.1 with a UI note.
+                                    return { filename: a.filename, content_type: a.content_type, size: a.size, content_b64: null };
+                                }).filter(function (a) { return false; })  // strip forwarded atts for MVP
+                                : [],
+                        });
+                    }}
                     onArchived=${function () { setOpenThreadId(null); bumpTick(tick + 1); }}
                     onMarkedUnread=${function () { setOpenThreadId(null); bumpTick(tick + 1); }}
                     onLoaded=${function () { bumpTick(tick + 1); }}
@@ -292,12 +319,17 @@
     function Composer(props) {
         var initial = props.initial || {};
         var toState = useState(initial.to || []);                  var to = toState[0], setTo = toState[1];
+        var ccState = useState(initial.cc || []);                  var cc = ccState[0], setCc = ccState[1];
+        var bccState = useState(initial.bcc || []);                var bcc = bccState[0], setBcc = bccState[1];
+        var showCcBccState = useState(!!(initial.cc && initial.cc.length) || !!(initial.bcc && initial.bcc.length));
+        var showCcBcc = showCcBccState[0], setShowCcBcc = showCcBccState[1];
         var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
-        var bodyHtmlState = useState('');                          var bodyHtml = bodyHtmlState[0], setBodyHtml = bodyHtmlState[1];
-        var attState = useState([]);                               var atts = attState[0], setAtts = attState[1];
+        var bodyHtmlState = useState(initial.bodyHtml || '');      var bodyHtml = bodyHtmlState[0], setBodyHtml = bodyHtmlState[1];
+        var attState = useState(initial.atts || []);               var atts = attState[0], setAtts = attState[1];
         var trackState = useState(false);                          var track = trackState[0], setTrack = trackState[1];
         var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
         var errState = useState(null);                             var err = errState[0], setErr = errState[1];
+        var dragState = useState(false);                           var dragging = dragState[0], setDragging = dragState[1];
 
         function onFiles(files) {
             if (!files || !files.length) return;
@@ -318,22 +350,30 @@
                 reader.readAsDataURL(f);
             });
         }
+        function onDragOver(e) { e.preventDefault(); setDragging(true); }
+        function onDragLeave(e) { e.preventDefault(); setDragging(false); }
+        function onDrop(e) {
+            e.preventDefault();
+            setDragging(false);
+            if (e.dataTransfer && e.dataTransfer.files) onFiles(e.dataTransfer.files);
+        }
         function removeAtt(idx) {
             var next = atts.slice(); next.splice(idx, 1); setAtts(next);
         }
 
-        function submit() {
-            setSending(true); setErr(null);
-            // Tokens can be "Name <addr>" or just "addr" — pull out the
-            // email parts before sending. The send endpoint already
-            // tolerates both, but pre-cleaning gives nicer error messages.
-            var emails = (Array.isArray(to) ? to : String(to || '').split(/[,;]/)).map(function (t) {
+        function extractEmails(tokens) {
+            return (Array.isArray(tokens) ? tokens : String(tokens || '').split(/[,;]/)).map(function (t) {
                 var m = String(t).match(/<([^>]+)>/);
                 return (m ? m[1] : String(t)).trim();
             }).filter(Boolean);
+        }
+        function submit() {
+            setSending(true); setErr(null);
             var bodyPlain = htmlToPlain(bodyHtml);
             restPost('send', {
-                to:          emails,
+                to:          extractEmails(to),
+                cc:          extractEmails(cc),
+                bcc:         extractEmails(bcc),
                 subject:     subject,
                 body_plain:  bodyPlain,
                 body_html:   bodyHtml,
@@ -349,15 +389,29 @@
             });
         }
 
-        var title = initial.mode === 'reply' ? 'Reply' : 'New message';
+        var title = initial.mode === 'reply'   ? 'Reply'
+                  : initial.mode === 'forward' ? 'Forward'
+                  : 'New message';
         return html`
           <${Modal} title=${title} onRequestClose=${props.onClose} className="em-inbox-composer-modal">
-            <p class="em-inbox-composer-from">From: <strong>${initial.from || '(no inbox)'}</strong></p>
+            <div
+              class="em-inbox-composer-dropzone ${dragging ? 'is-dragging' : ''}"
+              onDragOver=${onDragOver}
+              onDragLeave=${onDragLeave}
+              onDrop=${onDrop}>
+            <p class="em-inbox-composer-from">
+              From: <strong>${initial.from || '(no inbox)'}</strong>
+              ${!showCcBcc && html`<button type="button" class="em-inbox-link-btn" onClick=${function () { setShowCcBcc(true); }}>Cc / Bcc</button>`}
+            </p>
             <${ContactTokenField}
               label="To"
               help="Type a name or email; pick from suggestions."
               value=${to}
               onChange=${setTo} />
+            ${showCcBcc && html`
+              <${ContactTokenField} label="Cc"  value=${cc}  onChange=${setCc} />
+              <${ContactTokenField} label="Bcc" value=${bcc} onChange=${setBcc} />
+            `}
             <${TextControl}
               label="Subject"
               value=${subject}
@@ -391,9 +445,11 @@
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
-              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || (Array.isArray(to) ? to.length === 0 : !to) || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
+              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || ((to.length + cc.length + bcc.length) === 0) || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
                 ${sending ? html`<${Spinner} />` : 'Send'}
               <//>
+            </div>
+            ${dragging && html`<div class="em-inbox-drop-overlay">Drop files to attach</div>`}
             </div>
           <//>
         `;
@@ -686,6 +742,7 @@
                   }}
                 >${Number(state.thread.is_starred) === 1 ? '★' : '☆'}</button>
                 <${Button} variant="primary" onClick=${function () { props.onReply && props.onReply(state.thread, lastMsg); }}>Reply<//>
+                <${Button} variant="secondary" onClick=${function () { props.onForward && props.onForward(state.thread, lastMsg); }}>Forward<//>
                 <${Button} variant="secondary" onClick=${function () {
                     var archived = Number(state.thread.is_archived) === 1;
                     restPost('threads/' + state.thread.id + '/' + (archived ? 'unarchive' : 'archive'), {})
