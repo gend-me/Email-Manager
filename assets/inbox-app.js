@@ -320,6 +320,7 @@
             var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=' + PER_PAGE + '&page=' + page;
             if (filter === 'unread')   q += '&unread=1';
             if (filter === 'archived') q += '&archived=1';
+            if (filter === 'trashed')  q += '&trashed=1';
             return restGet(q);
         }
 
@@ -377,13 +378,26 @@
                 ${btn('all',      'All' + (counts.total != null ? ' · ' + counts.total : ''))}
                 ${btn('unread',   'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
                 ${btn('archived', 'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
+                ${btn('trashed',  'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
               </div>
               ${selIds.length > 0 && html`
                 <div class="em-inbox-bulk-bar">
                   <span>${selIds.length} selected</span>
-                  <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk('read'); }}>Mark read</button>
-                  <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk('unread'); }}>Mark unread</button>
-                  <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk(filter === 'archived' ? 'unarchive' : 'archive'); }}>${filter === 'archived' ? 'Unarchive' : 'Archive'}</button>
+                  ${filter === 'trashed'
+                    ? html`
+                      <button type="button" class="em-inbox-bulk-act"   onClick=${function () { bulk('restore'); }}>Restore</button>
+                      <button type="button" class="em-inbox-bulk-act"   onClick=${function () {
+                          if (! window.confirm('Permanently delete ' + selIds.length + ' thread(s)? This cannot be undone.')) return;
+                          Promise.all(selIds.map(function (id) {
+                              return apiFetch({ url: cfg.restRoot + 'threads/' + id + '/delete-forever', method: 'DELETE' });
+                          })).then(function () { setSelected({}); props.onBulkApplied && props.onBulkApplied(); });
+                      }}>Delete forever</button>`
+                    : html`
+                      <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk('read'); }}>Mark read</button>
+                      <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk('unread'); }}>Mark unread</button>
+                      <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk(filter === 'archived' ? 'unarchive' : 'archive'); }}>${filter === 'archived' ? 'Unarchive' : 'Archive'}</button>
+                      <button type="button" class="em-inbox-bulk-act" onClick=${function () { bulk('trash'); }}>Trash</button>
+                    `}
                   <button type="button" class="em-inbox-bulk-clear" onClick=${function () { setSelected({}); }}>Clear</button>
                 </div>
               `}
@@ -494,6 +508,10 @@
                     restPost('threads/' + state.thread.id + '/unread', {})
                         .then(function () { props.onMarkedUnread && props.onMarkedUnread(); });
                 }}>Mark unread<//>
+                <${Button} variant="tertiary" onClick=${function () {
+                    restPost('threads/' + state.thread.id + '/trash', {})
+                        .then(function () { props.onArchived && props.onArchived(); });
+                }}>Trash<//>
               </div>
             </header>
             <div class="em-inbox-messages">

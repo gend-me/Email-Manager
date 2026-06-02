@@ -163,22 +163,26 @@ function em_inbox_list_threads(WP_REST_Request $request) {
 
     $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $threads_table t $where");
 
-    // Filters: ?unread=1 or ?archived=1
+    // Filters: ?unread=1, ?archived=1, ?trashed=1
     $only_unread   = (int) $request->get_param('unread')   === 1;
     $only_archived = (int) $request->get_param('archived') === 1;
+    $only_trashed  = (int) $request->get_param('trashed')  === 1;
     $part_table    = $wpdb->prefix . 'gdc_inbox_participants';
     $user          = wp_get_current_user();
     $user_id       = ($user && $user->ID) ? (int) $user->ID : 0;
 
-    // Build optional WHERE additions for unread/archived filters.
+    // Build optional WHERE additions for the active filter. Trash takes
+    // precedence; archived/default both exclude trashed rows.
     $extra_where = '';
-    if ($user_id > 0 && $only_unread) {
-        $extra_where = $wpdb->prepare(' AND COALESCE(p.is_read, 0) = 0 AND COALESCE(p.is_archived, 0) = 0 ');
+    if ($user_id > 0 && $only_trashed) {
+        $extra_where = ' AND COALESCE(p.is_trashed, 0) = 1 ';
+    } elseif ($user_id > 0 && $only_unread) {
+        $extra_where = ' AND COALESCE(p.is_read, 0) = 0 AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0 ';
     } elseif ($user_id > 0 && $only_archived) {
-        $extra_where = ' AND COALESCE(p.is_archived, 0) = 1 ';
+        $extra_where = ' AND COALESCE(p.is_archived, 0) = 1 AND COALESCE(p.is_trashed, 0) = 0 ';
     } elseif ($user_id > 0) {
-        // Default: hide archived from the main feed.
-        $extra_where = ' AND COALESCE(p.is_archived, 0) = 0 ';
+        // Default: hide archived AND trashed from the main feed.
+        $extra_where = ' AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0 ';
     }
 
     $part_join = $user_id > 0
@@ -189,7 +193,8 @@ function em_inbox_list_threads(WP_REST_Request $request) {
         "SELECT t.id, t.inbox_address, t.subject_first, t.message_count, t.updated_at,
                 m.sender AS last_sender, m.subject AS last_subject, m.received_at AS last_received_at,
                 COALESCE(p.is_read, 1)     AS is_read,
-                COALESCE(p.is_archived, 0) AS is_archived
+                COALESCE(p.is_archived, 0) AS is_archived,
+                COALESCE(p.is_trashed, 0)  AS is_trashed
          FROM $threads_table t
          LEFT JOIN $messages_table m ON m.id = t.last_message_id
          $part_join
@@ -200,14 +205,15 @@ function em_inbox_list_threads(WP_REST_Request $request) {
     );
     $rows = $wpdb->get_results($sql, ARRAY_A);
 
-    // Per-inbox aggregate: unread + total counts for the current user.
+    // Per-inbox aggregate: unread + archived + trashed counts for the current user.
     $counts = array();
     if ($user_id > 0 && $inbox !== '') {
         $counts = $wpdb->get_row($wpdb->prepare(
             "SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN COALESCE(p.is_read,1) = 0 AND COALESCE(p.is_archived,0) = 0 THEN 1 ELSE 0 END) AS unread,
-                SUM(CASE WHEN COALESCE(p.is_archived,0) = 1 THEN 1 ELSE 0 END) AS archived
+                SUM(CASE WHEN COALESCE(p.is_read,1) = 0 AND COALESCE(p.is_archived,0) = 0 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS unread,
+                SUM(CASE WHEN COALESCE(p.is_archived,0) = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS archived,
+                SUM(CASE WHEN COALESCE(p.is_trashed,0)  = 1 THEN 1 ELSE 0 END) AS trashed
              FROM $threads_table t
              LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = %d
              WHERE t.inbox_address = %s",

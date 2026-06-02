@@ -32,7 +32,7 @@
 
 defined('ABSPATH') || exit;
 
-define('EM_INBOX_PART_DB_VERSION', '1.0.0');
+define('EM_INBOX_PART_DB_VERSION', '1.1.0');  // bumped for is_trashed (slice 2p)
 
 /* -------------------------------------------------------------------------
  * Schema
@@ -49,12 +49,15 @@ function em_inbox_part_create_table() {
         user_id bigint(20) UNSIGNED NOT NULL,
         is_read tinyint(1) NOT NULL DEFAULT 0,
         is_archived tinyint(1) NOT NULL DEFAULT 0,
+        is_trashed tinyint(1) NOT NULL DEFAULT 0,
+        trashed_at datetime DEFAULT NULL,
         last_read_at datetime DEFAULT NULL,
         created_at datetime NOT NULL,
         updated_at datetime NOT NULL,
         PRIMARY KEY  (id),
         UNIQUE KEY uniq_thread_user (thread_id, user_id),
         KEY idx_user_state (user_id, is_archived, is_read),
+        KEY idx_trashed (is_trashed, trashed_at),
         KEY idx_thread (thread_id)
     ) $charset_collate;";
 
@@ -66,6 +69,17 @@ function em_inbox_part_create_table() {
 function em_inbox_part_maybe_create_table() {
     if (get_option('em_inbox_part_db_version') !== EM_INBOX_PART_DB_VERSION) {
         em_inbox_part_create_table();
+        // dbDelta only CREATEs cleanly; for ALTER on an existing table
+        // we run the column adds explicitly. Safe to re-run.
+        global $wpdb;
+        $tbl  = $wpdb->prefix . 'gdc_inbox_participants';
+        $cols = array_column($wpdb->get_results("DESCRIBE $tbl"), 'Field');
+        if (! in_array('is_trashed', $cols, true)) {
+            $wpdb->query("ALTER TABLE $tbl
+                ADD COLUMN is_trashed TINYINT(1) NOT NULL DEFAULT 0,
+                ADD COLUMN trashed_at DATETIME NULL,
+                ADD KEY idx_trashed (is_trashed, trashed_at)");
+        }
     }
 }
 add_action('admin_init',    'em_inbox_part_maybe_create_table');
@@ -153,7 +167,7 @@ function em_inbox_part_upsert_for_thread($thread_id, $is_read_on_new_arrival) {
 
 add_action('rest_api_init', function () {
     $args = array('id' => array('type' => 'integer', 'required' => true));
-    foreach (array('read','unread','archive','unarchive') as $action) {
+    foreach (array('read','unread','archive','unarchive','trash','restore') as $action) {
         register_rest_route('em/v1', '/inbox/threads/(?P<id>\d+)/' . $action, array(
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => 'em_inbox_part_action_' . $action,
@@ -161,6 +175,14 @@ add_action('rest_api_init', function () {
             'args'                => $args,
         ));
     }
+    // Permanent delete is destructive — separate endpoint, separate
+    // permission gate (must own thread; admin can delete any).
+    register_rest_route('em/v1', '/inbox/threads/(?P<id>\d+)/delete-forever', array(
+        'methods'             => WP_REST_Server::DELETABLE,
+        'callback'            => 'em_inbox_part_action_delete_forever',
+        'permission_callback' => function () { return is_user_logged_in(); },
+        'args'                => $args,
+    ));
 
     // Bulk action endpoint — body: { action, thread_ids:[int,…] }
     register_rest_route('em/v1', '/inbox/threads/bulk', array(
@@ -177,8 +199,14 @@ function em_inbox_part_bulk_handler(WP_REST_Request $request) {
     $thread_ids = isset($body['thread_ids']) && is_array($body['thread_ids']) ? array_map('intval', $body['thread_ids']) : array();
     $thread_ids = array_values(array_filter($thread_ids, function ($n) { return $n > 0; }));
 
-    $valid = array('read' => array(true, null), 'unread' => array(false, null),
-                   'archive' => array(null, true), 'unarchive' => array(null, false));
+    $valid = array(
+        'read'      => array(true,  null,  null),
+        'unread'    => array(false, null,  null),
+        'archive'   => array(null,  true,  null),
+        'unarchive' => array(null,  false, null),
+        'trash'     => array(null,  null,  true),
+        'restore'   => array(null,  null,  false),
+    );
     if (! isset($valid[$action])) {
         return new WP_Error('em_inbox_bulk_bad_action', 'Unknown action', array('status' => 400));
     }
@@ -203,7 +231,7 @@ function em_inbox_part_bulk_handler(WP_REST_Request $request) {
     ), ARRAY_A);
 
     $applied = 0; $skipped = array();
-    list($is_read, $is_archived) = $valid[$action];
+    list($is_read, $is_archived, $is_trashed) = $valid[$action];
     foreach ($threads as $t) {
         $is_admin   = current_user_can('manage_options');
         $is_owner   = (int) $t['owner_user_id'] === (int) $user->ID;
@@ -214,7 +242,7 @@ function em_inbox_part_bulk_handler(WP_REST_Request $request) {
             $skipped[] = (int) $t['id'];
             continue;
         }
-        em_inbox_part_apply((int) $t['id'], (int) $user->ID, $is_read, $is_archived);
+        em_inbox_part_apply((int) $t['id'], (int) $user->ID, $is_read, $is_archived, $is_trashed);
         $applied++;
     }
     return rest_ensure_response(array(
@@ -226,12 +254,42 @@ function em_inbox_part_bulk_handler(WP_REST_Request $request) {
     ));
 }
 
-function em_inbox_part_action_read($r)      { return em_inbox_part_set_state($r, true,  null); }
-function em_inbox_part_action_unread($r)    { return em_inbox_part_set_state($r, false, null); }
-function em_inbox_part_action_archive($r)   { return em_inbox_part_set_state($r, null,  true); }
-function em_inbox_part_action_unarchive($r) { return em_inbox_part_set_state($r, null,  false); }
+function em_inbox_part_action_read($r)      { return em_inbox_part_set_state($r, true,  null,  null); }
+function em_inbox_part_action_unread($r)    { return em_inbox_part_set_state($r, false, null,  null); }
+function em_inbox_part_action_archive($r)   { return em_inbox_part_set_state($r, null,  true,  null); }
+function em_inbox_part_action_unarchive($r) { return em_inbox_part_set_state($r, null,  false, null); }
+function em_inbox_part_action_trash($r)     { return em_inbox_part_set_state($r, null,  null,  true); }
+function em_inbox_part_action_restore($r)   { return em_inbox_part_set_state($r, null,  null,  false); }
 
-function em_inbox_part_set_state(WP_REST_Request $request, $is_read, $is_archived) {
+function em_inbox_part_action_delete_forever(WP_REST_Request $request) {
+    global $wpdb;
+    $tid  = (int) $request['id'];
+    $user = wp_get_current_user();
+    if (! $user || ! $user->ID) return new WP_Error('em_inbox_part_no_user', 'Login required', array('status' => 401));
+
+    $threads = $wpdb->prefix . 'gdc_inbox_threads';
+    $thread  = $wpdb->get_row($wpdb->prepare("SELECT id, inbox_address, owner_user_id FROM $threads WHERE id = %d", $tid), ARRAY_A);
+    if (! $thread) return new WP_Error('em_inbox_part_404', 'Thread not found', array('status' => 404));
+    $is_admin = current_user_can('manage_options');
+    $is_owner = (int) $thread['owner_user_id'] === (int) $user->ID;
+    if (! ($is_admin || $is_owner)) return new WP_Error('em_inbox_part_forbidden', 'Not authorized', array('status' => 403));
+
+    // Wipe in dependency order: participants → messages → raw → thread.
+    $msg_table  = $wpdb->prefix . 'gdc_inbox_messages';
+    $raw_table  = $wpdb->prefix . 'gdc_inbox_raw';
+    $part_table = $wpdb->prefix . 'gdc_inbox_participants';
+    $raw_ids = $wpdb->get_col($wpdb->prepare("SELECT raw_id FROM $msg_table WHERE thread_id = %d", $tid));
+    $wpdb->query($wpdb->prepare("DELETE FROM $part_table WHERE thread_id = %d", $tid));
+    $wpdb->query($wpdb->prepare("DELETE FROM $msg_table  WHERE thread_id = %d", $tid));
+    if ($raw_ids) {
+        $ph = implode(',', array_fill(0, count($raw_ids), '%d'));
+        $wpdb->query($wpdb->prepare("DELETE FROM $raw_table WHERE id IN ($ph)", ...$raw_ids));
+    }
+    $wpdb->query($wpdb->prepare("DELETE FROM $threads WHERE id = %d", $tid));
+    return rest_ensure_response(array('ok' => true, 'thread_id' => $tid, 'deleted' => true));
+}
+
+function em_inbox_part_set_state(WP_REST_Request $request, $is_read, $is_archived, $is_trashed = null) {
     global $wpdb;
     $tid = (int) $request['id'];
     $user = wp_get_current_user();
@@ -256,11 +314,11 @@ function em_inbox_part_set_state(WP_REST_Request $request, $is_read, $is_archive
         return new WP_Error('em_inbox_part_forbidden', 'Not authorized', array('status' => 403));
     }
 
-    em_inbox_part_apply($tid, $user->ID, $is_read, $is_archived);
+    em_inbox_part_apply($tid, $user->ID, $is_read, $is_archived, $is_trashed);
     return rest_ensure_response(array('ok' => true, 'thread_id' => $tid));
 }
 
-function em_inbox_part_apply($thread_id, $user_id, $is_read, $is_archived) {
+function em_inbox_part_apply($thread_id, $user_id, $is_read, $is_archived, $is_trashed = null) {
     global $wpdb;
     $part = $wpdb->prefix . 'gdc_inbox_participants';
     $now  = current_time('mysql', 1);
@@ -280,13 +338,19 @@ function em_inbox_part_apply($thread_id, $user_id, $is_read, $is_archived) {
         $set['is_archived'] = $is_archived ? 1 : 0;
         $fmt[] = '%d';
     }
+    if ($is_trashed !== null) {
+        $set['is_trashed'] = $is_trashed ? 1 : 0;
+        $set['trashed_at'] = $is_trashed ? $now : null;
+        $fmt[] = '%d'; $fmt[] = '%s';
+    }
 
     if ($row) {
         $wpdb->update($part, $set, array('id' => (int) $row['id']), $fmt, array('%d'));
     } else {
         $insert = array_merge(array(
             'thread_id' => $thread_id, 'user_id' => $user_id,
-            'is_read' => 0, 'is_archived' => 0, 'last_read_at' => null,
+            'is_read' => 0, 'is_archived' => 0, 'is_trashed' => 0,
+            'last_read_at' => null, 'trashed_at' => null,
             'created_at' => $now,
         ), $set);
         $wpdb->insert($part, $insert);
@@ -299,6 +363,49 @@ function em_inbox_part_apply($thread_id, $user_id, $is_read, $is_archived) {
 
 if (defined('WP_CLI') && WP_CLI) {
     WP_CLI::add_command('em-inbox backfill-participants', 'em_inbox_part_cli_backfill');
+}
+
+/* -------------------------------------------------------------------------
+ * Auto-purge: nightly delete of trashed threads older than 30 days
+ * ------------------------------------------------------------------------- */
+
+add_action('init', function () {
+    if (! wp_next_scheduled('em_inbox_trash_purge')) {
+        wp_schedule_event(time() + 3600, 'daily', 'em_inbox_trash_purge');
+    }
+});
+
+add_action('em_inbox_trash_purge', 'em_inbox_part_purge_old_trash');
+
+function em_inbox_part_purge_old_trash() {
+    global $wpdb;
+    $cutoff = gmdate('Y-m-d H:i:s', time() - 30 * 86400);
+    $part   = $wpdb->prefix . 'gdc_inbox_participants';
+    // A thread is purgeable if EVERY participant row trashed it before
+    // $cutoff. Single-owner is the common case; admins viewing others'
+    // inboxes don't create participant rows, so this almost always
+    // reduces to the owner's trashed_at < cutoff.
+    $tids = $wpdb->get_col($wpdb->prepare(
+        "SELECT thread_id FROM $part
+         GROUP BY thread_id
+         HAVING MIN(is_trashed) = 1 AND MAX(trashed_at) < %s",
+        $cutoff
+    ));
+    if (! $tids) return 0;
+    $count = 0;
+    foreach ($tids as $tid) {
+        $tid = (int) $tid;
+        $raw_ids = $wpdb->get_col($wpdb->prepare("SELECT raw_id FROM {$wpdb->prefix}gdc_inbox_messages WHERE thread_id = %d", $tid));
+        $wpdb->query($wpdb->prepare("DELETE FROM $part WHERE thread_id = %d", $tid));
+        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_messages WHERE thread_id = %d", $tid));
+        if ($raw_ids) {
+            $ph = implode(',', array_fill(0, count($raw_ids), '%d'));
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_raw WHERE id IN ($ph)", ...$raw_ids));
+        }
+        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_threads WHERE id = %d", $tid));
+        $count++;
+    }
+    return $count;
 }
 
 function em_inbox_part_cli_backfill($args, $assoc) {
