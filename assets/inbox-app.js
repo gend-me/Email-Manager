@@ -173,6 +173,199 @@
         `;
     }
 
+    // ── Filters engine modal (slice 2cc) ────────────────────────
+    function FiltersModal(props) {
+        var st = useState({ loading: true, items: [], err: null });
+        var state = st[0], setState = st[1];
+        var editingState = useState(null); var editing = editingState[0], setEditing = editingState[1];
+
+        function reload() {
+            setState({ loading: true, items: state.items, err: null });
+            restGet('filters').then(function (d) {
+                setState({ loading: false, items: d.items || [], err: null });
+            }).catch(function (e) { setState({ loading: false, items: [], err: e.message || 'load failed' }); });
+        }
+        useEffect(reload, []);
+
+        function blankFilter() {
+            return {
+                id: 0,
+                name: '',
+                enabled: true,
+                conditions: [{ field: 'from', op: 'contains', value: '' }],
+                actions: [{ type: 'label', value: '' }],
+            };
+        }
+        function startNew()         { setEditing(blankFilter()); }
+        function edit(f) {
+            setEditing({
+                id: Number(f.id),
+                name: f.name || '',
+                enabled: Number(f.enabled) === 1,
+                conditions: (f.conditions && f.conditions.length) ? f.conditions : [{ field: 'from', op: 'contains', value: '' }],
+                actions:    (f.actions    && f.actions.length)    ? f.actions    : [{ type: 'label', value: '' }],
+            });
+        }
+        function saveEditing() {
+            var payload = {
+                name: editing.name,
+                enabled: editing.enabled ? 1 : 0,
+                conditions: editing.conditions.filter(function (c) { return c.value !== ''; }),
+                actions:    editing.actions.filter(function (a) { return a.type === 'label' || a.type === 'forward' ? a.value !== '' : true; }),
+            };
+            var url = editing.id > 0 ? 'filters/' + editing.id : 'filters';
+            apiFetch({ url: cfg.restRoot + url, method: editing.id > 0 ? 'PUT' : 'POST', data: payload })
+                .then(function () { setEditing(null); reload(); })
+                .catch(function (e) { alert((e && e.message) || 'save failed'); });
+        }
+        function remove(id) {
+            if (! window.confirm('Delete this filter?')) return;
+            apiFetch({ url: cfg.restRoot + 'filters/' + id, method: 'DELETE' }).then(reload);
+        }
+        function toggleEnabled(f) {
+            apiFetch({
+                url: cfg.restRoot + 'filters/' + f.id, method: 'PUT',
+                data: { name: f.name, enabled: Number(f.enabled) === 1 ? 0 : 1, conditions: f.conditions || [], actions: f.actions || [] }
+            }).then(reload);
+        }
+
+        var labels = props.labels || [];
+
+        if (editing) {
+            return html`
+              <${Modal} title=${editing.id > 0 ? 'Edit filter' : 'New filter'} onRequestClose=${function () { setEditing(null); }} className="em-inbox-filters-modal">
+                <${TextControl} label="Name" value=${editing.name} onChange=${function (v) { setEditing(Object.assign({}, editing, { name: v })); }} __nextHasNoMarginBottom=${true} />
+                <label class="em-inbox-track-toggle">
+                  <input type="checkbox" checked=${!!editing.enabled} onChange=${function (e) { setEditing(Object.assign({}, editing, { enabled: e.target.checked })); }} />
+                  <span>Enabled</span>
+                </label>
+                <h3 class="em-inbox-filters-h3">When ALL of these match</h3>
+                ${editing.conditions.map(function (c, i) {
+                    return html`
+                      <div class="em-inbox-filters-row" key=${'c'+i}>
+                        <select value=${c.field} onChange=${function (e) {
+                            var next = editing.conditions.slice(); next[i] = Object.assign({}, next[i], { field: e.target.value });
+                            setEditing(Object.assign({}, editing, { conditions: next }));
+                        }}>
+                          <option value="from">From</option>
+                          <option value="to">To</option>
+                          <option value="subject">Subject</option>
+                          <option value="body">Body</option>
+                          <option value="any">Any of above</option>
+                        </select>
+                        <select value=${c.op} onChange=${function (e) {
+                            var next = editing.conditions.slice(); next[i] = Object.assign({}, next[i], { op: e.target.value });
+                            setEditing(Object.assign({}, editing, { conditions: next }));
+                        }}>
+                          <option value="contains">contains</option>
+                          <option value="equals">equals</option>
+                          <option value="starts_with">starts with</option>
+                          <option value="ends_with">ends with</option>
+                          <option value="matches">matches regex</option>
+                        </select>
+                        <input type="text" value=${c.value} placeholder="value" onChange=${function (e) {
+                            var next = editing.conditions.slice(); next[i] = Object.assign({}, next[i], { value: e.target.value });
+                            setEditing(Object.assign({}, editing, { conditions: next }));
+                        }} />
+                        <button type="button" class="em-inbox-row-rm" onClick=${function () {
+                            var next = editing.conditions.slice(); next.splice(i, 1);
+                            if (! next.length) next.push({ field: 'from', op: 'contains', value: '' });
+                            setEditing(Object.assign({}, editing, { conditions: next }));
+                        }}>×</button>
+                      </div>
+                    `;
+                })}
+                <button type="button" class="em-inbox-row-add" onClick=${function () {
+                    setEditing(Object.assign({}, editing, { conditions: editing.conditions.concat([{ field: 'from', op: 'contains', value: '' }]) }));
+                }}>+ Add condition</button>
+                <h3 class="em-inbox-filters-h3">Do this</h3>
+                ${editing.actions.map(function (a, i) {
+                    return html`
+                      <div class="em-inbox-filters-row" key=${'a'+i}>
+                        <select value=${a.type} onChange=${function (e) {
+                            var next = editing.actions.slice(); next[i] = { type: e.target.value, value: '' };
+                            setEditing(Object.assign({}, editing, { actions: next }));
+                        }}>
+                          <option value="label">Apply label</option>
+                          <option value="archive">Auto-archive</option>
+                          <option value="trash">Move to trash</option>
+                          <option value="star">Star</option>
+                          <option value="read">Mark read</option>
+                          <option value="forward">Forward to…</option>
+                        </select>
+                        ${a.type === 'label' ? html`
+                          <select value=${a.value} onChange=${function (e) {
+                              var next = editing.actions.slice(); next[i] = Object.assign({}, next[i], { value: e.target.value });
+                              setEditing(Object.assign({}, editing, { actions: next }));
+                          }}>
+                            <option value="">(pick label)</option>
+                            ${labels.map(function (l) { return html`<option key=${l.id} value=${l.id}>${l.name}</option>`; })}
+                          </select>
+                        ` : a.type === 'forward' ? html`
+                          <input type="email" value=${a.value} placeholder="forward@example.com" onChange=${function (e) {
+                              var next = editing.actions.slice(); next[i] = Object.assign({}, next[i], { value: e.target.value });
+                              setEditing(Object.assign({}, editing, { actions: next }));
+                          }} />
+                        ` : html`<span class="em-inbox-filters-noval">(no parameter)</span>`}
+                        <button type="button" class="em-inbox-row-rm" onClick=${function () {
+                            var next = editing.actions.slice(); next.splice(i, 1);
+                            if (! next.length) next.push({ type: 'label', value: '' });
+                            setEditing(Object.assign({}, editing, { actions: next }));
+                        }}>×</button>
+                      </div>
+                    `;
+                })}
+                <button type="button" class="em-inbox-row-add" onClick=${function () {
+                    setEditing(Object.assign({}, editing, { actions: editing.actions.concat([{ type: 'archive', value: '' }]) }));
+                }}>+ Add action</button>
+                <div class="em-inbox-composer-actions">
+                  <${Button} variant="tertiary" onClick=${function () { setEditing(null); }}>Cancel<//>
+                  <${Button} variant="primary"  onClick=${saveEditing} disabled=${! editing.name.trim()}>Save<//>
+                </div>
+              <//>
+            `;
+        }
+
+        return html`
+          <${Modal} title="Filter rules" onRequestClose=${props.onClose} className="em-inbox-filters-modal">
+            ${state.loading ? html`<${Spinner} />`
+              : state.err   ? html`<${Notice} status="error" isDismissible=${false}>${state.err}<//>`
+              : state.items.length === 0 ? html`<p class="em-inbox-empty">No filters yet. Create one to auto-label, archive, or forward incoming messages.</p>`
+              : html`
+                <ul class="em-inbox-filters-list">
+                  ${state.items.map(function (f) {
+                      var summary = (f.conditions || []).map(function (c) { return c.field + ' ' + c.op + ' "' + c.value + '"'; }).join(' AND ');
+                      var actsum = (f.actions || []).map(function (a) {
+                          if (a.type === 'label')   { var l = labels.filter(function (x) { return Number(x.id) === Number(a.value); })[0]; return 'label: ' + (l ? l.name : a.value); }
+                          if (a.type === 'forward') return 'forward: ' + a.value;
+                          return a.type;
+                      }).join(', ');
+                      return html`
+                        <li key=${f.id} class="em-inbox-filters-row-item">
+                          <label class="em-inbox-filters-toggle">
+                            <input type="checkbox" checked=${Number(f.enabled) === 1} onChange=${function () { toggleEnabled(f); }} />
+                          </label>
+                          <div class="em-inbox-filters-meta">
+                            <div class="em-inbox-filters-name">${f.name}</div>
+                            <div class="em-inbox-filters-cond">${summary || '(no conditions)'}</div>
+                            <div class="em-inbox-filters-acts">→ ${actsum || '(no actions)'}</div>
+                            <div class="em-inbox-filters-stats">matched ${f.match_count || 0}× · ${f.last_matched_at ? 'last: ' + formatDate(f.last_matched_at) : 'never'}</div>
+                          </div>
+                          <button type="button" class="components-button is-tertiary" onClick=${function () { edit(f); }}>Edit</button>
+                          <button type="button" class="components-button is-tertiary em-inbox-filters-rm" onClick=${function () { remove(f.id); }}>×</button>
+                        </li>
+                      `;
+                  })}
+                </ul>
+              `}
+            <div class="em-inbox-composer-actions">
+              <${Button} variant="tertiary" onClick=${props.onClose}>Close<//>
+              <${Button} variant="primary"  onClick=${startNew}>+ New filter<//>
+            </div>
+          <//>
+        `;
+    }
+
     function App() {
         var inboxState = useState([]);            var inboxes = inboxState[0], setInboxes = inboxState[1];
         var selectedState = useState('');         var selected = selectedState[0], setSelected = selectedState[1];
@@ -189,6 +382,7 @@
         var vacationState = useState(false);      var showVacation = vacationState[0], setShowVacation = vacationState[1];
         var vacationCfgState = useState(null);    var vacationCfg = vacationCfgState[0], setVacationCfg = vacationCfgState[1];
         useEffect(function () { restGet('vacation').then(setVacationCfg); }, [tick]);
+        var filtersState = useState(false);       var showFilters = filtersState[0], setShowFilters = filtersState[1];
         var focusedThreadState = useState(null);  var focusedThreadId = focusedThreadState[0], setFocusedThreadId = focusedThreadState[1];
         // searchInputRef so '/' can focus the search bar.
         var searchInputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
@@ -297,6 +491,12 @@
                 title=${vacationCfg && vacationCfg.enabled ? 'Vacation responder ON' : 'Vacation responder'}
                 onClick=${function () { setShowVacation(true); }}
               >${vacationCfg && vacationCfg.enabled ? '🌴 ON' : '🌴'}</button>
+              <button
+                type="button"
+                class="em-inbox-filters-btn"
+                title="Filter rules"
+                onClick=${function () { setShowFilters(true); }}
+              >⚙ Filters</button>
             </div>
             <div class="em-inbox-body">
               ${searchQ.length >= 2
@@ -390,6 +590,7 @@
             `}
             ${showHelp && html`<${ShortcutHelpOverlay} onClose=${function () { setShowHelp(false); }} />`}
             ${showVacation && html`<${VacationModal} onClose=${function () { setShowVacation(false); }} onChanged=${setVacationCfg} />`}
+            ${showFilters && html`<${FiltersModal} labels=${labels} onClose=${function () { setShowFilters(false); }} />`}
           </div>
         `;
     }

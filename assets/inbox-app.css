@@ -660,3 +660,60 @@ img.em-inbox-blocked-img {
 .em-inbox-scheduled-to { color: #646970; font-size: 12px; margin-top: 2px; }
 .em-inbox-scheduled-subject { font-size: 14px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .em-inbox-scheduled-cancel { flex-shrink: 0; }
+
+/* Slice 2cc — filters engine */
+.em-inbox-filters-btn {
+    background: transparent;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-left: 4px;
+}
+.em-inbox-filters-btn:hover { background: #f0f0f1; }
+.em-inbox-filters-modal .components-modal__content { max-width: 720px; }
+.em-inbox-filters-h3 { margin: 16px 0 8px; font-size: 14px; font-weight: 600; color: #1d2327; }
+.em-inbox-filters-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0;
+}
+.em-inbox-filters-row select, .em-inbox-filters-row input { font: inherit; padding: 4px 6px; }
+.em-inbox-filters-row input[type="text"], .em-inbox-filters-row input[type="email"] { flex: 1; min-width: 0; }
+.em-inbox-filters-noval { color: #646970; font-size: 12px; flex: 1; }
+.em-inbox-row-add {
+    background: transparent;
+    border: 1px dashed #c3c4c7;
+    color: #2271b1;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    margin: 4px 0 0;
+}
+.em-inbox-row-rm {
+    background: transparent;
+    border: 0;
+    color: #b32d2e;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0 6px;
+}
+.em-inbox-filters-list { list-style: none; margin: 0; padding: 0; }
+.em-inbox-filters-row-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 4px;
+    border-bottom: 1px solid #f0f0f1;
+}
+.em-inbox-filters-toggle { display: flex; align-items: center; }
+.em-inbox-filters-meta { flex: 1; min-width: 0; }
+.em-inbox-filters-name { font-weight: 600; font-size: 14px; }
+.em-inbox-filters-cond { color: #646970; font-size: 12px; margin-top: 2px; }
+.em-inbox-filters-acts { color: #2271b1; font-size: 12px; }
+.em-inbox-filters-stats { color: #8c8f94; font-size: 11px; margin-top: 2px; }
+.em-inbox-filters-rm { color: #b32d2e !important; }
