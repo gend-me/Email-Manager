@@ -257,6 +257,7 @@
         var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
         var bodyHtmlState = useState('');                          var bodyHtml = bodyHtmlState[0], setBodyHtml = bodyHtmlState[1];
         var attState = useState([]);                               var atts = attState[0], setAtts = attState[1];
+        var trackState = useState(false);                          var track = trackState[0], setTrack = trackState[1];
         var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
         var errState = useState(null);                             var err = errState[0], setErr = errState[1];
 
@@ -295,6 +296,7 @@
                 body_plain:  bodyPlain,
                 body_html:   bodyHtml,
                 thread_id:   initial.threadId || undefined,
+                track_open:  track,
                 attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
             }).then(function () {
                 setSending(false);
@@ -341,6 +343,10 @@
                 </ul>
               `}
             </div>
+            <label class="em-inbox-track-toggle">
+              <input type="checkbox" checked=${track} onChange=${function (e) { setTrack(e.target.checked); }} />
+              <span>Track when opened <small>(injects a tiny tracking pixel; recipients with image-blocking won't trigger it)</small></span>
+            </label>
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
@@ -706,6 +712,8 @@
         var statusInfo = renderDeliveryStatus(status, msg);
         var blockedN   = Number(msg.images_blocked || 0);
         var showBlockedBanner = blockedN > 0 && !imagesUnlocked && !msg.images_show_for_sender;
+        var openCount  = Number(msg.open_count || 0);
+        var lastOpen   = msg.last_open_at;
 
         return html`
           <${Card} className="em-inbox-message ${open ? 'is-open' : 'is-collapsed'} ${props.isMine ? 'is-mine' : ''} ${status ? 'is-delivery-' + status : ''}">
@@ -713,6 +721,9 @@
               <div class="em-inbox-message-from">${props.isMine ? 'Me' : msg.sender}</div>
               <div class="em-inbox-message-meta">
                 ${statusInfo}
+                ${props.isMine && openCount > 0 && html`
+                  <span class="em-inbox-open-badge" title=${'Last opened ' + (lastOpen || '—') + ' UTC'}>👁 ${openCount}</span>
+                `}
                 <div class="em-inbox-message-date">${formatDate(msg.received_at)}</div>
               </div>
             <//>

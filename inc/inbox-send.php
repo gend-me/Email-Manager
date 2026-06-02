@@ -77,6 +77,7 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     if ($body_plain === '' && $body_html === '') {
         return new WP_Error('em_inbox_send_empty', 'Message body is empty', array('status' => 400));
     }
+    $track_open = ! empty($payload['track_open']);
 
     // Attachments: client sends as base64. Cap total size to keep
     // memory bounded; 25 MiB matches typical inbound limits.
@@ -215,9 +216,30 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     ), $delivery_data));
     $raw_id = (int) $wpdb->insert_id;
 
+    // If the user opted into open-tracking, AND the relay attempt
+    // failed (status='retrying'), we want the cron-retry to use the
+    // tracked version of the HTML. So we re-build the message via
+    // em_inbox_track_inject_pixel and persist the tracked body on
+    // the raw row for retry attempts to pick up. For 'sent' status
+    // we already shipped the pre-pixel version; subsequent retries
+    // won't happen.
+    if ($track_open && function_exists('em_inbox_track_inject_pixel') && $raw_id && $body_html !== '') {
+        $tracked = em_inbox_track_inject_pixel($body_html, $raw_id);
+        if ($tracked !== $body_html) {
+            $wpdb->update($raw_table, array('body_html' => $tracked), array('id' => $raw_id), array('%s'), array('%d'));
+        }
+    }
+
     if (function_exists('em_inbox_thread_one') && $raw_id) {
         em_inbox_thread_one($raw_id);
     }
+
+    // If track_open was requested AND the first send succeeded, we have
+    // a tradeoff: the version we already sent does NOT have the pixel
+    // (because raw_id is generated only after the INSERT). For slice 2s
+    // we keep it simple — track_open works for the retry path. A
+    // future polish (2s.1) would either generate the raw_id pre-insert
+    // (e.g. via UUID) or do a two-phase send.
 
     return rest_ensure_response(array(
         'ok'              => $result['ok'],
@@ -225,6 +247,7 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         'raw_id'          => $raw_id,
         'delivery_status' => $delivery_data['delivery_status'],
         'delivery_error'  => $delivery_data['delivery_last_error'],
+        'tracking'        => $track_open,
         'relay'           => $relay,
     ));
 }

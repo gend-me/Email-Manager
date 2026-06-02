@@ -334,6 +334,8 @@ function em_inbox_get_thread(WP_REST_Request $request) {
     $current_user = wp_get_current_user();
     $current_uid  = $current_user ? (int) $current_user->ID : 0;
     foreach ($messages as &$msg) {
+        // Slice 2s — decorate outbound messages with open_count, etc.
+        $msg = apply_filters('em_inbox_thread_message_view', $msg);
         if (! empty($msg['body_html'])) {
             if (function_exists('em_inbox_sanitize_html')) {
                 $msg['body_html'] = em_inbox_sanitize_html($msg['body_html']);

@@ -49,6 +49,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/inbox-diagnostics.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-idempotency-ledger.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-sanitizer.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-labels.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-tracking.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/applications.php';
