@@ -1193,7 +1193,19 @@
     }
 }
 
-/* Hide Leo Widget by default on the Email Manager admin page */
-body:not(.gdc-email-modal-open) aipa-widget {
+/*
+ * Hide Leo Widget by default on the Email Manager admin page so it doesn't
+ * compete with the email-AI popup. MUST be scoped to the EM admin page —
+ * this stylesheet is ALSO loaded by sales-team on every BuddyPress groups
+ * page (for the task-checkout proposal modal), so an unscoped selector
+ * here hides aipa-widget on every group page (caught 2026-05-24).
+ *
+ * WordPress auto-generates a body class per admin page:
+ *   toplevel_page_email-manager           — when EM is a top-level menu
+ *   <parent>_page_email-manager           — when EM is a submenu (the gend.me
+ *                                            hub puts it under gs-app or gdc-app)
+ */
+body.toplevel_page_email-manager:not(.gdc-email-modal-open) aipa-widget,
+body[class*="_page_email-manager"]:not(.gdc-email-modal-open) aipa-widget {
     display: none !important;
 }
