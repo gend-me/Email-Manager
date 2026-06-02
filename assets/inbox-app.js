@@ -59,6 +59,44 @@
 
     // ── Components ──────────────────────────────────────────────────────
 
+    // ── Keyboard shortcuts (slice 2x) ──────────────────────────────
+    // Returns true when key events should be IGNORED (because the user
+    // is typing in an editable surface).
+    function isTypingTarget(el) {
+        if (!el) return false;
+        var tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+        if (el.isContentEditable) return true;
+        return false;
+    }
+
+    function ShortcutHelpOverlay(props) {
+        var rows = [
+            ['j / k',         'next / previous thread'],
+            ['Enter',         'open focused thread'],
+            ['u',             'back to feed'],
+            ['c',             'compose'],
+            ['r',             'reply (within thread)'],
+            ['f',             'forward (within thread)'],
+            ['e',             'archive focused / open thread'],
+            ['#',             'trash focused / open thread'],
+            ['s',             'star / unstar focused / open'],
+            ['/',             'focus search bar'],
+            ['Esc',           'close modal / overlay'],
+            ['?',             'this help'],
+        ];
+        return html`
+          <${Modal} title="Keyboard shortcuts" onRequestClose=${props.onClose} className="em-inbox-help-modal">
+            <table class="em-inbox-help-table">
+              ${rows.map(function (r, i) {
+                  return html`<tr key=${i}><th>${r[0]}</th><td>${r[1]}</td></tr>`;
+              })}
+            </table>
+            <p class="em-inbox-help-foot">Shortcuts are disabled while you're typing in an input, textarea, or rich-text composer.</p>
+          <//>
+        `;
+    }
+
     function App() {
         var inboxState = useState([]);            var inboxes = inboxState[0], setInboxes = inboxState[1];
         var selectedState = useState('');         var selected = selectedState[0], setSelected = selectedState[1];
@@ -70,6 +108,10 @@
         var labelFilterState = useState(0);       var labelFilterId = labelFilterState[0], setLabelFilterId = labelFilterState[1];
         var labelsState = useState([]);           var labels = labelsState[0], setLabels = labelsState[1];
         var manageLabelsState = useState(false);  var showManageLabels = manageLabelsState[0], setShowManageLabels = manageLabelsState[1];
+        var helpState = useState(false);          var showHelp = helpState[0], setShowHelp = helpState[1];
+        var focusedThreadState = useState(null);  var focusedThreadId = focusedThreadState[0], setFocusedThreadId = focusedThreadState[1];
+        // searchInputRef so '/' can focus the search bar.
+        var searchInputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
         // Refresh counter — bumped after a successful send so the feed
         // re-fetches and the new sent message shows up immediately.
         var refreshTick = useState(0);            var tick = refreshTick[0], bumpTick = refreshTick[1];
@@ -78,6 +120,39 @@
             restGet('labels').then(function (rows) { setLabels(rows || []); });
         }
         useEffect(function () { reloadLabels(); }, [tick]);
+
+        // ── slice 2x: keyboard shortcuts ──────────────────────────
+        useEffect(function () {
+            function onKey(e) {
+                // Escape ALWAYS works (close help / composer).
+                if (e.key === 'Escape') {
+                    if (showHelp) { setShowHelp(false); return; }
+                    if (composerProps) { setComposerProps(null); return; }
+                    if (showManageLabels) { setShowManageLabels(false); return; }
+                    if (openThreadId) { setOpenThreadId(null); return; }
+                }
+                if (isTypingTarget(e.target)) return;
+                // Don't fire when ctrl/meta/alt — let browser shortcuts work.
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                var k = e.key;
+                if (k === '?')     { setShowHelp(true); e.preventDefault(); return; }
+                if (k === 'c')     { setComposerProps({ from: selected, mode: 'new' }); e.preventDefault(); return; }
+                if (k === '/')     { if (searchInputRef.current) { searchInputRef.current.focus(); e.preventDefault(); } return; }
+                if (k === 'u')     { setOpenThreadId(null); e.preventDefault(); return; }
+                // Thread-scoped actions need a focused or open thread.
+                var actId = openThreadId || focusedThreadId;
+                if (!actId) {
+                    // j/k still navigate the focused row even with no open thread.
+                    return;
+                }
+                if (k === 'Enter') { setOpenThreadId(focusedThreadId || actId); e.preventDefault(); return; }
+                if (k === 'e')     { restPost('threads/' + actId + '/archive', {}).then(function () { setOpenThreadId(null); bumpTick(tick + 1); }); e.preventDefault(); return; }
+                if (k === '#')     { restPost('threads/' + actId + '/trash',   {}).then(function () { setOpenThreadId(null); bumpTick(tick + 1); }); e.preventDefault(); return; }
+                if (k === 's')     { restPost('threads/' + actId + '/star',    {}).then(function () { bumpTick(tick + 1); }); e.preventDefault(); return; }
+            }
+            window.addEventListener('keydown', onKey);
+            return function () { window.removeEventListener('keydown', onKey); };
+        }, [openThreadId, focusedThreadId, composerProps, showHelp, showManageLabels, selected, tick]);
 
         useEffect(function () {
             setLoading(true);
@@ -116,17 +191,26 @@
                 options=${inboxOptions}
                 onChange=${function (v) { setSelected(v); setOpenThreadId(null); setSearchQ(''); }}
               />
-              <${TextControl}
-                label="Search"
-                placeholder="Subject, body, sender…"
-                value=${searchQ}
-                onChange=${function (v) { setSearchQ(v); setOpenThreadId(null); }}
-                __nextHasNoMarginBottom=${true}
-              />
+              <div class="em-inbox-search-wrap">
+                <${TextControl}
+                  label="Search"
+                  placeholder="Subject, body, sender…   (press / to focus)"
+                  value=${searchQ}
+                  onChange=${function (v) { setSearchQ(v); setOpenThreadId(null); }}
+                  ref=${function (n) { if (n) searchInputRef.current = n.querySelector ? n.querySelector('input') : n; }}
+                  __nextHasNoMarginBottom=${true}
+                />
+              </div>
               <${Button}
                 variant="primary"
                 onClick=${function () { setComposerProps({ from: selected, mode: 'new' }); }}
               >Compose<//>
+              <button
+                type="button"
+                class="em-inbox-help-btn"
+                title="Keyboard shortcuts (?)"
+                onClick=${function () { setShowHelp(true); }}
+              >?</button>
             </div>
             <div class="em-inbox-body">
               ${searchQ.length >= 2
@@ -144,6 +228,8 @@
                     onManageLabels=${function () { setShowManageLabels(true); }}
                     onOpenThread=${setOpenThreadId}
                     onBulkApplied=${function () { bumpTick(tick + 1); }}
+                    focusedThreadId=${focusedThreadId}
+                    onFocusedChange=${setFocusedThreadId}
                     refreshKey=${tick} />`}
               ${openThreadId
                 ? html`<${ThreadView}
@@ -207,6 +293,7 @@
                 onClose=${function () { setShowManageLabels(false); }}
                 onChanged=${function () { reloadLabels(); bumpTick(tick + 1); }} />
             `}
+            ${showHelp && html`<${ShortcutHelpOverlay} onClose=${function () { setShowHelp(false); }} />`}
           </div>
         `;
     }
@@ -571,6 +658,26 @@
         var inbox = props.inbox;
         var PER_PAGE = 50;
 
+        // Slice 2x: keyboard nav j/k cycles focused index.
+        useEffect(function () {
+            function onKey(e) {
+                if (isTypingTarget(e.target)) return;
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                if (e.key !== 'j' && e.key !== 'k') return;
+                if (! state.items.length) return;
+                var ids = state.items.map(function (t) { return Number(t.id); });
+                var cur = props.focusedThreadId ? ids.indexOf(Number(props.focusedThreadId)) : -1;
+                var next = e.key === 'j'
+                    ? Math.min(cur + 1, ids.length - 1)
+                    : Math.max(cur - 1, 0);
+                if (next === cur) return;
+                props.onFocusedChange && props.onFocusedChange(ids[next]);
+                e.preventDefault();
+            }
+            window.addEventListener('keydown', onKey);
+            return function () { window.removeEventListener('keydown', onKey); };
+        }, [state.items, props.focusedThreadId, props.onFocusedChange]);
+
         function fetchPage(page, append) {
             var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=' + PER_PAGE + '&page=' + page;
             if (props.labelFilterId) {
@@ -705,10 +812,11 @@
                       var unread = Number(t.is_read) === 0;
                       var starred = Number(t.is_starred) === 1;
                       var tid    = Number(t.id);
+                      var focused = Number(props.focusedThreadId) === tid;
                       return html`
                         <li
                           key=${t.id}
-                          class="em-inbox-thread-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}${selected[tid] ? ' is-selected' : ''}"
+                          class="em-inbox-thread-row${open ? ' is-open' : ''}${unread ? ' is-unread' : ''}${selected[tid] ? ' is-selected' : ''}${focused ? ' is-focused' : ''}"
                         >
                           <input
                             type="checkbox"

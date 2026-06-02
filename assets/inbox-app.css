@@ -224,6 +224,34 @@ img.em-inbox-blocked-img {
 .em-inbox-thread-row > input[type=checkbox] { margin-top: 2px; flex: 0 0 auto; }
 .em-inbox-thread-body { flex: 1; min-width: 0; }
 .em-inbox-thread-row.is-selected { background-color: #fff8e1; }
+.em-inbox-thread-row.is-focused {
+    box-shadow: inset 3px 0 0 0 #2271b1;
+}
+
+.em-inbox-help-btn {
+    background: transparent;
+    border: 1px solid #c3c4c7;
+    color: #50575e;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    font-size: 14px;
+}
+.em-inbox-help-btn:hover { background: #f0f0f1; }
+.em-inbox-help-table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.em-inbox-help-table th {
+    text-align: left; padding: 6px 12px 6px 0;
+    font-family: Consolas, Monaco, monospace;
+    color: #2271b1;
+    width: 100px;
+}
+.em-inbox-help-table td { padding: 6px 0; color: #2c3338; }
+.em-inbox-help-foot { color: #646970; font-size: 12px; margin-top: 12px; }
+
+.em-inbox-search-wrap { flex: 1 1 280px; }
 
 .em-inbox-star {
     background: transparent;
