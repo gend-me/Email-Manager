@@ -65,6 +65,7 @@
         var loadingState = useState(true);        var loading = loadingState[0], setLoading = loadingState[1];
         var errState = useState(null);            var err = errState[0], setErr = errState[1];
         var composerState = useState(null);       var composerProps = composerState[0], setComposerProps = composerState[1];
+        var searchQState = useState('');          var searchQ = searchQState[0], setSearchQ = searchQState[1];
         // Refresh counter — bumped after a successful send so the feed
         // re-fetches and the new sent message shows up immediately.
         var refreshTick = useState(0);            var tick = refreshTick[0], bumpTick = refreshTick[1];
@@ -104,7 +105,14 @@
                 label="Inbox"
                 value=${selected}
                 options=${inboxOptions}
-                onChange=${function (v) { setSelected(v); setOpenThreadId(null); }}
+                onChange=${function (v) { setSelected(v); setOpenThreadId(null); setSearchQ(''); }}
+              />
+              <${TextControl}
+                label="Search"
+                placeholder="Subject, body, sender…"
+                value=${searchQ}
+                onChange=${function (v) { setSearchQ(v); setOpenThreadId(null); }}
+                __nextHasNoMarginBottom=${true}
               />
               <${Button}
                 variant="primary"
@@ -112,11 +120,17 @@
               >Compose<//>
             </div>
             <div class="em-inbox-body">
-              <${FeedView}
-                inbox=${selected}
-                openThreadId=${openThreadId}
-                onOpenThread=${setOpenThreadId}
-                refreshKey=${tick} />
+              ${searchQ.length >= 2
+                ? html`<${SearchResults}
+                    query=${searchQ}
+                    inbox=${selected}
+                    openThreadId=${openThreadId}
+                    onOpenThread=${setOpenThreadId} />`
+                : html`<${FeedView}
+                    inbox=${selected}
+                    openThreadId=${openThreadId}
+                    onOpenThread=${setOpenThreadId}
+                    refreshKey=${tick} />`}
               ${openThreadId
                 ? html`<${ThreadView}
                     threadId=${openThreadId}
@@ -154,16 +168,41 @@
         var toState = useState((initial.to || []).join(', '));     var to = toState[0], setTo = toState[1];
         var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
         var bodyState = useState('');                              var body = bodyState[0], setBody = bodyState[1];
+        var attState = useState([]);                               var atts = attState[0], setAtts = attState[1];
         var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
         var errState = useState(null);                             var err = errState[0], setErr = errState[1];
+
+        function onFiles(files) {
+            if (!files || !files.length) return;
+            var list = atts.slice();
+            var pending = files.length;
+            Array.prototype.forEach.call(files, function (f) {
+                if (f.size > 20 * 1024 * 1024) {
+                    setErr('File too large: ' + f.name + ' (' + humanBytes(f.size) + ')');
+                    pending--; return;
+                }
+                var reader = new FileReader();
+                reader.onload = function () {
+                    var b64 = String(reader.result).split(',', 2)[1] || '';
+                    list.push({ filename: f.name, content_type: f.type || 'application/octet-stream', content_b64: b64, size: f.size });
+                    pending--;
+                    if (pending === 0) setAtts(list);
+                };
+                reader.readAsDataURL(f);
+            });
+        }
+        function removeAtt(idx) {
+            var next = atts.slice(); next.splice(idx, 1); setAtts(next);
+        }
 
         function submit() {
             setSending(true); setErr(null);
             restPost('send', {
-                to:         to,
-                subject:    subject,
-                body_plain: body,
-                thread_id:  initial.threadId || undefined,
+                to:          to,
+                subject:     subject,
+                body_plain:  body,
+                thread_id:   initial.threadId || undefined,
+                attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
             }).then(function () {
                 setSending(false);
                 props.onSent && props.onSent();
@@ -194,6 +233,25 @@
               rows=${10}
               onChange=${setBody}
               __nextHasNoMarginBottom=${true} />
+            <div class="em-inbox-composer-attachments">
+              <label class="em-inbox-att-add">
+                <input type="file" multiple onChange=${function (e) { onFiles(e.target.files); e.target.value = ''; }} />
+                <span>+ Add attachment</span>
+              </label>
+              ${atts.length > 0 && html`
+                <ul class="em-inbox-att-list">
+                  ${atts.map(function (a, i) {
+                      return html`
+                        <li key=${i}>
+                          <span class="em-inbox-att-name">${a.filename}</span>
+                          <span class="em-inbox-att-size">${humanBytes(a.size)}</span>
+                          <button type="button" class="em-inbox-att-remove" onClick=${function () { removeAtt(i); }}>×</button>
+                        </li>
+                      `;
+                  })}
+                </ul>
+              `}
+            </div>
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
@@ -202,6 +260,48 @@
               <//>
             </div>
           <//>
+        `;
+    }
+
+    function SearchResults(props) {
+        var st = useState({ loading: true, items: [], err: null });
+        var state = st[0], setState = st[1];
+        useEffect(function () {
+            setState({ loading: true, items: [], err: null });
+            var q = 'search?q=' + encodeURIComponent(props.query);
+            if (props.inbox) q += '&inbox=' + encodeURIComponent(props.inbox);
+            // Debounce: only fire after 350ms of inactivity.
+            var handle = setTimeout(function () {
+                restGet(q)
+                    .then(function (data) { setState({ loading: false, items: data.items || [], err: null }); })
+                    .catch(function (e) { setState({ loading: false, items: [], err: e.message || 'Search failed' }); });
+            }, 350);
+            return function () { clearTimeout(handle); };
+        }, [props.query, props.inbox]);
+        if (state.loading) return html`<aside class="em-inbox-feed"><${Spinner} /></aside>`;
+        if (state.err)     return html`<aside class="em-inbox-feed"><${Notice} status="error" isDismissible=${false}>${state.err}<//></aside>`;
+        if (!state.items.length) return html`<aside class="em-inbox-feed"><p class="em-inbox-empty">No matches for "${props.query}".</p></aside>`;
+        return html`
+          <aside class="em-inbox-feed">
+            <header class="em-inbox-feed-header">${state.items.length} match${state.items.length === 1 ? '' : 'es'} for "${props.query}"</header>
+            <ul class="em-inbox-thread-list">
+              ${state.items.map(function (m) {
+                  var open = props.openThreadId === Number(m.thread_id);
+                  return html`
+                    <li
+                      key=${m.message_id}
+                      class="em-inbox-thread-row${open ? ' is-open' : ''}"
+                      onClick=${function () { props.onOpenThread(Number(m.thread_id)); }}
+                    >
+                      <div class="em-inbox-thread-sender">${m.sender || '(no sender)'}</div>
+                      <div class="em-inbox-thread-subject">${m.subject || '(no subject)'}</div>
+                      <div class="em-inbox-thread-meta">${formatDate(m.received_at)} · ${m.recipient}</div>
+                      ${m.snippet && html`<div class="em-inbox-search-snippet">${m.snippet}…</div>`}
+                    </li>
+                  `;
+              })}
+            </ul>
+          </aside>
         `;
     }
 

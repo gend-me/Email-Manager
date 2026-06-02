@@ -78,6 +78,29 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         return new WP_Error('em_inbox_send_empty', 'Message body is empty', array('status' => 400));
     }
 
+    // Attachments: client sends as base64. Cap total size to keep
+    // memory bounded; 25 MiB matches typical inbound limits.
+    $attachments_in = is_array($payload['attachments'] ?? null) ? $payload['attachments'] : array();
+    $total_bytes    = 0;
+    $attachments    = array();
+    foreach ($attachments_in as $att) {
+        if (empty($att['content_b64'])) continue;
+        $bin = base64_decode((string) $att['content_b64'], true);
+        if ($bin === false) {
+            return new WP_Error('em_inbox_send_bad_attachment', 'Attachment base64 decode failed', array('status' => 400));
+        }
+        $total_bytes += strlen($bin);
+        if ($total_bytes > 26214400) {
+            return new WP_Error('em_inbox_send_too_large', 'Attachments exceed 25 MiB', array('status' => 413));
+        }
+        $attachments[] = array(
+            'filename'     => isset($att['filename'])     ? (string) $att['filename']     : 'attachment',
+            'content_type' => isset($att['content_type']) ? (string) $att['content_type'] : 'application/octet-stream',
+            'content_b64'  => $att['content_b64'],   // pass through to submitter
+            'size'         => strlen($bin),
+        );
+    }
+
     // ── threading headers (auto-derived for replies) ─────────────────
     $extra_headers = array();
     $thread_id     = isset($payload['thread_id']) ? (int) $payload['thread_id'] : 0;
@@ -123,13 +146,14 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         explode('@', $from)[1] ?? 'mail.local');
 
     $submit_payload = array(
-        'from'       => $from,
-        'to'         => $to,
-        'subject'    => $subject,
-        'body_plain' => $body_plain,
-        'body_html'  => $body_html,
-        'headers'    => $extra_headers,
-        'message_id' => $message_id,
+        'from'        => $from,
+        'to'          => $to,
+        'subject'     => $subject,
+        'body_plain'  => $body_plain,
+        'body_html'   => $body_html,
+        'headers'     => $extra_headers,
+        'message_id'  => $message_id,
+        'attachments' => $attachments,
     );
     $body_json = wp_json_encode($submit_payload);
     $ts  = (string) time();
@@ -169,6 +193,24 @@ function em_inbox_send_handler(WP_REST_Request $request) {
             array('name' => 'Subject', 'value' => $subject),
         )
     );
+    // For the sent-mail mirror, prefer GCS refs returned by the MTA
+    // (object keys it uploaded as part of relay). Falls back to the
+    // base64 we already had so attachments still render in the thread
+    // even when the MTA didn't (or couldn't) upload to GCS.
+    $mirror_attachments = array();
+    if (is_array($relay) && ! empty($relay['attachments'])) {
+        $mirror_attachments = $relay['attachments'];
+    } else {
+        foreach ($attachments as $a) {
+            $mirror_attachments[] = array(
+                'filename'     => $a['filename'],
+                'content_type' => $a['content_type'],
+                'size'         => $a['size'],
+                'content_b64'  => $a['content_b64'],
+            );
+        }
+    }
+
     $wpdb->insert($raw_table, array(
         'message_id'  => $message_id,
         'recipient'   => $from,                  // route this row into sender's inbox view
@@ -177,11 +219,12 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         'raw_headers' => wp_json_encode($mirror_headers),
         'body_plain'  => $body_plain,
         'body_html'   => $body_html,
-        'attachments_json' => null,
-        'size_bytes'  => strlen($body_plain) + strlen($body_html),
+        'attachments_json' => $mirror_attachments ? wp_json_encode($mirror_attachments) : null,
+        'size_bytes'  => strlen($body_plain) + strlen($body_html) + $total_bytes,
         'received_at' => current_time('mysql', 1),
         'processed'   => 0,
-    ), array('%s','%s','%s','%s','%s','%s','%s','%s','%d','%s','%d'));
+        'kind'        => 'outbound',
+    ), array('%s','%s','%s','%s','%s','%s','%s','%s','%d','%s','%d','%s'));
     $raw_id = (int) $wpdb->insert_id;
 
     if (function_exists('em_inbox_thread_one') && $raw_id) {

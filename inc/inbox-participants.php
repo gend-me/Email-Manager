@@ -85,14 +85,16 @@ function em_inbox_part_on_thread_created($thread_id, $raw_row) {
 }
 
 function em_inbox_part_on_message_inserted($msg_id, $thread_id, $raw_row) {
-    // If this message was SENT BY the inbox owner (mirrored outbound),
-    // don't flip is_read=0. Owners shouldn't see their own sends as
-    // unread.
-    $owner_is_sender = false;
-    if (! empty($raw_row['recipient']) && ! empty($raw_row['sender'])) {
-        $owner_is_sender = strcasecmp($raw_row['recipient'], $raw_row['sender']) === 0;
+    // Outbound mirror rows (slice 2k: kind='outbound') shouldn't surface
+    // as unread for the owner. Pre-slice-2k rows fall back on the
+    // sender==recipient heuristic for backward compat.
+    $is_outbound = false;
+    if (isset($raw_row['kind'])) {
+        $is_outbound = ($raw_row['kind'] === 'outbound');
+    } else if (! empty($raw_row['recipient']) && ! empty($raw_row['sender'])) {
+        $is_outbound = strcasecmp($raw_row['recipient'], $raw_row['sender']) === 0;
     }
-    em_inbox_part_upsert_for_thread((int) $thread_id, $owner_is_sender ? 1 : 0);
+    em_inbox_part_upsert_for_thread((int) $thread_id, $is_outbound ? 1 : 0);
 }
 
 /**
