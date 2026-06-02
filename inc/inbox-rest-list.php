@@ -333,9 +333,36 @@ function em_inbox_get_thread(WP_REST_Request $request) {
     // unless the user has allowlisted this sender.
     $current_user = wp_get_current_user();
     $current_uid  = $current_user ? (int) $current_user->ID : 0;
+    // Helper closure: pull X-EM-Auth-* synthetic headers out of the
+    // raw_headers blob (set by webhook_forwarder, slice 2w).
+    $auth_from_raw = function ($msg_id) use ($wpdb) {
+        $raw = $wpdb->get_var($wpdb->prepare(
+            "SELECT r.raw_headers FROM {$wpdb->prefix}gdc_inbox_raw r
+             JOIN {$wpdb->prefix}gdc_inbox_messages m ON m.raw_id = r.id
+             WHERE m.id = %d", $msg_id
+        ));
+        if (! $raw) return null;
+        $headers = json_decode((string) $raw, true);
+        if (! is_array($headers)) return null;
+        $out = array('summary' => null, 'spf' => null, 'dkim' => null, 'dmarc' => null);
+        foreach ($headers as $h) {
+            if (! isset($h['name'])) continue;
+            $n = strtolower($h['name']);
+            if ($n === 'x-em-auth-summary') $out['summary'] = $h['value'];
+            elseif ($n === 'x-em-auth-spf')   $out['spf']   = $h['value'];
+            elseif ($n === 'x-em-auth-dkim')  $out['dkim']  = $h['value'];
+            elseif ($n === 'x-em-auth-dmarc') $out['dmarc'] = $h['value'];
+        }
+        return $out['summary'] ? $out : null;
+    };
+
     foreach ($messages as &$msg) {
         // Slice 2s — decorate outbound messages with open_count, etc.
         $msg = apply_filters('em_inbox_thread_message_view', $msg);
+        // Slice 2w — surface SPF/DKIM/DMARC verdict on inbound.
+        if (($msg['kind'] ?? 'inbound') === 'inbound') {
+            $msg['auth'] = $auth_from_raw((int) $msg['id']);
+        }
         if (! empty($msg['body_html'])) {
             if (function_exists('em_inbox_sanitize_html')) {
                 $msg['body_html'] = em_inbox_sanitize_html($msg['body_html']);

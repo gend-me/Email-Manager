@@ -354,6 +354,18 @@ img.em-inbox-blocked-img {
     font-weight: 600;
     cursor: help;
 }
+
+.em-inbox-auth-badge {
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: help;
+}
+.em-auth-pass     { background: #ecf7ed; color: #00692b; }
+.em-auth-partial  { background: #fff8e1; color: #8a5a00; }
+.em-auth-fail     { background: #fbebec; color: #b32d2e; }
+.em-auth-unknown  { background: #f0f0f1; color: #50575e; }
 .em-inbox-selectall-row {
     background: #f0f0f1;
     font-size: 11px;

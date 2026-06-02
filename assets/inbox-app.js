@@ -877,6 +877,8 @@
         var showBlockedBanner = blockedN > 0 && !imagesUnlocked && !msg.images_show_for_sender;
         var openCount  = Number(msg.open_count || 0);
         var lastOpen   = msg.last_open_at;
+        var auth       = msg.auth || null;
+        var authBadge  = !props.isMine && auth ? renderAuthBadge(auth) : null;
 
         return html`
           <${Card} className="em-inbox-message ${open ? 'is-open' : 'is-collapsed'} ${props.isMine ? 'is-mine' : ''} ${status ? 'is-delivery-' + status : ''}">
@@ -884,6 +886,7 @@
               <div class="em-inbox-message-from">${props.isMine ? 'Me' : msg.sender}</div>
               <div class="em-inbox-message-meta">
                 ${statusInfo}
+                ${authBadge}
                 ${props.isMine && openCount > 0 && html`
                   <span class="em-inbox-open-badge" title=${'Last opened ' + (lastOpen || '—') + ' UTC'}>👁 ${openCount}</span>
                 `}
@@ -1026,6 +1029,18 @@
         if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
         return (n / (1024 * 1024)).toFixed(1) + ' MB';
     }
+    function renderAuthBadge(auth) {
+        if (!auth || !auth.summary) return null;
+        var s = String(auth.summary).toLowerCase();
+        var tip = ['SPF', 'DKIM', 'DMARC'].map(function (k) {
+            return k + ': ' + (auth[k.toLowerCase()] || 'none');
+        }).join('  ·  ');
+        if (s === 'pass')        return html`<span class="em-inbox-auth-badge em-auth-pass" title=${tip}>✓ verified</span>`;
+        if (s === 'partial')     return html`<span class="em-inbox-auth-badge em-auth-partial" title=${tip}>~ partial</span>`;
+        if (s === 'fail')        return html`<span class="em-inbox-auth-badge em-auth-fail" title=${tip}>! spoof risk</span>`;
+        return html`<span class="em-inbox-auth-badge em-auth-unknown" title=${tip}>? unverified</span>`;
+    }
+
     function renderDeliveryStatus(status, msg) {
         if (!status || msg.kind === 'inbound') return null;
         var label, klass, hint;
