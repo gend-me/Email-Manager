@@ -137,53 +137,24 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         }
     }
 
-    // ── HMAC-sign + POST to the MTA submitter ────────────────────────
-    $secret = get_option('em_inbox_hmac_secret');
-    if (! $secret) {
-        return new WP_Error('em_inbox_send_no_secret', 'Inbox HMAC not seeded — visit wp-admin once to trigger activation', array('status' => 500));
-    }
+    // Synthesize Message-ID before relay so the mirror + the wire copy share it.
     $message_id = sprintf('<%s.%s@%s>', time(), bin2hex(random_bytes(8)),
         explode('@', $from)[1] ?? 'mail.local');
 
-    $submit_payload = array(
-        'from'        => $from,
-        'to'          => $to,
-        'subject'     => $subject,
-        'body_plain'  => $body_plain,
-        'body_html'   => $body_html,
-        'headers'     => $extra_headers,
-        'message_id'  => $message_id,
-        'attachments' => $attachments,
+    // ── First-attempt relay via the shared queue helper ──────────────
+    if (! function_exists('em_inbox_outq_submit_one')) {
+        return new WP_Error('em_inbox_send_outq_missing', 'Outbound queue module not loaded', array('status' => 500));
+    }
+    $result = em_inbox_outq_submit_one(
+        $from, $to, $subject, $body_plain, $body_html,
+        $extra_headers, $message_id, $attachments
     );
-    $body_json = wp_json_encode($submit_payload);
-    $ts  = (string) time();
-    $sig = 'sha256=' . hash_hmac('sha256', $ts . '.' . $body_json, $secret);
+    $relay  = $result['relay'] ?? null;
 
-    $submit_url = apply_filters('em_inbox_submit_url', EM_INBOX_SUBMIT_URL_DEFAULT);
-    $resp = wp_remote_post($submit_url, array(
-        'headers' => array(
-            'Content-Type'             => 'application/json',
-            'X-EM-Submit-Timestamp'    => $ts,
-            'X-EM-Submit-Signature'    => $sig,
-        ),
-        'body'    => $body_json,
-        'timeout' => 30,
-    ));
-    if (is_wp_error($resp)) {
-        return new WP_Error('em_inbox_send_relay_fail',
-            'Relay error: ' . $resp->get_error_message(),
-            array('status' => 502));
-    }
-    $code = wp_remote_retrieve_response_code($resp);
-    $body = wp_remote_retrieve_body($resp);
-    if ($code < 200 || $code >= 300) {
-        return new WP_Error('em_inbox_send_relay_rejected',
-            'Relay returned HTTP ' . $code . ': ' . substr($body, 0, 200),
-            array('status' => 502));
-    }
-    $relay = json_decode($body, true);
-
-    // ── mirror into wp_gdc_inbox_raw so it shows in the sender's thread
+    // ── mirror into wp_gdc_inbox_raw so it shows in the sender's thread,
+    // regardless of whether the relay succeeded. Status reflects what
+    // happened on this attempt; the cron worker re-tries 'retrying'
+    // rows on a backoff schedule.
     $raw_table = $wpdb->prefix . 'gdc_inbox_raw';
     $mirror_headers = array_merge(
         $extra_headers,
@@ -211,7 +182,24 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         }
     }
 
-    $wpdb->insert($raw_table, array(
+    $now           = current_time('mysql', 1);
+    $delivery_data = $result['ok']
+        ? array(
+            'delivery_status'         => 'sent',
+            'delivery_attempts'       => 1,
+            'delivery_completed_at'   => $now,
+            'delivery_last_error'     => null,
+            'delivery_next_attempt_at'=> null,
+        )
+        : array(
+            'delivery_status'         => 'retrying',
+            'delivery_attempts'       => 1,
+            'delivery_completed_at'   => null,
+            'delivery_last_error'     => (string) ($result['error'] ?? 'unknown'),
+            'delivery_next_attempt_at'=> em_inbox_outq_next_attempt_at(1),
+        );
+
+    $wpdb->insert($raw_table, array_merge(array(
         'message_id'  => $message_id,
         'recipient'   => $from,                  // route this row into sender's inbox view
         'sender'      => $from,
@@ -221,10 +209,10 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         'body_html'   => $body_html,
         'attachments_json' => $mirror_attachments ? wp_json_encode($mirror_attachments) : null,
         'size_bytes'  => strlen($body_plain) + strlen($body_html) + $total_bytes,
-        'received_at' => current_time('mysql', 1),
+        'received_at' => $now,
         'processed'   => 0,
         'kind'        => 'outbound',
-    ), array('%s','%s','%s','%s','%s','%s','%s','%s','%d','%s','%d','%s'));
+    ), $delivery_data));
     $raw_id = (int) $wpdb->insert_id;
 
     if (function_exists('em_inbox_thread_one') && $raw_id) {
@@ -232,9 +220,11 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     }
 
     return rest_ensure_response(array(
-        'ok'         => true,
-        'message_id' => $message_id,
-        'raw_id'     => $raw_id,
-        'relay'      => $relay,
+        'ok'              => $result['ok'],
+        'message_id'      => $message_id,
+        'raw_id'          => $raw_id,
+        'delivery_status' => $delivery_data['delivery_status'],
+        'delivery_error'  => $delivery_data['delivery_last_error'],
+        'relay'           => $relay,
     ));
 }

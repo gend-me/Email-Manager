@@ -44,6 +44,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/inbox-send.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-participants.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-search.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-kind-migration.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-outbound-queue.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/applications.php';

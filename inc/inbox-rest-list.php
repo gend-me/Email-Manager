@@ -256,7 +256,11 @@ function em_inbox_get_thread(WP_REST_Request $request) {
     $messages = $wpdb->get_results($wpdb->prepare(
         "SELECT m.id, m.message_id, m.in_reply_to, m.sender, m.recipient, m.subject,
                 m.body_plain, m.body_html, m.received_at,
-                r.attachments_json
+                r.attachments_json,
+                r.kind                  AS kind,
+                r.delivery_status       AS delivery_status,
+                r.delivery_attempts     AS delivery_attempts,
+                r.delivery_last_error   AS delivery_last_error
          FROM $messages_table m
          LEFT JOIN {$wpdb->prefix}gdc_inbox_raw r ON r.id = m.raw_id
          WHERE m.thread_id = %d

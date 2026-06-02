@@ -23,6 +23,19 @@
 
 .em-inbox-message.is-mine .em-inbox-message-from { color: #2271b1; }
 
+.em-inbox-message-meta { display: flex; align-items: center; gap: 8px; }
+.em-inbox-msg-status {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-weight: 600;
+}
+.em-inbox-msg-status-sent     { background: #ecf7ed; color: #00692b; }
+.em-inbox-msg-status-retrying { background: #fff8e1; color: #8a5a00; }
+.em-inbox-msg-status-failed   { background: #fbebec; color: #b32d2e; }
+.em-inbox-message.is-delivery-failed   { border-left: 3px solid #b32d2e; }
+.em-inbox-message.is-delivery-retrying { border-left: 3px solid #d4a017; }
+
 .em-inbox-filters { display: flex; gap: 0; }
 .em-inbox-filter {
     background: transparent;

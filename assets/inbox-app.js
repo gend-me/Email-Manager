@@ -436,11 +436,17 @@
         var openState = useState(props.initialOpen);
         var open = openState[0], setOpen = openState[1];
 
+        var status     = msg.delivery_status || (props.isMine ? 'sent' : null);
+        var statusInfo = renderDeliveryStatus(status, msg);
+
         return html`
-          <${Card} className="em-inbox-message ${open ? 'is-open' : 'is-collapsed'} ${props.isMine ? 'is-mine' : ''}">
+          <${Card} className="em-inbox-message ${open ? 'is-open' : 'is-collapsed'} ${props.isMine ? 'is-mine' : ''} ${status ? 'is-delivery-' + status : ''}">
             <${CardHeader} onClick=${function () { setOpen(!open); }}>
               <div class="em-inbox-message-from">${props.isMine ? 'Me' : msg.sender}</div>
-              <div class="em-inbox-message-date">${formatDate(msg.received_at)}</div>
+              <div class="em-inbox-message-meta">
+                ${statusInfo}
+                <div class="em-inbox-message-date">${formatDate(msg.received_at)}</div>
+              </div>
             <//>
             ${open && html`
               <${CardBody}>
@@ -490,6 +496,15 @@
         if (n < 1024) return n + ' B';
         if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
         return (n / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    function renderDeliveryStatus(status, msg) {
+        if (!status || msg.kind === 'inbound') return null;
+        var label, klass, hint;
+        if (status === 'sent')     { label = '✓ Sent';     klass = 'sent';     hint = 'Delivered'; }
+        else if (status === 'retrying') { label = '↻ Retrying ' + (msg.delivery_attempts || 0); klass = 'retrying'; hint = msg.delivery_last_error || 'Pending retry'; }
+        else if (status === 'failed')   { label = '✗ Failed';  klass = 'failed';   hint = msg.delivery_last_error || 'Delivery failed'; }
+        else                            { label = status;      klass = 'unknown';  hint = ''; }
+        return html`<span class="em-inbox-msg-status em-inbox-msg-status-${klass}" title=${hint}>${label}</span>`;
     }
 
     // ── Mount ───────────────────────────────────────────────────────────
