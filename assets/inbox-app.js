@@ -168,7 +168,7 @@
         var initial = props.initial || {};
         var toState = useState((initial.to || []).join(', '));     var to = toState[0], setTo = toState[1];
         var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
-        var bodyState = useState('');                              var body = bodyState[0], setBody = bodyState[1];
+        var bodyHtmlState = useState('');                          var bodyHtml = bodyHtmlState[0], setBodyHtml = bodyHtmlState[1];
         var attState = useState([]);                               var atts = attState[0], setAtts = attState[1];
         var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
         var errState = useState(null);                             var err = errState[0], setErr = errState[1];
@@ -198,10 +198,15 @@
 
         function submit() {
             setSending(true); setErr(null);
+            // Derive plain text from the contenteditable HTML so recipients
+            // whose clients prefer text/plain (and our own inbox feed snippets)
+            // get readable content.
+            var bodyPlain = htmlToPlain(bodyHtml);
             restPost('send', {
                 to:          to,
                 subject:     subject,
-                body_plain:  body,
+                body_plain:  bodyPlain,
+                body_html:   bodyHtml,
                 thread_id:   initial.threadId || undefined,
                 attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
             }).then(function () {
@@ -228,12 +233,8 @@
               value=${subject}
               onChange=${setSubject}
               __nextHasNoMarginBottom=${true} />
-            <${TextareaControl}
-              label="Message"
-              value=${body}
-              rows=${10}
-              onChange=${setBody}
-              __nextHasNoMarginBottom=${true} />
+            <label class="em-inbox-rte-label">Message</label>
+            <${RichTextEditor} value=${bodyHtml} onChange=${setBodyHtml} />
             <div class="em-inbox-composer-attachments">
               <label class="em-inbox-att-add">
                 <input type="file" multiple onChange=${function (e) { onFiles(e.target.files); e.target.value = ''; }} />
@@ -256,7 +257,7 @@
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
-              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || !to || !body}>
+              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || !to || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
                 ${sending ? html`<${Spinner} />` : 'Send'}
               <//>
             </div>
@@ -566,6 +567,86 @@
         }
         return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     }
+    // ── Rich-text editor (contenteditable + execCommand) ────────────────
+    // Minimal in-house RTE. execCommand is officially deprecated but
+    // every current browser still implements it for these basic
+    // verbs. Avoids a 60KB-plus 3rd-party dep + build step for what's
+    // a single-textarea-replacement.
+    function RichTextEditor(props) {
+        var ref = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        // Push value INTO the contenteditable only when it changes
+        // externally (e.g. parent reset on send) — otherwise the cursor
+        // resets on every keystroke.
+        useEffect(function () {
+            if (ref.current && ref.current.innerHTML !== props.value) {
+                ref.current.innerHTML = props.value || '';
+            }
+        }, [props.value]);
+
+        function exec(cmd, value) {
+            return function (e) {
+                e.preventDefault();
+                if (ref.current) ref.current.focus();
+                document.execCommand(cmd, false, value);
+                if (ref.current) props.onChange(ref.current.innerHTML);
+            };
+        }
+        function onInput() { if (ref.current) props.onChange(ref.current.innerHTML); }
+        function onLink(e) {
+            e.preventDefault();
+            var url = window.prompt('Link URL:', 'https://');
+            if (url) {
+                if (ref.current) ref.current.focus();
+                document.execCommand('createLink', false, url);
+                if (ref.current) props.onChange(ref.current.innerHTML);
+            }
+        }
+
+        var btn = function (label, cmd, value, title) {
+            return html`<button type="button" class="em-rte-btn" title=${title || label} onMouseDown=${exec(cmd, value)}>${label}</button>`;
+        };
+        return html`
+          <div class="em-rte">
+            <div class="em-rte-toolbar">
+              ${btn(html`<b>B</b>`,      'bold',          null, 'Bold')}
+              ${btn(html`<i>I</i>`,      'italic',        null, 'Italic')}
+              ${btn(html`<u>U</u>`,      'underline',     null, 'Underline')}
+              <span class="em-rte-sep" />
+              ${btn('• List',            'insertUnorderedList', null, 'Bulleted list')}
+              ${btn('1. List',           'insertOrderedList',   null, 'Numbered list')}
+              ${btn('"',                 'formatBlock',  'blockquote', 'Quote')}
+              <span class="em-rte-sep" />
+              <button type="button" class="em-rte-btn" title="Link" onMouseDown=${onLink}>🔗</button>
+              ${btn('Clear',             'removeFormat',  null, 'Clear formatting')}
+            </div>
+            <div
+              class="em-rte-editor"
+              contentEditable=${true}
+              ref=${function (n) { ref.current = n; }}
+              onInput=${onInput}
+              onBlur=${onInput}
+            ></div>
+          </div>
+        `;
+    }
+
+    function htmlToPlain(html) {
+        if (!html) return '';
+        // Convert <br>, </p>, </div> to newlines before stripping tags.
+        var s = String(html)
+            .replace(/<\s*br\s*\/?>/gi, '\n')
+            .replace(/<\/(p|div|li|h\d|blockquote)>/gi, '\n')
+            .replace(/<li[^>]*>/gi, '\n• ')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/\n{3,}/g, '\n\n');
+        return s.trim();
+    }
+
     function humanBytes(n) {
         if (n < 1024) return n + ' B';
         if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
