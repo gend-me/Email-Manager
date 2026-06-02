@@ -122,6 +122,29 @@ function em_inbox_receive_handler(WP_REST_Request $request) {
     global $wpdb;
     em_inbox_maybe_create_tables();
 
+    // ── Idempotency ledger: short-circuit duplicate deliveries ───────
+    // The MTA stamps X-EM-Event-ID on every POST. Old MTA builds that
+    // pre-date slice 2o don't, so we synthesize a fallback from the
+    // signature header (signature is unique per (ts, body, secret) so
+    // any duplicate delivery from the same MTA would reuse it).
+    $event_id = isset($_SERVER['HTTP_X_EM_EVENT_ID'])
+        ? sanitize_text_field((string) $_SERVER['HTTP_X_EM_EVENT_ID'])
+        : '';
+    if ($event_id === '' && isset($_SERVER[EM_INBOX_HMAC_HEADER])) {
+        $event_id = 'sig:' . substr((string) $_SERVER[EM_INBOX_HMAC_HEADER], -32);
+    }
+    if (function_exists('em_inbox_ledger_record') && $event_id !== '') {
+        $ledger = em_inbox_ledger_record($event_id, 'webhook');
+        if (! empty($ledger['duplicate'])) {
+            return rest_ensure_response(array(
+                'ok'              => true,
+                'duplicate'       => true,
+                'duplicate_event' => true,
+                'original_raw_id' => $ledger['original_raw_id'],
+            ));
+        }
+    }
+
     $payload = $request->get_json_params();
     if (! is_array($payload)) {
         return new WP_Error('em_inbox_bad_payload', 'Body must be JSON', array('status' => 400));
@@ -176,6 +199,12 @@ function em_inbox_receive_handler(WP_REST_Request $request) {
     }
 
     $raw_id = (int) $wpdb->insert_id;
+
+    // Stamp the new raw_id back onto the ledger entry so a future
+    // duplicate-delivery response can point at the original row.
+    if (function_exists('em_inbox_ledger_stamp_raw_id') && $event_id !== '') {
+        em_inbox_ledger_stamp_raw_id($event_id, $raw_id);
+    }
 
     // Synchronous threading — zero-latency path. The cron fallback handles
     // rows where this call fatally errors (PHP timeout, etc.); leaving
