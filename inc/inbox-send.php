@@ -92,6 +92,24 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     if ($undo_seconds < 0)   $undo_seconds = 0;
     if ($undo_seconds > 300) $undo_seconds = 300;
 
+    // Slice 2bb: scheduled send. If send_at is provided + parses to a
+    // future timestamp, override undo path and queue with status
+    // 'scheduled'. Mutually exclusive — scheduled wins.
+    $send_at_ts = 0;
+    if (! empty($payload['send_at'])) {
+        $send_at_ts = strtotime((string) $payload['send_at']);
+        if (! $send_at_ts || $send_at_ts <= time()) {
+            return new WP_Error('em_inbox_send_bad_send_at',
+                'send_at must be a future ISO 8601 timestamp', array('status' => 400));
+        }
+        // Cap at 1 year out to prevent abuse / accidental never-sent rows.
+        if ($send_at_ts > time() + 365 * 86400) {
+            return new WP_Error('em_inbox_send_send_at_too_far',
+                'send_at cannot be more than 1 year in the future', array('status' => 400));
+        }
+        $undo_seconds = 0;  // scheduled overrides undo path
+    }
+
     // Attachments: client sends as base64. Cap total size to keep
     // memory bounded; 25 MiB matches typical inbound limits.
     $attachments_in = is_array($payload['attachments'] ?? null) ? $payload['attachments'] : array();
@@ -159,10 +177,11 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     if (! function_exists('em_inbox_outq_submit_one')) {
         return new WP_Error('em_inbox_send_outq_missing', 'Outbound queue module not loaded', array('status' => 500));
     }
-    // With undo window > 0 we DON'T attempt immediate relay — the cron
-    // worker picks up 'pending' rows whose next_attempt_at has passed.
-    // With undo=0 we attempt synchronously, same as before slice 2y.
-    if ($undo_seconds > 0) {
+    // With undo window > 0 OR send_at set we DON'T attempt immediate
+    // relay — the cron worker picks up 'pending'/'scheduled' rows whose
+    // next_attempt_at has passed. With undo=0 + no send_at we attempt
+    // synchronously, same as before slice 2y.
+    if ($undo_seconds > 0 || $send_at_ts > 0) {
         $result = array('ok' => false, 'http' => 0, 'error' => null, 'relay' => null);
         $relay = null;
     } else {
@@ -208,7 +227,16 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     }
 
     $now           = current_time('mysql', 1);
-    if ($undo_seconds > 0) {
+    if ($send_at_ts > 0) {
+        // Scheduled send: status='scheduled', cron picks it up at send_at.
+        $delivery_data = array(
+            'delivery_status'         => 'scheduled',
+            'delivery_attempts'       => 0,
+            'delivery_completed_at'   => null,
+            'delivery_last_error'     => null,
+            'delivery_next_attempt_at'=> gmdate('Y-m-d H:i:s', $send_at_ts),
+        );
+    } elseif ($undo_seconds > 0) {
         // Pending until cron picks it up after the undo window.
         $delivery_data = array(
             'delivery_status'         => 'pending',
@@ -277,13 +305,14 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     // (e.g. via UUID) or do a two-phase send.
 
     return rest_ensure_response(array(
-        'ok'              => $undo_seconds > 0 ? true : $result['ok'],
+        'ok'              => ($undo_seconds > 0 || $send_at_ts > 0) ? true : $result['ok'],
         'message_id'      => $message_id,
         'raw_id'          => $raw_id,
         'delivery_status' => $delivery_data['delivery_status'],
         'delivery_error'  => $delivery_data['delivery_last_error'],
         'undo_seconds'    => $undo_seconds,
         'undo_until'      => $delivery_data['delivery_next_attempt_at'],
+        'send_at'         => $send_at_ts > 0 ? gmdate('c', $send_at_ts) : null,
         'tracking'        => $track_open,
         'relay'           => $relay,
     ));
@@ -321,9 +350,9 @@ function em_inbox_cancel_pending(WP_REST_Request $request) {
     if (! ($is_admin || $is_sender)) {
         return new WP_Error('em_cancel_forbidden', 'Not authorized', array('status' => 403));
     }
-    if ($row['kind'] !== 'outbound' || $row['delivery_status'] !== 'pending') {
+    if ($row['kind'] !== 'outbound' || ! in_array($row['delivery_status'], array('pending', 'scheduled'), true)) {
         return new WP_Error('em_cancel_not_pending',
-            'Cancel only works on outbound messages in "pending" state — this one is ' . $row['delivery_status'],
+            'Cancel only works on outbound messages in "pending" or "scheduled" state — this one is ' . $row['delivery_status'],
             array('status' => 409));
     }
 
@@ -343,4 +372,75 @@ function em_inbox_cancel_pending(WP_REST_Request $request) {
         }
     }
     return rest_ensure_response(array('ok' => true, 'raw_id' => $raw_id, 'cancelled' => true));
+}
+
+/* -------------------------------------------------------------------------
+ * /inbox/scheduled — list the current user's scheduled outbound messages
+ * (slice 2bb). Each row is a wp_gdc_inbox_raw mirror with status='scheduled'.
+ * Returns the bare metadata + a thread_id (if threading already assigned one)
+ * so the UI can render a cancel button next to each pending dispatch.
+ * ------------------------------------------------------------------------- */
+
+add_action('rest_api_init', function () {
+    register_rest_route('em/v1', '/inbox/scheduled', array(
+        'methods'             => WP_REST_Server::READABLE,
+        'callback'            => 'em_inbox_list_scheduled',
+        'permission_callback' => function () { return is_user_logged_in(); },
+    ));
+});
+
+function em_inbox_list_scheduled(WP_REST_Request $request) {
+    global $wpdb;
+    $u = wp_get_current_user();
+    if (! $u || ! $u->ID) return new WP_Error('em_sched_no_user', 'Login required', array('status' => 401));
+
+    // Match the sender by user_email OR em_inbox_address meta (admins see all
+    // when ?all=1 is passed for ops debugging).
+    $emails = array();
+    if ($u->user_email) $emails[] = strtolower($u->user_email);
+    $meta_addr = strtolower(trim((string) get_user_meta($u->ID, 'em_inbox_address', true)));
+    if ($meta_addr) $emails[] = $meta_addr;
+    $emails = array_unique($emails);
+
+    $is_admin_all = current_user_can('manage_options') && (int) $request->get_param('all') === 1;
+
+    $raw = $wpdb->prefix . 'gdc_inbox_raw';
+    $msg = $wpdb->prefix . 'gdc_inbox_messages';
+    if ($is_admin_all) {
+        $where = "r.kind = 'outbound' AND r.delivery_status = 'scheduled'";
+        $args  = array();
+    } else {
+        if (empty($emails)) return rest_ensure_response(array('items' => array()));
+        $ph    = implode(',', array_fill(0, count($emails), '%s'));
+        $where = "r.kind = 'outbound' AND r.delivery_status = 'scheduled' AND LOWER(r.sender) IN ($ph)";
+        $args  = $emails;
+    }
+
+    $sql = "SELECT r.id AS raw_id, r.message_id, r.sender, r.subject, r.received_at,
+                   r.delivery_next_attempt_at AS send_at, r.raw_headers,
+                   m.thread_id
+            FROM $raw r
+            LEFT JOIN $msg m ON m.raw_id = r.id
+            WHERE $where
+            ORDER BY r.delivery_next_attempt_at ASC, r.id ASC
+            LIMIT 200";
+    $rows = $args ? $wpdb->get_results($wpdb->prepare($sql, $args), ARRAY_A) : $wpdb->get_results($sql, ARRAY_A);
+
+    // Decorate with a To: summary lifted from headers for display.
+    foreach ($rows as &$r) {
+        $hdrs = json_decode((string) $r['raw_headers'], true);
+        $to_value = '';
+        if (is_array($hdrs)) {
+            foreach ($hdrs as $h) {
+                if (isset($h['name']) && strcasecmp($h['name'], 'To') === 0) {
+                    $to_value = (string) ($h['value'] ?? ''); break;
+                }
+            }
+        }
+        $r['to_display'] = $to_value;
+        unset($r['raw_headers']);
+    }
+    unset($r);
+
+    return rest_ensure_response(array('items' => $rows ?: array()));
 }

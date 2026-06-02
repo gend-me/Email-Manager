@@ -24,7 +24,7 @@
 
 defined('ABSPATH') || exit;
 
-define('EM_INBOX_OUTQ_DB_VERSION', '1.0.0');
+define('EM_INBOX_OUTQ_DB_VERSION', '1.1.0');  // bumped for 'scheduled' enum (slice 2bb)
 define('EM_INBOX_OUTQ_MAX_ATTEMPTS', 8);
 
 /* -------------------------------------------------------------------------
@@ -36,9 +36,10 @@ function em_inbox_outq_maybe_migrate() {
     global $wpdb;
     $raw = $wpdb->prefix . 'gdc_inbox_raw';
 
-    $cols = array_column($wpdb->get_results("DESCRIBE $raw"), 'Field');
+    $desc = $wpdb->get_results("DESCRIBE $raw");
+    $cols = array_column($desc, 'Field');
     $needed = array(
-        'delivery_status'         => "ENUM('pending','sent','failed','retrying') NOT NULL DEFAULT 'sent'",
+        'delivery_status'         => "ENUM('pending','scheduled','sent','failed','retrying') NOT NULL DEFAULT 'sent'",
         'delivery_attempts'       => 'INT UNSIGNED NOT NULL DEFAULT 0',
         'delivery_last_error'     => 'TEXT NULL',
         'delivery_next_attempt_at'=> 'DATETIME NULL',
@@ -53,9 +54,13 @@ function em_inbox_outq_maybe_migrate() {
     if ($adds) {
         $wpdb->query("ALTER TABLE $raw " . implode(', ', $adds)
             . ", ADD KEY idx_delivery_retry (delivery_status, delivery_next_attempt_at)");
-        // Backfill: inbound rows are 'sent' by default; nothing to do for them.
-        // Existing outbound mirrors (from before 2f.2) are also 'sent' since
-        // they only got mirrored on relay success.
+    }
+    // Slice 2bb: column existed but enum needs 'scheduled' added.
+    foreach ($desc as $col) {
+        if ($col->Field === 'delivery_status' && stripos((string) $col->Type, "'scheduled'") === false) {
+            $wpdb->query("ALTER TABLE $raw MODIFY COLUMN delivery_status ENUM('pending','scheduled','sent','failed','retrying') NOT NULL DEFAULT 'sent'");
+            break;
+        }
     }
     update_option('em_inbox_outq_db_version', EM_INBOX_OUTQ_DB_VERSION);
 }
@@ -151,12 +156,13 @@ function em_inbox_outq_drain($limit = 10) {
     global $wpdb;
     $raw = $wpdb->prefix . 'gdc_inbox_raw';
 
-    // Picks up BOTH 'pending' (post-undo-window first-attempts, slice 2y)
-    // and 'retrying' (failed deliveries waiting on backoff, slice 2f.2).
+    // Picks up 'pending' (post-undo-window first-attempts, slice 2y),
+    // 'scheduled' (user-deferred send, slice 2bb), and 'retrying' (failed
+    // deliveries waiting on backoff, slice 2f.2).
     $rows = $wpdb->get_results($wpdb->prepare(
         "SELECT * FROM $raw
          WHERE kind = 'outbound'
-           AND delivery_status IN ('pending','retrying')
+           AND delivery_status IN ('pending','scheduled','retrying')
            AND (delivery_next_attempt_at IS NULL OR delivery_next_attempt_at <= UTC_TIMESTAMP())
          ORDER BY delivery_next_attempt_at ASC, id ASC
          LIMIT %d", $limit

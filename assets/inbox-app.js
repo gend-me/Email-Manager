@@ -590,6 +590,12 @@
         var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
         var errState = useState(null);                             var err = errState[0], setErr = errState[1];
         var dragState = useState(false);                           var dragging = dragState[0], setDragging = dragState[1];
+        // Slice 2bb: scheduled send menu state. When sendAtIso is set,
+        // the Send button shows the scheduled time + submits send_at to
+        // the server. The dropdown is just a popover next to the Send btn.
+        var schedMenuState = useState(false);                      var schedMenu = schedMenuState[0], setSchedMenu = schedMenuState[1];
+        var sendAtState = useState(null);                          var sendAt = sendAtState[0], setSendAt = sendAtState[1];
+        var customSchedState = useState('');                       var customSched = customSchedState[0], setCustomSched = customSchedState[1];
 
         function onFiles(files) {
             if (!files || !files.length) return;
@@ -645,7 +651,7 @@
                 }
             }
             var bodyPlain = htmlToPlain(finalHtml);
-            restPost('send', {
+            var payload = {
                 to:          extractEmails(to),
                 cc:          extractEmails(cc),
                 bcc:         extractEmails(bcc),
@@ -654,9 +660,15 @@
                 body_html:   finalHtml,
                 thread_id:   initial.threadId || undefined,
                 track_open:  track,
-                undo_seconds: 10,
                 attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
-            }).then(function (res) {
+            };
+            if (sendAt) {
+                payload.send_at = sendAt;
+                payload.undo_seconds = 0;
+            } else {
+                payload.undo_seconds = 10;
+            }
+            restPost('send', payload).then(function (res) {
                 setSending(false);
                 props.onSent && props.onSent(res);
             }).catch(function (e) {
@@ -730,10 +742,49 @@
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
-              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || ((to.length + cc.length + bcc.length) === 0) || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
-                ${sending ? html`<${Spinner} />` : 'Send'}
-              <//>
+              <div class="em-inbox-send-group">
+                <${Button} variant="primary"  onClick=${submit}        disabled=${sending || ((to.length + cc.length + bcc.length) === 0) || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
+                  ${sending ? html`<${Spinner} />` : (sendAt ? 'Schedule send' : 'Send')}
+                <//>
+                <${Button} variant="primary" className="em-inbox-send-caret" onClick=${function () { setSchedMenu(!schedMenu); }} disabled=${sending} aria-label="Schedule send">▾<//>
+                ${schedMenu && html`
+                  <div class="em-inbox-sched-menu">
+                    ${(function () {
+                        var presets = [];
+                        var now = new Date();
+                        var tomorrow9 = new Date(now); tomorrow9.setDate(tomorrow9.getDate() + 1); tomorrow9.setHours(9,0,0,0);
+                        var monday9 = new Date(now);
+                        var addDays = ((1 - monday9.getDay()) + 7) % 7;
+                        if (addDays === 0) addDays = 7;
+                        monday9.setDate(monday9.getDate() + addDays); monday9.setHours(9,0,0,0);
+                        var laterToday = new Date(now); laterToday.setHours(now.getHours() + 4, 0, 0, 0);
+                        if (laterToday.getDate() === now.getDate() && laterToday.getHours() < 22) {
+                            presets.push(['Later today', laterToday]);
+                        }
+                        presets.push(['Tomorrow morning', tomorrow9]);
+                        presets.push(['Monday morning', monday9]);
+                        return presets.map(function (p, i) {
+                            return html`<button key=${i} type="button" onClick=${function () { setSendAt(p[1].toISOString()); setSchedMenu(false); }}>${p[0]} <span class="em-sched-when">${p[1].toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}</span></button>`;
+                        });
+                    })()}
+                    <div class="em-inbox-sched-custom">
+                      <label>Pick a date/time:</label>
+                      <input type="datetime-local" value=${customSched} onChange=${function (e) { setCustomSched(e.target.value); }} />
+                      <button type="button" class="components-button is-secondary" onClick=${function () {
+                          if (!customSched) { setErr('Please pick a date/time'); return; }
+                          var d = new Date(customSched);
+                          if (isNaN(d.getTime()) || d.getTime() <= Date.now()) { setErr('Scheduled time must be in the future'); return; }
+                          setSendAt(d.toISOString()); setSchedMenu(false); setErr(null);
+                      }}>Set custom</button>
+                    </div>
+                    ${sendAt && html`
+                      <button type="button" class="em-sched-clear" onClick=${function () { setSendAt(null); setSchedMenu(false); }}>↺ Send immediately instead</button>
+                    `}
+                  </div>
+                `}
+              </div>
             </div>
+            ${sendAt && html`<p class="em-inbox-sched-hint">Will be queued to send at <strong>${new Date(sendAt).toLocaleString()}</strong>.</p>`}
             ${dragging && html`<div class="em-inbox-drop-overlay">Drop files to attach</div>`}
             </div>
           <//>
@@ -779,6 +830,47 @@
               })}
             </ul>
           </aside>
+        `;
+    }
+
+    function ScheduledList(props) {
+        var st = useState({ loading: true, items: [], err: null });
+        var state = st[0], setState = st[1];
+        var tickState = useState(0); var tick = tickState[0], setTick = tickState[1];
+
+        function reload() {
+            setState({ loading: true, items: state.items, err: null });
+            restGet('scheduled')
+                .then(function (d) { setState({ loading: false, items: d.items || [], err: null }); })
+                .catch(function (e) { setState({ loading: false, items: [], err: e.message || 'Failed to load scheduled' }); });
+        }
+        useEffect(reload, [props.refreshKey, tick]);
+
+        function cancel(rawId) {
+            if (! window.confirm('Cancel this scheduled message? The draft will be discarded.')) return;
+            apiFetch({ url: cfg.restRoot + 'messages/' + rawId + '/cancel', method: 'DELETE' })
+                .then(function () { setTick(tick + 1); props.onCancelled && props.onCancelled(); });
+        }
+
+        if (state.loading) return html`<div class="em-inbox-empty"><${Spinner} /></div>`;
+        if (state.err)     return html`<${Notice} status="error" isDismissible=${false}>${state.err}<//>`;
+        if (! state.items.length) return html`<p class="em-inbox-empty">No scheduled messages. Compose a message and choose a send time from the Send menu.</p>`;
+        return html`
+          <ul class="em-inbox-scheduled-list">
+            ${state.items.map(function (m) {
+                var d = m.send_at ? new Date(m.send_at + 'Z') : null;
+                return html`
+                  <li key=${m.raw_id} class="em-inbox-scheduled-row">
+                    <div class="em-inbox-scheduled-meta">
+                      <div class="em-inbox-scheduled-when">${d ? d.toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '(no time)'}</div>
+                      <div class="em-inbox-scheduled-to">To: ${m.to_display || '(no recipient)'}</div>
+                      <div class="em-inbox-scheduled-subject">${m.subject || '(no subject)'}</div>
+                    </div>
+                    <button type="button" class="components-button is-secondary em-inbox-scheduled-cancel" onClick=${function () { cancel(m.raw_id); }}>Cancel</button>
+                  </li>
+                `;
+            })}
+          </ul>
         `;
     }
 
@@ -876,12 +968,13 @@
           <aside class="em-inbox-feed">
             <header class="em-inbox-feed-header">
               <div class="em-inbox-filters">
-                ${btn('all',      'All' + (counts.total != null ? ' · ' + counts.total : ''))}
-                ${btn('unread',   'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
-                ${btn('starred',  '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
-                ${btn('snoozed',  '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
-                ${btn('archived', 'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
-                ${btn('trashed',  'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
+                ${btn('all',       'All' + (counts.total != null ? ' · ' + counts.total : ''))}
+                ${btn('unread',    'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
+                ${btn('starred',   '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
+                ${btn('snoozed',   '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
+                ${btn('scheduled', '⏱ Scheduled')}
+                ${btn('archived',  'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
+                ${btn('trashed',   'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
               </div>
               ${(props.labels && props.labels.length) || props.onManageLabels
                 ? html`
@@ -923,7 +1016,9 @@
                 </div>
               `}
             </header>
-            ${state.items.length === 0
+            ${filter === 'scheduled'
+              ? html`<${ScheduledList} refreshKey=${props.refreshKey} onCancelled=${function () { props.onBulkApplied && props.onBulkApplied(); }} />`
+              : state.items.length === 0
               ? html`<p class="em-inbox-empty">No threads ${filter === 'all' ? 'yet' : 'in ' + filter}.</p>`
               : html`
                 <ul class="em-inbox-thread-list">

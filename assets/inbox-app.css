@@ -578,3 +578,85 @@ img.em-inbox-blocked-img {
     font-size: 11px;
     margin-left: 8px;
 }
+
+/* Slice 2bb — scheduled send: composer Send dropdown */
+.em-inbox-send-group { position: relative; display: inline-flex; }
+.em-inbox-send-group .components-button { border-radius: 4px 0 0 4px; }
+.em-inbox-send-group .em-inbox-send-caret {
+    border-radius: 0 4px 4px 0;
+    border-left: 1px solid rgba(255,255,255,0.3);
+    padding-left: 10px;
+    padding-right: 10px;
+    min-width: 0;
+}
+.em-inbox-sched-menu {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 6px;
+    min-width: 320px;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    padding: 6px 0;
+    z-index: 20;
+}
+.em-inbox-sched-menu > button {
+    display: flex;
+    width: 100%;
+    padding: 8px 14px;
+    background: transparent;
+    border: 0;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: #1d2327;
+    justify-content: space-between;
+    gap: 12px;
+}
+.em-inbox-sched-menu > button:hover { background: #f0f0f1; }
+.em-inbox-sched-menu .em-sched-when { color: #646970; font-size: 12px; }
+.em-inbox-sched-custom {
+    border-top: 1px solid #f0f0f1;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+}
+.em-inbox-sched-custom label { color: #646970; }
+.em-inbox-sched-custom input { font: inherit; padding: 4px; }
+.em-sched-clear {
+    width: 100%;
+    text-align: left;
+    padding: 8px 14px;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid #f0f0f1;
+    cursor: pointer;
+    font-size: 12px;
+    color: #b32d2e;
+}
+.em-sched-clear:hover { background: #fdf0f0; }
+.em-inbox-sched-hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: #5524a7;
+    text-align: right;
+}
+
+/* Slice 2bb — Scheduled tab listing */
+.em-inbox-scheduled-list { list-style: none; margin: 0; padding: 0; }
+.em-inbox-scheduled-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 16px;
+    border-bottom: 1px solid #f0f0f1;
+}
+.em-inbox-scheduled-meta { flex: 1; min-width: 0; }
+.em-inbox-scheduled-when { font-weight: 600; color: #5524a7; font-size: 13px; }
+.em-inbox-scheduled-to { color: #646970; font-size: 12px; margin-top: 2px; }
+.em-inbox-scheduled-subject { font-size: 14px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.em-inbox-scheduled-cancel { flex-shrink: 0; }
