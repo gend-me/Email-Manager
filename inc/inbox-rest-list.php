@@ -274,11 +274,32 @@ function em_inbox_get_thread(WP_REST_Request $request) {
         $id
     ), ARRAY_A);
 
-    // Sanitize HTML bodies + decode attachment JSON.
-    $allowed_html = em_inbox_allowed_html_for_message();
+    // Sanitize HTML bodies + decode attachment JSON. Slice 2q hardens
+    // the wp_kses pass and applies default-off remote-image blocking
+    // unless the user has allowlisted this sender.
+    $current_user = wp_get_current_user();
+    $current_uid  = $current_user ? (int) $current_user->ID : 0;
     foreach ($messages as &$msg) {
         if (! empty($msg['body_html'])) {
-            $msg['body_html'] = wp_kses($msg['body_html'], $allowed_html);
+            if (function_exists('em_inbox_sanitize_html')) {
+                $msg['body_html'] = em_inbox_sanitize_html($msg['body_html']);
+            } else {
+                $msg['body_html'] = wp_kses($msg['body_html'], em_inbox_allowed_html_for_message());
+            }
+            // Outbound mirrors (sender == current user) never get image-
+            // blocked — they're the user's own sends.
+            $is_self = $current_user && $current_user->user_email
+                && strcasecmp($msg['sender'], $current_user->user_email) === 0;
+            $show_images = $is_self || em_inbox_user_shows_images_from($current_uid, $msg['sender']);
+            $blocked = 0;
+            if (! $show_images && function_exists('em_inbox_block_remote_images')) {
+                list($msg['body_html'], $blocked) = em_inbox_block_remote_images($msg['body_html']);
+            }
+            $msg['images_blocked']    = $blocked;
+            $msg['images_show_for_sender'] = $show_images;
+        } else {
+            $msg['images_blocked']    = 0;
+            $msg['images_show_for_sender'] = true;
         }
         $msg['attachments'] = $msg['attachments_json']
             ? array_map('em_inbox_strip_attachment_secrets',

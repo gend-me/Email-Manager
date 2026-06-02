@@ -528,9 +528,36 @@
         var msg = props.message;
         var openState = useState(props.initialOpen);
         var open = openState[0], setOpen = openState[1];
+        // Per-card image-blocked override — "Show in this message"
+        var imagesUnlockState = useState(false);
+        var imagesUnlocked = imagesUnlockState[0], setImagesUnlocked = imagesUnlockState[1];
+        var bodyRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+
+        function unblockImagesNow() {
+            // Swap data-blocked-src → src on all <img class="em-inbox-blocked-img">
+            // inside this card. The HTML is already wp_kses-clean so this is safe.
+            setImagesUnlocked(true);
+            // useEffect below applies the swap after re-render.
+        }
+        useEffect(function () {
+            if (!imagesUnlocked || !bodyRef.current) return;
+            var imgs = bodyRef.current.querySelectorAll('img.em-inbox-blocked-img[data-blocked-src]');
+            imgs.forEach(function (img) {
+                var url = img.getAttribute('data-blocked-src');
+                if (url) img.setAttribute('src', url);
+                img.classList.remove('em-inbox-blocked-img');
+            });
+        }, [imagesUnlocked, msg.id]);
+
+        function allowSenderImages() {
+            restPost('senders/show-images', { sender: msg.sender, show: true })
+                .then(function () { setImagesUnlocked(true); });
+        }
 
         var status     = msg.delivery_status || (props.isMine ? 'sent' : null);
         var statusInfo = renderDeliveryStatus(status, msg);
+        var blockedN   = Number(msg.images_blocked || 0);
+        var showBlockedBanner = blockedN > 0 && !imagesUnlocked && !msg.images_show_for_sender;
 
         return html`
           <${Card} className="em-inbox-message ${open ? 'is-open' : 'is-collapsed'} ${props.isMine ? 'is-mine' : ''} ${status ? 'is-delivery-' + status : ''}">
@@ -543,8 +570,15 @@
             <//>
             ${open && html`
               <${CardBody}>
+                ${showBlockedBanner && html`
+                  <div class="em-inbox-img-banner">
+                    <span>${blockedN} remote image${blockedN === 1 ? '' : 's'} blocked.</span>
+                    <button type="button" class="em-inbox-img-btn" onClick=${unblockImagesNow}>Show in this message</button>
+                    <button type="button" class="em-inbox-img-btn" onClick=${allowSenderImages}>Always show from ${msg.sender}</button>
+                  </div>
+                `}
                 ${msg.body_html
-                    ? html`<div class="em-inbox-message-body" dangerouslySetInnerHTML=${{ __html: msg.body_html }} />`
+                    ? html`<div class="em-inbox-message-body" ref=${function (n) { bodyRef.current = n; }} dangerouslySetInnerHTML=${{ __html: msg.body_html }} />`
                     : html`<pre class="em-inbox-message-plain">${msg.body_plain || '(no body)'}</pre>`}
                 ${msg.attachments && msg.attachments.length
                     ? html`<${AttachmentList} messageId=${msg.id} attachments=${msg.attachments} />`

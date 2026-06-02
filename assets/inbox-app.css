@@ -24,6 +24,33 @@
 .em-inbox-message.is-mine .em-inbox-message-from { color: #2271b1; }
 
 .em-inbox-message-meta { display: flex; align-items: center; gap: 8px; }
+
+.em-inbox-img-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff8e1;
+    border: 1px solid #f0d28a;
+    padding: 6px 10px;
+    border-radius: 3px;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+.em-inbox-img-banner > span { flex: 1; color: #6a4a00; }
+.em-inbox-img-btn {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    padding: 3px 8px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.em-inbox-img-btn:hover { background: #2271b1; color: #fff; border-color: #2271b1; }
+img.em-inbox-blocked-img {
+    width: 16px; height: 16px;
+    background: #e8e8e8;
+    border: 1px dashed #c3c4c7;
+}
 .em-inbox-msg-status {
     font-size: 11px;
     padding: 2px 6px;
