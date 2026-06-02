@@ -382,7 +382,11 @@
                     props.onLoaded && props.onLoaded();
                 })
                 .catch(function (e) { setState({ loading: false, thread: null, messages: [], err: e.message || 'Failed to load thread' }); });
-        }, [props.threadId, props.refreshKey]);
+            // NOTE: deliberately NOT depending on props.refreshKey here.
+            // onLoaded bumps the App's tick to refresh the feed; if
+            // refreshKey were in our deps, that bump would re-trigger
+            // this effect, fire onLoaded again, and loop forever.
+        }, [props.threadId]);
 
         if (state.loading) return html`<section class="em-inbox-thread"><${Spinner} /></section>`;
         if (state.err)     return html`<section class="em-inbox-thread"><${Notice} status="error" isDismissible=${false}>${state.err}<//></section>`;
