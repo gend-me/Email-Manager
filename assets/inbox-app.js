@@ -46,6 +46,7 @@
     var Modal = wp.components.Modal;
     var TextControl = wp.components.TextControl;
     var TextareaControl = wp.components.TextareaControl;
+    var FormTokenField = wp.components.FormTokenField;
 
     // ── REST helpers ────────────────────────────────────────────────────
     function restGet(path) {
@@ -251,9 +252,46 @@
         `;
     }
 
+    function ContactTokenField(props) {
+        var sugState = useState([]);  var suggestions = sugState[0], setSuggestions = sugState[1];
+        var lastFetchRef = wp.element.useRef ? wp.element.useRef('') : { current: '' };
+        function onInput(q) {
+            // FormTokenField calls onInputChange on every keystroke. Debounce
+            // via the last-fetched-query ref so we only hit the server when
+            // the partial actually changes meaningfully.
+            var clean = String(q || '').trim();
+            if (clean === lastFetchRef.current) return;
+            lastFetchRef.current = clean;
+            if (clean.length < 2 && clean.length !== 0) { setSuggestions([]); return; }
+            restGet('contacts' + (clean ? '?q=' + encodeURIComponent(clean) : ''))
+                .then(function (rows) {
+                    var labels = (rows || []).map(function (r) {
+                        return r.display_name ? r.display_name + ' <' + r.email + '>' : r.email;
+                    });
+                    setSuggestions(labels);
+                })
+                .catch(function () { setSuggestions([]); });
+        }
+        // Trigger once on mount so the dropdown has data before the user types.
+        useEffect(function () { onInput(''); }, []);
+        return html`
+          <${FormTokenField}
+            label=${props.label}
+            __experimentalExpandOnFocus=${true}
+            value=${props.value}
+            suggestions=${suggestions}
+            onChange=${props.onChange}
+            onInputChange=${onInput}
+            placeholder="Add recipients…"
+            __next40pxDefaultSize=${true}
+          />
+          ${props.help && html`<p class="components-form-token-field__help">${props.help}</p>`}
+        `;
+    }
+
     function Composer(props) {
         var initial = props.initial || {};
-        var toState = useState((initial.to || []).join(', '));     var to = toState[0], setTo = toState[1];
+        var toState = useState(initial.to || []);                  var to = toState[0], setTo = toState[1];
         var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
         var bodyHtmlState = useState('');                          var bodyHtml = bodyHtmlState[0], setBodyHtml = bodyHtmlState[1];
         var attState = useState([]);                               var atts = attState[0], setAtts = attState[1];
@@ -286,12 +324,16 @@
 
         function submit() {
             setSending(true); setErr(null);
-            // Derive plain text from the contenteditable HTML so recipients
-            // whose clients prefer text/plain (and our own inbox feed snippets)
-            // get readable content.
+            // Tokens can be "Name <addr>" or just "addr" — pull out the
+            // email parts before sending. The send endpoint already
+            // tolerates both, but pre-cleaning gives nicer error messages.
+            var emails = (Array.isArray(to) ? to : String(to || '').split(/[,;]/)).map(function (t) {
+                var m = String(t).match(/<([^>]+)>/);
+                return (m ? m[1] : String(t)).trim();
+            }).filter(Boolean);
             var bodyPlain = htmlToPlain(bodyHtml);
             restPost('send', {
-                to:          to,
+                to:          emails,
                 subject:     subject,
                 body_plain:  bodyPlain,
                 body_html:   bodyHtml,
@@ -311,12 +353,11 @@
         return html`
           <${Modal} title=${title} onRequestClose=${props.onClose} className="em-inbox-composer-modal">
             <p class="em-inbox-composer-from">From: <strong>${initial.from || '(no inbox)'}</strong></p>
-            <${TextControl}
+            <${ContactTokenField}
               label="To"
-              help="Comma-separate multiple recipients."
+              help="Type a name or email; pick from suggestions."
               value=${to}
-              onChange=${setTo}
-              __nextHasNoMarginBottom=${true} />
+              onChange=${setTo} />
             <${TextControl}
               label="Subject"
               value=${subject}
@@ -350,7 +391,7 @@
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
-              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || !to || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
+              <${Button} variant="primary"  onClick=${submit}        disabled=${sending || (Array.isArray(to) ? to.length === 0 : !to) || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
                 ${sending ? html`<${Spinner} />` : 'Send'}
               <//>
             </div>
