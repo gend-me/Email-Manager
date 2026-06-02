@@ -163,11 +163,12 @@ function em_inbox_list_threads(WP_REST_Request $request) {
 
     $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $threads_table t $where");
 
-    // Filters: ?unread=1, ?archived=1, ?trashed=1, ?starred=1
+    // Filters: ?unread=1, ?archived=1, ?trashed=1, ?starred=1, ?label_id=N
     $only_unread   = (int) $request->get_param('unread')   === 1;
     $only_archived = (int) $request->get_param('archived') === 1;
     $only_trashed  = (int) $request->get_param('trashed')  === 1;
     $only_starred  = (int) $request->get_param('starred')  === 1;
+    $only_label_id = (int) $request->get_param('label_id');
     $part_table    = $wpdb->prefix . 'gdc_inbox_participants';
     $user          = wp_get_current_user();
     $user_id       = ($user && $user->ID) ? (int) $user->ID : 0;
@@ -175,7 +176,15 @@ function em_inbox_list_threads(WP_REST_Request $request) {
     // Build optional WHERE additions for the active filter. Trash takes
     // precedence; archived/default both exclude trashed rows.
     $extra_where = '';
-    if ($user_id > 0 && $only_trashed) {
+    $label_join  = '';
+    if ($user_id > 0 && $only_label_id > 0) {
+        // Filter to threads carrying this label for the current user.
+        $label_join = $wpdb->prepare(
+            " JOIN {$wpdb->prefix}gdc_inbox_thread_labels tl ON tl.thread_id = t.id AND tl.user_id = %d AND tl.label_id = %d",
+            $user_id, $only_label_id
+        );
+        $extra_where = ' AND COALESCE(p.is_trashed, 0) = 0 ';
+    } elseif ($user_id > 0 && $only_trashed) {
         $extra_where = ' AND COALESCE(p.is_trashed, 0) = 1 ';
     } elseif ($user_id > 0 && $only_starred) {
         $extra_where = ' AND COALESCE(p.is_starred, 0) = 1 AND COALESCE(p.is_trashed, 0) = 0 ';
@@ -202,12 +211,39 @@ function em_inbox_list_threads(WP_REST_Request $request) {
          FROM $threads_table t
          LEFT JOIN $messages_table m ON m.id = t.last_message_id
          $part_join
+         $label_join
          $where $extra_where
          ORDER BY t.updated_at DESC
          LIMIT %d OFFSET %d",
         $per_page, $offset
     );
     $rows = $wpdb->get_results($sql, ARRAY_A);
+
+    // Batch-load labels for every visible thread (1 query regardless
+    // of row count). Only meaningful for logged-in users; admins see
+    // their own labels only (this is by design — labels are private).
+    if ($user_id > 0 && $rows) {
+        $tids = array_map('intval', array_column($rows, 'id'));
+        $ph   = implode(',', array_fill(0, count($tids), '%d'));
+        $args = array_merge($tids, array($user_id));
+        $lbl_rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT tl.thread_id, l.id, l.name, l.color
+             FROM {$wpdb->prefix}gdc_inbox_thread_labels tl
+             JOIN {$wpdb->prefix}gdc_inbox_labels l ON l.id = tl.label_id
+             WHERE tl.thread_id IN ($ph) AND tl.user_id = %d",
+            ...$args
+        ), ARRAY_A);
+        $by_tid = array();
+        foreach ($lbl_rows as $lr) {
+            $by_tid[(int) $lr['thread_id']][] = array(
+                'id' => (int) $lr['id'], 'name' => $lr['name'], 'color' => $lr['color'],
+            );
+        }
+        foreach ($rows as &$r) {
+            $r['labels'] = $by_tid[(int) $r['id']] ?? array();
+        }
+        unset($r);
+    }
 
     // Per-inbox aggregate: unread + archived + trashed counts for the current user.
     $counts = array();
@@ -279,14 +315,17 @@ function em_inbox_get_thread(WP_REST_Request $request) {
         $id
     ), ARRAY_A);
 
-    // Pull starred state for the current viewer onto the thread row so
-    // the ThreadView header can render an accurate star button.
+    // Pull starred state + labels for the current viewer onto the
+    // thread object so the ThreadView header can render them.
     if ($u && $u->ID) {
         $starred = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COALESCE(is_starred,0) FROM {$wpdb->prefix}gdc_inbox_participants WHERE thread_id = %d AND user_id = %d",
             (int) $thread['id'], (int) $u->ID
         ));
         $thread['is_starred'] = $starred;
+        $thread['labels'] = function_exists('em_inbox_labels_for_thread')
+            ? em_inbox_labels_for_thread((int) $thread['id'], (int) $u->ID)
+            : array();
     }
 
     // Sanitize HTML bodies + decode attachment JSON. Slice 2q hardens

@@ -221,6 +221,101 @@ img.em-inbox-blocked-img {
 .em-inbox-star:hover         { color: #f0b400; }
 .em-inbox-star.is-starred    { color: #f0b400; }
 .em-inbox-star-header        { font-size: 22px; margin-right: 6px; }
+
+.em-inbox-label-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f0f1;
+    background: #fafafa;
+    font-size: 12px;
+}
+.em-inbox-label-pill {
+    background: transparent;
+    border: 1px solid #2271b1;
+    color: #2271b1;
+    border-radius: 12px;
+    padding: 2px 10px;
+    cursor: pointer;
+    font-size: 11px;
+}
+.em-inbox-label-pill.is-muted { border-color: #c3c4c7; color: #50575e; }
+.em-inbox-label-pill.is-active { color: #fff; font-weight: 600; }
+.em-inbox-label-manage {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: #2271b1;
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 11px;
+}
+.em-inbox-chip {
+    display: inline-block;
+    background: #2271b1;
+    color: #fff;
+    padding: 1px 7px;
+    border-radius: 9px;
+    font-size: 10px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+.em-inbox-labels-modal .components-modal__content { max-width: 480px; }
+.em-inbox-labels-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.em-inbox-labels-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f1;
+}
+.em-inbox-label-delete {
+    background: transparent;
+    border: none;
+    color: #b32d2e;
+    cursor: pointer;
+    font-size: 12px;
+}
+.em-inbox-label-delete:hover { text-decoration: underline; }
+.em-inbox-label-create { display: flex; gap: 8px; align-items: end; }
+.em-inbox-label-create .components-base-control { flex: 1; margin: 0; }
+
+.em-inbox-label-picker { position: relative; display: inline-block; }
+.em-inbox-label-picker-btn {
+    background: #f0f0f1;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.em-inbox-label-picker-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    padding: 6px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+    z-index: 10;
+    min-width: 200px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+.em-inbox-label-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    cursor: pointer;
+    font-size: 12px;
+}
+.em-inbox-label-picker-row:hover { background: #f6f7f7; }
 .em-inbox-selectall-row {
     background: #f0f0f1;
     font-size: 11px;

@@ -66,9 +66,17 @@
         var errState = useState(null);            var err = errState[0], setErr = errState[1];
         var composerState = useState(null);       var composerProps = composerState[0], setComposerProps = composerState[1];
         var searchQState = useState('');          var searchQ = searchQState[0], setSearchQ = searchQState[1];
+        var labelFilterState = useState(0);       var labelFilterId = labelFilterState[0], setLabelFilterId = labelFilterState[1];
+        var labelsState = useState([]);           var labels = labelsState[0], setLabels = labelsState[1];
+        var manageLabelsState = useState(false);  var showManageLabels = manageLabelsState[0], setShowManageLabels = manageLabelsState[1];
         // Refresh counter — bumped after a successful send so the feed
         // re-fetches and the new sent message shows up immediately.
         var refreshTick = useState(0);            var tick = refreshTick[0], bumpTick = refreshTick[1];
+
+        function reloadLabels() {
+            restGet('labels').then(function (rows) { setLabels(rows || []); });
+        }
+        useEffect(function () { reloadLabels(); }, [tick]);
 
         useEffect(function () {
             setLoading(true);
@@ -129,12 +137,17 @@
                 : html`<${FeedView}
                     inbox=${selected}
                     openThreadId=${openThreadId}
+                    labelFilterId=${labelFilterId}
+                    labels=${labels}
+                    onLabelFilter=${setLabelFilterId}
+                    onManageLabels=${function () { setShowManageLabels(true); }}
                     onOpenThread=${setOpenThreadId}
                     onBulkApplied=${function () { bumpTick(tick + 1); }}
                     refreshKey=${tick} />`}
               ${openThreadId
                 ? html`<${ThreadView}
                     threadId=${openThreadId}
+                    labels=${labels}
                     onBack=${function () { setOpenThreadId(null); }}
                     onReply=${function (thread, lastMsg) {
                         setComposerProps({
@@ -159,6 +172,80 @@
                     setComposerProps(null);
                     bumpTick(tick + 1);
                 }} />
+            `}
+            ${showManageLabels && html`
+              <${ManageLabels}
+                labels=${labels}
+                onClose=${function () { setShowManageLabels(false); }}
+                onChanged=${function () { reloadLabels(); bumpTick(tick + 1); }} />
+            `}
+          </div>
+        `;
+    }
+
+    function ManageLabels(props) {
+        var nameState  = useState(''); var name = nameState[0], setName = nameState[1];
+        var busyState  = useState(false); var busy = busyState[0], setBusy = busyState[1];
+        var errState   = useState(null); var err = errState[0], setErr = errState[1];
+        function create() {
+            if (!name.trim()) return;
+            setBusy(true); setErr(null);
+            restPost('labels', { name: name.trim() })
+                .then(function () { setName(''); setBusy(false); props.onChanged && props.onChanged(); })
+                .catch(function (e) { setErr((e && e.message) || 'Create failed'); setBusy(false); });
+        }
+        function remove(id) {
+            if (! window.confirm('Delete this label? Threads will lose this label.')) return;
+            apiFetch({ url: cfg.restRoot + 'labels/' + id, method: 'DELETE' })
+                .then(function () { props.onChanged && props.onChanged(); });
+        }
+        return html`
+          <${Modal} title="Manage labels" onRequestClose=${props.onClose} className="em-inbox-labels-modal">
+            <ul class="em-inbox-labels-list">
+              ${(props.labels || []).map(function (l) {
+                  return html`<li key=${l.id}>
+                    <span class="em-inbox-chip" style=${{ backgroundColor: l.color }}>${l.name}</span>
+                    <button type="button" class="em-inbox-label-delete" onClick=${function () { remove(l.id); }}>Delete</button>
+                  </li>`;
+              })}
+              ${(props.labels || []).length === 0 && html`<li class="em-inbox-empty">No labels yet.</li>`}
+            </ul>
+            <div class="em-inbox-label-create">
+              <${TextControl} label="New label name" value=${name} onChange=${setName} __nextHasNoMarginBottom=${true} />
+              ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
+              <${Button} variant="primary" disabled=${busy || !name.trim()} onClick=${create}>${busy ? html`<${Spinner} />` : 'Add'}<//>
+            </div>
+          <//>
+        `;
+    }
+
+    function ThreadLabelPicker(props) {
+        // Inline popover under the thread header: list user's labels with
+        // checkboxes, save replaces the full set.
+        var openState = useState(false); var open = openState[0], setOpen = openState[1];
+        var selected = (props.threadLabels || []).map(function (l) { return Number(l.id); });
+        function toggle(id) {
+            var next = selected.indexOf(id) >= 0
+                ? selected.filter(function (n) { return n !== id; })
+                : selected.concat([id]);
+            apiFetch({ url: cfg.restRoot + 'threads/' + props.threadId + '/labels', method: 'PUT', data: { label_ids: next } })
+                .then(function (res) { props.onChanged && props.onChanged(res); });
+        }
+        if (!props.labels || props.labels.length === 0) return null;
+        return html`
+          <div class="em-inbox-label-picker">
+            <button type="button" class="em-inbox-label-picker-btn" onClick=${function () { setOpen(!open); }}>
+              ${(props.threadLabels || []).length > 0 ? (props.threadLabels.length + ' label' + (props.threadLabels.length === 1 ? '' : 's')) : 'Add labels'}
+            </button>
+            ${open && html`
+              <div class="em-inbox-label-picker-menu">
+                ${props.labels.map(function (l) {
+                    return html`<label key=${l.id} class="em-inbox-label-picker-row">
+                      <input type="checkbox" checked=${selected.indexOf(Number(l.id)) >= 0} onChange=${function () { toggle(Number(l.id)); }} />
+                      <span class="em-inbox-chip" style=${{ backgroundColor: l.color }}>${l.name}</span>
+                    </label>`;
+                })}
+              </div>
             `}
           </div>
         `;
@@ -318,10 +405,14 @@
 
         function fetchPage(page, append) {
             var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=' + PER_PAGE + '&page=' + page;
-            if (filter === 'unread')   q += '&unread=1';
-            if (filter === 'archived') q += '&archived=1';
-            if (filter === 'trashed')  q += '&trashed=1';
-            if (filter === 'starred')  q += '&starred=1';
+            if (props.labelFilterId) {
+                q += '&label_id=' + encodeURIComponent(props.labelFilterId);
+            } else {
+                if (filter === 'unread')   q += '&unread=1';
+                if (filter === 'archived') q += '&archived=1';
+                if (filter === 'trashed')  q += '&trashed=1';
+                if (filter === 'starred')  q += '&starred=1';
+            }
             return restGet(q);
         }
 
@@ -332,7 +423,7 @@
             fetchPage(1, false)
                 .then(function (data) { setState({ loading: false, items: data.items || [], total: data.total, page: data.page, err: null, counts: data.counts || null }); })
                 .catch(function (e) { setState({ loading: false, items: [], total: 0, page: 1, err: e.message || 'Failed to load threads', counts: null }); });
-        }, [inbox, filter, props.refreshKey]);
+        }, [inbox, filter, props.labelFilterId, props.refreshKey]);
 
         function loadMore() {
             if (loadingMore) return;
@@ -382,6 +473,24 @@
                 ${btn('archived', 'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
                 ${btn('trashed',  'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
               </div>
+              ${(props.labels && props.labels.length) || props.onManageLabels
+                ? html`
+                  <div class="em-inbox-label-bar">
+                    <button type="button"
+                      class="em-inbox-label-pill ${props.labelFilterId === 0 ? '' : 'is-muted'}"
+                      onClick=${function () { props.onLabelFilter(0); }}>All labels</button>
+                    ${(props.labels || []).map(function (l) {
+                      var active = Number(props.labelFilterId) === Number(l.id);
+                      return html`<button type="button"
+                        key=${l.id}
+                        class="em-inbox-label-pill ${active ? 'is-active' : ''}"
+                        style=${{ borderColor: l.color, color: active ? '#fff' : l.color, backgroundColor: active ? l.color : 'transparent' }}
+                        onClick=${function () { props.onLabelFilter(active ? 0 : Number(l.id)); }}>${l.name}</button>`;
+                    })}
+                    <button type="button" class="em-inbox-label-manage" onClick=${props.onManageLabels}>Manage…</button>
+                  </div>
+                `
+                : null}
               ${selIds.length > 0 && html`
                 <div class="em-inbox-bulk-bar">
                   <span>${selIds.length} selected</span>
@@ -450,7 +559,12 @@
                           >${starred ? '★' : '☆'}</button>
                           <div class="em-inbox-thread-body" onClick=${function () { props.onOpenThread(tid); }}>
                             <div class="em-inbox-thread-sender">${t.last_sender || '(no sender)'}</div>
-                            <div class="em-inbox-thread-subject">${t.subject_first || '(no subject)'}</div>
+                            <div class="em-inbox-thread-subject">
+                              ${(t.labels || []).map(function (l) {
+                                  return html`<span class="em-inbox-chip" style=${{ backgroundColor: l.color }}>${l.name}</span>`;
+                              })}
+                              ${t.subject_first || '(no subject)'}
+                            </div>
                             <div class="em-inbox-thread-meta">${t.message_count} msg · ${formatDate(t.updated_at)}</div>
                           </div>
                         </li>
@@ -538,6 +652,14 @@
                     restPost('threads/' + state.thread.id + '/trash', {})
                         .then(function () { props.onArchived && props.onArchived(); });
                 }}>Trash<//>
+                <${ThreadLabelPicker}
+                  threadId=${state.thread.id}
+                  threadLabels=${state.thread.labels || []}
+                  labels=${props.labels || []}
+                  onChanged=${function (res) {
+                      setState(Object.assign({}, state, { thread: Object.assign({}, state.thread, { labels: (res && res.labels) || [] }) }));
+                      props.onArchived && props.onArchived();
+                  }} />
               </div>
             </header>
             <div class="em-inbox-messages">
