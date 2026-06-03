@@ -1132,7 +1132,7 @@
                       <div class="em-inbox-thread-sender">${m.sender || '(no sender)'}</div>
                       <div class="em-inbox-thread-subject">${m.subject || '(no subject)'}</div>
                       <div class="em-inbox-thread-meta">${formatDate(m.received_at)} · ${m.recipient}</div>
-                      ${m.snippet && html`<div class="em-inbox-search-snippet">${m.snippet}…</div>`}
+                      ${m.snippet && html`<div class="em-inbox-search-snippet" dangerouslySetInnerHTML=${{ __html: m.snippet }}></div>`}
                     </li>
                   `;
               })}

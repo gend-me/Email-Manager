@@ -717,3 +717,10 @@ img.em-inbox-blocked-img {
 .em-inbox-filters-acts { color: #2271b1; font-size: 12px; }
 .em-inbox-filters-stats { color: #8c8f94; font-size: 11px; margin-top: 2px; }
 .em-inbox-filters-rm { color: #b32d2e !important; }
+
+/* Slice 2ff — search highlight */
+.em-inbox-search-snippet mark {
+    background: #fff3a3;
+    padding: 0 1px;
+    border-radius: 2px;
+}

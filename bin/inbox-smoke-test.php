@@ -180,13 +180,44 @@ $has_alice = false;
 foreach ((array) $d as $c) { if (is_array($c) && isset($c['email']) && stripos($c['email'], 'alice') === 0) { $has_alice = true; break; } }
 smoke_assert('contacts', $has_alice, 'auto-extracted alice@example.com from inbound');
 
-// ─── 7. SEARCH (slice 2h) ────────────────────────────────────────────
+// ─── 7. SEARCH (slice 2h + 2ff ranking) ──────────────────────────────
 $req = new WP_REST_Request('GET', '/em/v1/inbox/search');
 $req->set_query_params(array('q' => $run_tag));
 $res = rest_do_request($req);
 $d = $res->get_data();
 smoke_assert('search', $res->get_status() === 200, '/search 200');
 smoke_assert('search', isset($d['items']) && count($d['items']) > 0, 'search returns >=1 hit for run-tagged subject');
+
+// Slice 2ff: results are deduped by thread (we inserted both a parent
+// and a reply with the same run_tag — they share a thread, should be
+// one hit).
+if (! empty($d['items'])) {
+    $thread_ids = array_column($d['items'], 'thread_id');
+    smoke_assert('search', count($thread_ids) === count(array_unique($thread_ids)), 'search dedup: 1 result per thread');
+    // Snippet contains <mark> highlighting around the matched run_tag.
+    $first = $d['items'][0];
+    smoke_assert('search', stripos($first['snippet'] . $first['subject'], $run_tag) !== false, 'snippet or subject contains query term');
+    // Sender match should boost: insert a synthetic row where the
+    // sender matches the query but body does not, and verify it scores
+    // above a body-only hit.
+    $unique = 'sboost' . substr(bin2hex(random_bytes(3)), 0, 6);
+    smoke_insert_inbound("$unique@example.com", "ordinary subject for boost test", 'plain body content');
+    smoke_insert_inbound('other@example.com', "ordinary subject mentions $unique here", 'plain body content');
+    $req = new WP_REST_Request('GET', '/em/v1/inbox/search');
+    $req->set_query_params(array('q' => $unique));
+    $res = rest_do_request($req);
+    $d2 = $res->get_data();
+    if (count($d2['items']) >= 2) {
+        // Sender-match row should rank first because of the 2.0 boost.
+        $first_match = $d2['items'][0];
+        smoke_assert('search', stripos($first_match['sender'], $unique) !== false, 'sender-matching row ranks above subject-only match');
+    } else {
+        smoke_assert('search', false, 'sender-boost test: not enough hits returned', 'got ' . count($d2['items']));
+    }
+    // Cleanup synthetic rows
+    $wpdb->query("DELETE FROM {$wpdb->prefix}gdc_inbox_messages WHERE subject LIKE '%$unique%' OR sender LIKE '$unique@%'");
+    $wpdb->query("DELETE FROM {$wpdb->prefix}gdc_inbox_raw WHERE subject LIKE '%$unique%' OR sender LIKE '$unique@%'");
+}
 
 // ─── 8. SANITIZER + IMAGE BLOCK (slice 2q) ──────────────────────────
 if (function_exists('em_inbox_sanitize_html')) {

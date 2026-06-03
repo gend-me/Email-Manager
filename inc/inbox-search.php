@@ -87,7 +87,11 @@ function em_inbox_search_handler(WP_REST_Request $request) {
         $inbox_clause = " AND m.recipient IN ($placeholders)";
         $args = array_merge($args, $candidates);
     }
-    $args[] = $limit;
+    // Pull a generous superset from FULLTEXT so we have something to
+    // re-rank PHP-side. The final list is capped at $limit after the
+    // sender-boost + thread-dedup pass.
+    $fetch_n = max($limit * 4, 100);
+    $args[] = $fetch_n;
 
     $messages = $wpdb->prefix . 'gdc_inbox_messages';
     $threads  = $wpdb->prefix . 'gdc_inbox_threads';
@@ -99,7 +103,7 @@ function em_inbox_search_handler(WP_REST_Request $request) {
             m.sender      AS sender,
             m.recipient   AS recipient,
             m.received_at AS received_at,
-            LEFT(m.body_plain, 200) AS snippet,
+            m.body_plain  AS body_plain,
             t.subject_first AS thread_subject,
             t.message_count AS thread_message_count,
             MATCH(m.subject, m.sender, m.body_plain) AGAINST (%s IN NATURAL LANGUAGE MODE) AS score
@@ -113,8 +117,121 @@ function em_inbox_search_handler(WP_REST_Request $request) {
     );
     $rows = $wpdb->get_results($sql, ARRAY_A);
 
+    // ── Re-rank: sender/subject boost + snippet + dedup-by-thread ─────
+    $rows = em_inbox_search_rerank($rows ?: array(), $q, $limit);
     return rest_ensure_response(array(
-        'items' => $rows ?: array(),
+        'items' => $rows,
         'query' => $q,
     ));
+}
+
+/* -------------------------------------------------------------------------
+ * Re-ranking helpers (slice 2ff)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Tokenize a free-text query into lowercase search terms. Quoted
+ * phrases survive as single tokens. Stop tokens shorter than 2 chars
+ * (matches the inner FULLTEXT threshold).
+ */
+function em_inbox_search_tokenize($q) {
+    $tokens = array();
+    if (preg_match_all('/"([^"]+)"|(\S+)/u', $q, $m, PREG_SET_ORDER)) {
+        foreach ($m as $hit) {
+            $tok = ! empty($hit[1]) ? $hit[1] : $hit[2];
+            $tok = mb_strtolower(trim($tok));
+            if (mb_strlen($tok) >= 2) $tokens[] = $tok;
+        }
+    }
+    return array_values(array_unique($tokens));
+}
+
+/**
+ * Build a snippet of ~$window chars around the first term hit in
+ * $haystack, with each token wrapped in <mark>...</mark>. If no token
+ * matches, fall back to the prefix.
+ */
+function em_inbox_search_snippet($haystack, $tokens, $window = 160) {
+    $haystack = (string) $haystack;
+    if ($haystack === '') return '';
+    $lower = mb_strtolower($haystack);
+    $first_pos = false;
+    foreach ($tokens as $t) {
+        $p = mb_strpos($lower, $t);
+        if ($p !== false && ($first_pos === false || $p < $first_pos)) $first_pos = $p;
+    }
+    if ($first_pos === false) {
+        $snippet = mb_substr($haystack, 0, $window);
+    } else {
+        $start = max(0, $first_pos - intdiv($window, 3));
+        $snippet = mb_substr($haystack, $start, $window);
+        if ($start > 0) $snippet = '…' . $snippet;
+    }
+    if (mb_strlen($snippet) >= $window) $snippet .= '…';
+    // Highlight every token (case-insensitive). Build the regex
+    // carefully so token punctuation can't break out.
+    $esc = array_map(function ($t) { return preg_quote($t, '/'); }, $tokens);
+    if (! empty($esc)) {
+        $pattern = '/(' . implode('|', $esc) . ')/iu';
+        $snippet = preg_replace($pattern, '<mark>$1</mark>', $snippet);
+    }
+    return $snippet;
+}
+
+/**
+ * Boost score based on which field matched. Sender/subject matches are
+ * worth more than body matches. Multiple-token hits compound.
+ */
+function em_inbox_search_boost_score($base_score, $row, $tokens) {
+    $score = (float) $base_score;
+    $subject = mb_strtolower((string) $row['subject']);
+    $sender  = mb_strtolower((string) $row['sender']);
+    $body    = mb_strtolower((string) $row['body_plain']);
+    foreach ($tokens as $t) {
+        if ($t === '') continue;
+        if (mb_strpos($sender,  $t) !== false) $score += 2.0;  // sender match: heavy boost
+        if (mb_strpos($subject, $t) !== false) $score += 1.5;  // subject match: moderate
+        if (mb_strpos($body,    $t) !== false) $score += 0.25; // body: small (already counted in FT)
+    }
+    return $score;
+}
+
+function em_inbox_search_rerank($rows, $q, $limit) {
+    $tokens = em_inbox_search_tokenize($q);
+    if (empty($tokens) || empty($rows)) return array();
+
+    // Compute boosted score + snippet, group by thread to dedup.
+    $by_thread = array();
+    foreach ($rows as $r) {
+        $tid = (int) $r['thread_id'];
+        $boosted = em_inbox_search_boost_score($r['score'], $r, $tokens);
+        $body_plain = (string) $r['body_plain'];
+        // Strip any leftover HTML before snippet so quoted-reply markup
+        // doesn't show through (rare but possible if body_plain ever
+        // shared content with body_html).
+        $body_plain = wp_strip_all_tags($body_plain);
+        $snippet = em_inbox_search_snippet($body_plain, $tokens);
+        $candidate = array(
+            'message_id'           => (int) $r['message_id'],
+            'thread_id'            => $tid,
+            'subject'              => (string) $r['subject'],
+            'sender'               => (string) $r['sender'],
+            'recipient'            => (string) $r['recipient'],
+            'received_at'          => (string) $r['received_at'],
+            'snippet'              => $snippet,
+            'thread_subject'       => (string) ($r['thread_subject'] ?? ''),
+            'thread_message_count' => (int) ($r['thread_message_count'] ?? 0),
+            'score'                => $boosted,
+            'matched_tokens'       => $tokens,
+        );
+        if (! isset($by_thread[$tid]) || $candidate['score'] > $by_thread[$tid]['score']) {
+            $by_thread[$tid] = $candidate;
+        }
+    }
+    $items = array_values($by_thread);
+    usort($items, function ($a, $b) {
+        if ($a['score'] === $b['score']) return strcmp($b['received_at'], $a['received_at']);
+        return ($a['score'] < $b['score']) ? 1 : -1;
+    });
+    return array_slice($items, 0, $limit);
 }
