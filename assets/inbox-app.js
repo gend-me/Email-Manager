@@ -107,10 +107,16 @@
             ['u',             'back to feed'],
             ['c',             'compose'],
             ['r',             'reply (within thread)'],
+            ['a',             'reply all (within thread)'],
             ['f',             'forward (within thread)'],
             ['e',             'archive focused / open thread'],
             ['#',             'trash focused / open thread'],
             ['s',             'star / unstar focused / open'],
+            ['g i',           'go to All inbox'],
+            ['g u',           'go to Unread'],
+            ['g s',           'go to Snoozed'],
+            ['g z',           'go to Archived'],
+            ['g t',           'go to Trash'],
             ['/',             'focus search bar'],
             ['Esc',           'close modal / overlay'],
             ['?',             'this help'],
@@ -592,19 +598,47 @@
         useEffect(function () { reloadLabels(); }, [tick]);
 
         // ── slice 2x: keyboard shortcuts ──────────────────────────
+        // Slice 2jj: tiny state machine for "g + letter" two-key
+        // shortcuts (gi=inbox, gu=unread, gs=snoozed, gt=trash, gz=archive).
+        // gPendingRef.current holds the timestamp when 'g' was last
+        // pressed; expires after 1.5s.
+        var gPendingRef = wp.element.useRef ? wp.element.useRef(0) : { current: 0 };
         useEffect(function () {
+            function clickByKey(key) {
+                // Click whichever action button (Reply / Reply-all /
+                // Forward) is currently in the DOM. Uses
+                // data-em-key="<key>" attribute on the button.
+                var el = document.querySelector('[data-em-key="' + key + '"]');
+                if (el && typeof el.click === 'function') { el.click(); return true; }
+                return false;
+            }
             function onKey(e) {
-                // Escape ALWAYS works (close help / composer).
+                // Escape ALWAYS works (close help / composer / overlays).
                 if (e.key === 'Escape') {
                     if (showHelp) { setShowHelp(false); return; }
                     if (composerProps) { setComposerProps(null); return; }
                     if (showManageLabels) { setShowManageLabels(false); return; }
+                    if (showSharing) { setShowSharing(false); return; }
+                    if (showFilters) { setShowFilters(false); return; }
                     if (openThreadId) { setOpenThreadId(null); return; }
                 }
                 if (isTypingTarget(e.target)) return;
                 // Don't fire when ctrl/meta/alt — let browser shortcuts work.
                 if (e.ctrlKey || e.metaKey || e.altKey) return;
                 var k = e.key;
+
+                // Two-key "g + letter" sequence (Gmail-style).
+                if (Date.now() - gPendingRef.current < 1500) {
+                    gPendingRef.current = 0;  // consume
+                    if (k === 'i') { /* go to inbox */ window.dispatchEvent(new CustomEvent('em-inbox-filter', { detail: 'all' })); e.preventDefault(); return; }
+                    if (k === 'u') { window.dispatchEvent(new CustomEvent('em-inbox-filter', { detail: 'unread' })); e.preventDefault(); return; }
+                    if (k === 's') { window.dispatchEvent(new CustomEvent('em-inbox-filter', { detail: 'snoozed' })); e.preventDefault(); return; }
+                    if (k === 't') { window.dispatchEvent(new CustomEvent('em-inbox-filter', { detail: 'trashed' })); e.preventDefault(); return; }
+                    if (k === 'z') { window.dispatchEvent(new CustomEvent('em-inbox-filter', { detail: 'archived' })); e.preventDefault(); return; }
+                    // unrecognized — fall through to single-key handling
+                }
+                if (k === 'g') { gPendingRef.current = Date.now(); e.preventDefault(); return; }
+
                 if (k === '?')     { setShowHelp(true); e.preventDefault(); return; }
                 if (k === 'c')     { setComposerProps({ from: selected, mode: 'new' }); e.preventDefault(); return; }
                 if (k === '/')     { if (searchInputRef.current) { searchInputRef.current.focus(); e.preventDefault(); } return; }
@@ -612,17 +646,23 @@
                 // Thread-scoped actions need a focused or open thread.
                 var actId = openThreadId || focusedThreadId;
                 if (!actId) {
-                    // j/k still navigate the focused row even with no open thread.
                     return;
                 }
                 if (k === 'Enter') { setOpenThreadId(focusedThreadId || actId); e.preventDefault(); return; }
                 if (k === 'e')     { restPost('threads/' + actId + '/archive', {}).then(function () { setOpenThreadId(null); bumpTick(tick + 1); }); e.preventDefault(); return; }
                 if (k === '#')     { restPost('threads/' + actId + '/trash',   {}).then(function () { setOpenThreadId(null); bumpTick(tick + 1); }); e.preventDefault(); return; }
                 if (k === 's')     { restPost('threads/' + actId + '/star',    {}).then(function () { bumpTick(tick + 1); }); e.preventDefault(); return; }
+                // Slice 2jj: r/a/f only work when a thread is open in
+                // the reader (the buttons need to be in the DOM).
+                if (openThreadId) {
+                    if (k === 'r') { if (clickByKey('reply'))     { e.preventDefault(); } return; }
+                    if (k === 'a') { if (clickByKey('reply-all')) { e.preventDefault(); } return; }
+                    if (k === 'f') { if (clickByKey('forward'))   { e.preventDefault(); } return; }
+                }
             }
             window.addEventListener('keydown', onKey);
             return function () { window.removeEventListener('keydown', onKey); };
-        }, [openThreadId, focusedThreadId, composerProps, showHelp, showManageLabels, selected, tick]);
+        }, [openThreadId, focusedThreadId, composerProps, showHelp, showManageLabels, showSharing, showFilters, selected, tick]);
 
         useEffect(function () {
             setLoading(true);
@@ -738,6 +778,35 @@
                             mode: 'reply',
                             threadId: thread.id,
                             to: lastMsg && lastMsg.sender ? [lastMsg.sender] : [],
+                            subject: thread.subject_first ? ('Re: ' + thread.subject_first.replace(/^\s*Re:\s*/i, '')) : '',
+                        });
+                    }}
+                    onReplyAll=${function (thread, lastMsg) {
+                        // Reply-All: keep everyone on the conversation except
+                        // the inbox owner themselves. Parse To/Cc from the
+                        // latest message's headers and merge.
+                        var hdrs = (lastMsg && lastMsg.headers) || [];
+                        function pickAddrs(name) {
+                            for (var i = 0; i < hdrs.length; i++) {
+                                if (hdrs[i].name && hdrs[i].name.toLowerCase() === name) {
+                                    return String(hdrs[i].value || '').split(/[,;]/)
+                                        .map(function (s) { var m = s.match(/<([^>]+)>/); return (m ? m[1] : s).trim(); })
+                                        .filter(Boolean);
+                                }
+                            }
+                            return [];
+                        }
+                        var own = (thread.inbox_address || '').toLowerCase();
+                        var to_addrs = ((lastMsg && lastMsg.sender) ? [lastMsg.sender] : []).concat(pickAddrs('to'));
+                        var cc_addrs = pickAddrs('cc');
+                        to_addrs = to_addrs.filter(function (a, i) { return a && a.toLowerCase() !== own && to_addrs.indexOf(a) === i; });
+                        cc_addrs = cc_addrs.filter(function (a, i) { return a && a.toLowerCase() !== own && cc_addrs.indexOf(a) === i; });
+                        setComposerProps({
+                            from: thread.inbox_address,
+                            mode: 'reply',
+                            threadId: thread.id,
+                            to: to_addrs,
+                            cc: cc_addrs,
                             subject: thread.subject_first ? ('Re: ' + thread.subject_first.replace(/^\s*Re:\s*/i, '')) : '',
                         });
                     }}
@@ -1318,6 +1387,17 @@
         var st = useState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
         var state = st[0], setState = st[1];
         var filterState = useState('all'); var filter = filterState[0], setFilter = filterState[1];
+        // Slice 2jj: listen for the g+letter keyboard sequence.
+        useEffect(function () {
+            function onFilterEvent(e) {
+                var t = e && e.detail;
+                if (t === 'all' || t === 'unread' || t === 'starred' || t === 'snoozed' || t === 'scheduled' || t === 'archived' || t === 'trashed') {
+                    setFilter(t);
+                }
+            }
+            window.addEventListener('em-inbox-filter', onFilterEvent);
+            return function () { window.removeEventListener('em-inbox-filter', onFilterEvent); };
+        }, []);
         var selState = useState({});      var selected = selState[0], setSelected = selState[1];
         var loadingMoreState = useState(false); var loadingMore = loadingMoreState[0], setLoadingMore = loadingMoreState[1];
         var inbox = props.inbox;
@@ -1584,8 +1664,9 @@
                           });
                   }}
                 >${Number(state.thread.is_starred) === 1 ? '★' : '☆'}</button>
-                <${Button} variant="primary" onClick=${function () { props.onReply && props.onReply(state.thread, lastMsg); }}>Reply<//>
-                <${Button} variant="secondary" onClick=${function () { props.onForward && props.onForward(state.thread, lastMsg); }}>Forward<//>
+                <${Button} variant="primary" data-em-key="reply" onClick=${function () { props.onReply && props.onReply(state.thread, lastMsg); }}>Reply<//>
+                <${Button} variant="secondary" data-em-key="reply-all" onClick=${function () { props.onReplyAll && props.onReplyAll(state.thread, lastMsg); }}>Reply all<//>
+                <${Button} variant="secondary" data-em-key="forward" onClick=${function () { props.onForward && props.onForward(state.thread, lastMsg); }}>Forward<//>
                 <${Button} variant="secondary" onClick=${function () {
                     var archived = Number(state.thread.is_archived) === 1;
                     restPost('threads/' + state.thread.id + '/' + (archived ? 'unarchive' : 'archive'), {})
