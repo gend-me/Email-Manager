@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2ff shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2gg shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -282,4 +282,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 (slice 2ff). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 (slice 2gg). Run `bin/inbox-smoke-test.php` after every change.

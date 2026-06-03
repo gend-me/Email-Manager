@@ -724,3 +724,26 @@ img.em-inbox-blocked-img {
     padding: 0 1px;
     border-radius: 2px;
 }
+
+/* Slice 2gg — quoted-reply collapsing */
+.em-inbox-quote-toggle {
+    display: inline-block;
+    background: #f0f0f1;
+    border: 1px solid #dcdcde;
+    border-radius: 12px;
+    padding: 2px 12px;
+    font-size: 12px;
+    color: #646970;
+    cursor: pointer;
+    margin: 8px 0;
+}
+.em-inbox-quote-toggle:hover { background: #e6e6e8; color: #1d2327; }
+.em-inbox-quoted-block.is-collapsed {
+    display: none;
+}
+.em-inbox-quoted-block {
+    border-left: 2px solid #dcdcde;
+    padding-left: 10px;
+    margin-left: 4px;
+    color: #50575e;
+}

@@ -1516,6 +1516,16 @@
             });
         }, [imagesUnlocked, msg.id]);
 
+        // Slice 2gg: detect quoted prior-message portions and collapse
+        // them behind a "Show trimmed content" toggle. Runs once when
+        // the body is rendered. Idempotent — skips if a toggle is
+        // already present (covers re-render via image unlock).
+        useEffect(function () {
+            if (!open || !bodyRef.current) return;
+            if (bodyRef.current.querySelector('.em-inbox-quote-toggle')) return;
+            em_inbox_collapse_quoted_block(bodyRef.current);
+        }, [open, msg.id, imagesUnlocked]);
+
         function allowSenderImages() {
             restPost('senders/show-images', { sender: msg.sender, show: true })
                 .then(function () { setImagesUnlocked(true); });
@@ -1554,7 +1564,7 @@
                 `}
                 ${msg.body_html
                     ? html`<div class="em-inbox-message-body" ref=${function (n) { bodyRef.current = n; }} dangerouslySetInnerHTML=${{ __html: msg.body_html }} />`
-                    : html`<pre class="em-inbox-message-plain">${msg.body_plain || '(no body)'}</pre>`}
+                    : html`<pre class="em-inbox-message-plain" ref=${function (n) { bodyRef.current = n; }}>${msg.body_plain || '(no body)'}</pre>`}
                 ${msg.attachments && msg.attachments.length
                     ? html`<${AttachmentList} messageId=${msg.id} attachments=${msg.attachments} />`
                     : null}
@@ -1672,6 +1682,123 @@
             .replace(/&quot;/g, '"')
             .replace(/\n{3,}/g, '\n\n');
         return s.trim();
+    }
+
+    // Slice 2gg: detect a quoted-prior-message region in a rendered
+    // message body and collapse it behind a "Show trimmed content"
+    // toggle. Handles Gmail/Outlook HTML idioms + a "On X, Y wrote:"
+    // plain-text fallback + leading "> "/">>" lines.
+    //
+    // The function mutates `rootNode` in place. Idempotent.
+    function em_inbox_collapse_quoted_block(rootNode) {
+        if (!rootNode) return;
+        var doc = rootNode.ownerDocument || document;
+
+        // ---- HTML path: look for known quote containers
+        var selectors = [
+            '.gmail_quote',
+            'blockquote[type="cite"]',
+            '#appendonsend',
+            '.OutlookMessageHeader',
+            '.x_OutlookMessageHeader',
+            'div[id^="reply-"]',
+        ];
+        var found = null;
+        for (var i = 0; i < selectors.length; i++) {
+            var el = rootNode.querySelector(selectors[i]);
+            if (el) { found = el; break; }
+        }
+
+        // ---- Plain-text "On ... wrote:" fallback (HTML body without
+        //      gmail_quote wrapper, or a <pre> plain-text card)
+        if (!found) {
+            var text = rootNode.textContent || '';
+            // Match "On <date>, <name> wrote:" (date can span newlines).
+            var m = text.match(/On\s+[^\n]{1,200}\s+wrote:/i);
+            if (m) {
+                var idx = text.indexOf(m[0]);
+                // Walk the DOM, find the text node containing the match,
+                // and slice from there.
+                var split = em_inbox_split_text_at(rootNode, idx);
+                if (split) found = split;
+            }
+        }
+
+        // ---- ">" prefix lines fallback for plain bodies
+        if (!found && rootNode.tagName === 'PRE') {
+            var lines = (rootNode.textContent || '').split('\n');
+            var firstQ = -1;
+            for (var j = 0; j < lines.length; j++) {
+                if (/^>\s/.test(lines[j])) { firstQ = j; break; }
+            }
+            if (firstQ >= 0) {
+                var visible = lines.slice(0, firstQ).join('\n').replace(/\s+$/, '');
+                var quoted  = lines.slice(firstQ).join('\n');
+                rootNode.textContent = visible + '\n';
+                var qNode = doc.createElement('div');
+                qNode.className = 'em-inbox-quoted-block';
+                var qPre = doc.createElement('pre');
+                qPre.className = 'em-inbox-message-plain';
+                qPre.textContent = quoted;
+                qNode.appendChild(qPre);
+                rootNode.parentNode.insertBefore(qNode, rootNode.nextSibling);
+                found = qNode;
+            }
+        }
+
+        if (!found) return;
+
+        // Inject a toggle button just before the (now-collapsed) quote.
+        var btn = doc.createElement('button');
+        btn.type = 'button';
+        btn.className = 'em-inbox-quote-toggle';
+        btn.textContent = '··· Show trimmed content';
+        found.classList.add('em-inbox-quoted-block', 'is-collapsed');
+        found.parentNode.insertBefore(btn, found);
+        btn.addEventListener('click', function () {
+            var collapsed = found.classList.toggle('is-collapsed');
+            btn.textContent = collapsed
+                ? '··· Show trimmed content'
+                : '··· Hide trimmed content';
+        });
+    }
+
+    // Walk text nodes inside `root`; return the element containing the
+    // first character at `charOffset` (counted across textContent). Wraps
+    // that-and-everything-after in a single sibling element marked
+    // .em-inbox-quoted-block and returns it.
+    function em_inbox_split_text_at(root, charOffset) {
+        var doc = root.ownerDocument || document;
+        var walker = doc.createTreeWalker(root, 4 /* SHOW_TEXT */, null);
+        var consumed = 0, node;
+        while ((node = walker.nextNode())) {
+            var len = node.nodeValue.length;
+            if (consumed + len < charOffset) { consumed += len; continue; }
+            // Split this text node at (charOffset - consumed).
+            var rel = charOffset - consumed;
+            if (rel > 0) node.splitText(rel);
+            // The second half is now node.nextSibling. Wrap from that
+            // node + every following sibling-chain element up the tree
+            // in a quoted block.
+            var startNode = node.nextSibling || node;
+            // Walk up to a common ancestor of the start node and root,
+            // then collect siblings from startNode onward at that level.
+            var ancestor = startNode;
+            while (ancestor.parentNode && ancestor.parentNode !== root) ancestor = ancestor.parentNode;
+            if (! ancestor.parentNode) return null;
+            // Move ancestor + every nextSibling into a wrapper.
+            var wrapper = doc.createElement('div');
+            wrapper.className = 'em-inbox-quoted-block';
+            var cursor = ancestor;
+            while (cursor) {
+                var nxt = cursor.nextSibling;
+                wrapper.appendChild(cursor);
+                cursor = nxt;
+            }
+            root.appendChild(wrapper);
+            return wrapper;
+        }
+        return null;
     }
 
     function humanBytes(n) {
