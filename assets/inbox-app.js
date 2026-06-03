@@ -1901,6 +1901,14 @@
 
     function AttachmentList(props) {
         if (!props.attachments.length) return null;
+        var previewState = useState(null); var previewing = previewState[0], setPreviewing = previewState[1];
+        function canPreview(ct) {
+            ct = String(ct || '').toLowerCase();
+            return ct.indexOf('image/') === 0
+                || ct === 'application/pdf'
+                || ct.indexOf('text/') === 0
+                || ct === 'application/json';
+        }
         return html`
           <ul class="em-inbox-attachments">
             ${props.attachments.map(function (a, idx) {
@@ -1908,12 +1916,67 @@
                 var size = a.size ? humanBytes(a.size) : '';
                 return html`
                   <li key=${idx}>
-                    <a href=${href} target="_blank" rel="noopener">${a.filename || ('attachment-' + idx)}</a>
+                    <a href=${href} target="_blank" rel="noopener" download=${a.filename || 'attachment-' + idx}>${a.filename || ('attachment-' + idx)}</a>
                     <span class="em-inbox-att-meta">${a.content_type || ''} ${size ? '· ' + size : ''}</span>
+                    ${canPreview(a.content_type) && html`
+                      <button type="button" class="em-inbox-att-preview" onClick=${function () { setPreviewing({ href: href, att: a }); }}>Preview</button>
+                    `}
                   </li>
                 `;
             })}
           </ul>
+          ${previewing && html`<${AttachmentPreviewModal} preview=${previewing} onClose=${function () { setPreviewing(null); }} />`}
+        `;
+    }
+
+    // ── Attachment preview modal (slice 2ll) ──────────────────────────
+    // Renders image / pdf / text inline. The server already serves with
+    // Content-Disposition: inline so <img>/<iframe>/fetch all work
+    // without extra endpoints.
+    function AttachmentPreviewModal(props) {
+        var p = props.preview;
+        var att = p.att;
+        var ct = String(att.content_type || '').toLowerCase();
+        var textState = useState({ loading: false, text: '', err: null });
+        var ts = textState[0], setTextState = textState[1];
+
+        useEffect(function () {
+            if (ct.indexOf('text/') !== 0 && ct !== 'application/json') return;
+            setTextState({ loading: true, text: '', err: null });
+            // Cap to 256 KiB so a multi-megabyte log file doesn't OOM
+            // the browser.
+            var ctl = new AbortController();
+            fetch(p.href, { credentials: 'include', signal: ctl.signal })
+                .then(function (r) { return r.text(); })
+                .then(function (text) {
+                    var truncated = false;
+                    if (text.length > 262144) { text = text.slice(0, 262144); truncated = true; }
+                    setTextState({ loading: false, text: text + (truncated ? '\n\n— Truncated at 256 KiB —' : ''), err: null });
+                })
+                .catch(function (e) { setTextState({ loading: false, text: '', err: e.message || 'load failed' }); });
+            return function () { ctl.abort(); };
+        }, [p.href, ct]);
+
+        var body;
+        if (ct.indexOf('image/') === 0) {
+            body = html`<img class="em-inbox-preview-img" src=${p.href} alt=${att.filename || ''} />`;
+        } else if (ct === 'application/pdf') {
+            body = html`<iframe class="em-inbox-preview-pdf" src=${p.href} title=${att.filename || 'PDF preview'}></iframe>`;
+        } else if (ct.indexOf('text/') === 0 || ct === 'application/json') {
+            if (ts.loading) body = html`<${Spinner} />`;
+            else if (ts.err) body = html`<${Notice} status="error" isDismissible=${false}>${ts.err}<//>`;
+            else            body = html`<pre class="em-inbox-preview-text">${ts.text}</pre>`;
+        } else {
+            body = html`<p class="em-inbox-empty">Preview not supported for this file type.</p>`;
+        }
+        return html`
+          <${Modal} title=${att.filename || 'Attachment preview'} onRequestClose=${props.onClose} className="em-inbox-preview-modal">
+            ${body}
+            <div class="em-inbox-composer-actions">
+              <${Button} variant="tertiary" onClick=${props.onClose}>Close<//>
+              <${Button} variant="primary" href=${p.href} target="_blank" rel="noopener" download=${att.filename || 'attachment'}>Download<//>
+            </div>
+          <//>
         `;
     }
 
