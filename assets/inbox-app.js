@@ -764,6 +764,20 @@
                     onManageLabels=${function () { setShowManageLabels(true); }}
                     onOpenThread=${setOpenThreadId}
                     onBulkApplied=${function () { bumpTick(tick + 1); }}
+                    onOpenDraft=${function (d) {
+                        setComposerProps({
+                            draftId: d.id,
+                            from: d.from_address || selected,
+                            mode: d.thread_id ? 'reply' : 'new',
+                            threadId: d.thread_id || undefined,
+                            to: d.to || [],
+                            cc: d.cc || [],
+                            bcc: d.bcc || [],
+                            subject: d.subject || '',
+                            bodyHtml: d.body_html || '',
+                            atts: d.attachments || [],
+                        });
+                    }}
                     focusedThreadId=${focusedThreadId}
                     onFocusedChange=${setFocusedThreadId}
                     refreshKey=${tick} />`}
@@ -1073,6 +1087,37 @@
         useEffect(function () {
             restGet('signature').then(function (d) { setSig((d && d.html) || ''); });
         }, []);
+
+        // Slice 2kk: auto-save to /drafts on idle. Debounced 1500ms.
+        // Skip the very first render (initial.* hasn't been touched yet).
+        var firstDraftRenderRef = wp.element.useRef ? wp.element.useRef(true) : { current: true };
+        useEffect(function () {
+            if (firstDraftRenderRef.current) { firstDraftRenderRef.current = false; return; }
+            if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = setTimeout(function () {
+                // Skip when there's literally nothing to save.
+                if (!subject && !bodyHtml.replace(/<[^>]*>/g, '').trim() && to.length === 0 && cc.length === 0 && bcc.length === 0) return;
+                var payload = {
+                    from: from,
+                    to:   extractEmails(to),
+                    cc:   extractEmails(cc),
+                    bcc:  extractEmails(bcc),
+                    subject: subject,
+                    body_plain: htmlToPlain(bodyHtml),
+                    body_html:  bodyHtml,
+                    thread_id:  initial.threadId || undefined,
+                    track_open: track,
+                    attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
+                };
+                var url = draftId > 0 ? 'drafts/' + draftId : 'drafts';
+                apiFetch({ url: cfg.restRoot + url, method: 'POST', data: payload })
+                    .then(function (res) {
+                        if (res && res.id) { if (draftId === 0) setDraftId(res.id); setLastSaved(Date.now()); setSaveErr(null); }
+                    })
+                    .catch(function (e) { setSaveErr((e && e.message) || 'autosave failed'); });
+            }, 1500);
+            return function () { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+        }, [from, to, cc, bcc, subject, bodyHtml, track, atts.length]);
         var ccState = useState(initial.cc || []);                  var cc = ccState[0], setCc = ccState[1];
         var bccState = useState(initial.bcc || []);                var bcc = bccState[0], setBcc = bccState[1];
         var showCcBccState = useState(!!(initial.cc && initial.cc.length) || !!(initial.bcc && initial.bcc.length));
@@ -1084,6 +1129,13 @@
         var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
         var errState = useState(null);                             var err = errState[0], setErr = errState[1];
         var dragState = useState(false);                           var dragging = dragState[0], setDragging = dragState[1];
+        // Slice 2kk: draft auto-save state. draftId is the server-side
+        // row's PK once we've persisted at least once. lastSavedAt is
+        // shown as "Saved Xs ago" in the composer chrome.
+        var draftIdState = useState(initial.draftId || 0);         var draftId = draftIdState[0], setDraftId = draftIdState[1];
+        var lastSavedState = useState(null);                       var lastSaved = lastSavedState[0], setLastSaved = lastSavedState[1];
+        var saveErrState = useState(null);                         var saveErr = saveErrState[0], setSaveErr = saveErrState[1];
+        var saveTimerRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
         // Slice 2bb: scheduled send menu state. When sendAtIso is set,
         // the Send button shows the scheduled time + submits send_at to
         // the server. The dropdown is just a popover next to the Send btn.
@@ -1172,6 +1224,11 @@
             }
             restPost('send', payload).then(function (res) {
                 setSending(false);
+                // Slice 2kk: send succeeded → discard the draft so it
+                // doesn't linger in the Drafts list as a duplicate.
+                if (draftId > 0) {
+                    apiFetch({ url: cfg.restRoot + 'drafts/' + draftId, method: 'DELETE' }).catch(function () { /* non-fatal */ });
+                }
                 props.onSent && props.onSent(res);
             }).catch(function (e) {
                 setSending(false);
@@ -1250,6 +1307,11 @@
               onSaved=${function () { restGet('signature').then(function (d) { setSig((d && d.html) || ''); }); }} />`}
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             <div class="em-inbox-composer-actions">
+              <span class="em-inbox-draft-status">
+                ${saveErr ? html`<span class="em-inbox-draft-err">⚠ ${saveErr}</span>`
+                 : lastSaved ? html`<span title=${new Date(lastSaved).toLocaleString()}>✓ Draft saved</span>`
+                 : null}
+              </span>
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
               <div class="em-inbox-send-group">
                 <${Button} variant="primary"  onClick=${submit}        disabled=${sending || ((to.length + cc.length + bcc.length) === 0) || !bodyHtml.replace(/<[^>]*>/g,'').trim()}>
@@ -1383,6 +1445,53 @@
         `;
     }
 
+    function DraftsList(props) {
+        var st = useState({ loading: true, items: [], err: null });
+        var state = st[0], setState = st[1];
+        var tickState = useState(0); var tick = tickState[0], setTick = tickState[1];
+
+        function reload() {
+            setState({ loading: true, items: state.items, err: null });
+            restGet('drafts')
+                .then(function (d) { setState({ loading: false, items: d.items || [], err: null }); })
+                .catch(function (e) { setState({ loading: false, items: [], err: e.message || 'Failed to load drafts' }); });
+        }
+        useEffect(reload, [props.refreshKey, tick]);
+
+        function discard(id) {
+            if (! window.confirm('Discard this draft? This cannot be undone.')) return;
+            apiFetch({ url: cfg.restRoot + 'drafts/' + id, method: 'DELETE' })
+                .then(function () { setTick(tick + 1); props.onDeleted && props.onDeleted(); });
+        }
+        function open(id) {
+            restGet('drafts/' + id)
+                .then(function (d) { props.onOpen && props.onOpen(d); })
+                .catch(function (e) { alert((e && e.message) || 'failed to load draft'); });
+        }
+
+        if (state.loading) return html`<div class="em-inbox-empty"><${Spinner} /></div>`;
+        if (state.err)     return html`<${Notice} status="error" isDismissible=${false}>${state.err}<//>`;
+        if (! state.items.length) return html`<p class="em-inbox-empty">No drafts. Anything you start composing is auto-saved here every couple of seconds.</p>`;
+        return html`
+          <ul class="em-inbox-scheduled-list">
+            ${state.items.map(function (m) {
+                var to_display = (m.to && m.to.length) ? m.to.join(', ') : '(no recipient)';
+                return html`
+                  <li key=${m.id} class="em-inbox-scheduled-row" onClick=${function () { open(m.id); }} style=${{ cursor: 'pointer' }}>
+                    <div class="em-inbox-scheduled-meta">
+                      <div class="em-inbox-scheduled-when">${formatDate(m.updated_at)}</div>
+                      <div class="em-inbox-scheduled-to">To: ${to_display}</div>
+                      <div class="em-inbox-scheduled-subject">${m.subject || '(no subject)'}</div>
+                      ${m.snippet && html`<div class="em-inbox-search-snippet">${m.snippet}…</div>`}
+                    </div>
+                    <button type="button" class="components-button is-secondary em-inbox-scheduled-cancel" onClick=${function (e) { e.stopPropagation(); discard(m.id); }}>Discard</button>
+                  </li>
+                `;
+            })}
+          </ul>
+        `;
+    }
+
     function FeedView(props) {
         var st = useState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
         var state = st[0], setState = st[1];
@@ -1493,6 +1602,7 @@
                 ${btn('starred',   '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
                 ${btn('snoozed',   '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
                 ${btn('scheduled', '⏱ Scheduled')}
+                ${btn('drafts',    '📝 Drafts')}
                 ${btn('archived',  'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
                 ${btn('trashed',   'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
               </div>
@@ -1538,6 +1648,8 @@
             </header>
             ${filter === 'scheduled'
               ? html`<${ScheduledList} refreshKey=${props.refreshKey} onCancelled=${function () { props.onBulkApplied && props.onBulkApplied(); }} />`
+              : filter === 'drafts'
+              ? html`<${DraftsList} refreshKey=${props.refreshKey} onOpen=${function (d) { props.onOpenDraft && props.onOpenDraft(d); }} onDeleted=${function () { props.onBulkApplied && props.onBulkApplied(); }} />`
               : state.items.length === 0
               ? html`<p class="em-inbox-empty">No threads ${filter === 'all' ? 'yet' : 'in ' + filter}.</p>`
               : html`

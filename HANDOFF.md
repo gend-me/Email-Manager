@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2jj shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2kk shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -78,6 +78,7 @@ All in the active site's WordPress DB, prefixed with `wp_`:
 | `wp_gdc_inbox_vacation_log` | Dedup for auto-reply (RFC 3834 guards) | inbox-vacation.php |
 | `wp_gdc_inbox_filters` | Per-user filter rules | inbox-filters.php |
 | `wp_gdc_inbox_grants` | Per-(owner, grantee) read/read_send delegation | inbox-grants.php |
+| `wp_gdc_inbox_drafts` | Composer auto-saved drafts (out of threading) | inbox-drafts.php |
 
 DB-version options (gate migrations; bump in code → next request runs ALTER):
 
@@ -86,6 +87,7 @@ em_inbox_part_db_version       = 1.3.0  (slice 2aa adds snoozed_until)
 em_inbox_outq_db_version       = 1.1.0  (slice 2bb adds 'scheduled' enum)
 em_inbox_filters_db_version    = 1.0.0  (slice 2cc initial)
 em_inbox_grants_db_version     = 1.0.0  (slice 2ee initial)
+em_inbox_drafts_db_version     = 1.0.0  (slice 2kk initial)
 em_inbox_labels_db_version     = ...    (see inbox-labels.php)
 em_inbox_contacts_db_version   = ...
 em_inbox_ledger_db_version     = ...
@@ -125,6 +127,7 @@ POST   /vacation                       body: {enabled, start_at, end_at, subject
 GET/POST/PUT/DELETE /filters
 POST   /filters/{id}/test              body: {from, to, subject, body} → {match: bool}
 GET    /unread-count?inbox=             {unread, total, latest_at} — bell polls every 30s
+GET/POST/PUT/DELETE /drafts/{id?}      composer auto-saves here every ~1.5s on idle
 GET    /grants                         {given: [...], received: [...]}
 POST   /grants                         body: {grantee_email, scope: read|read_send, expires_at?}
 DELETE /grants/{id}                    either party can revoke
@@ -283,4 +286,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 (slice 2jj is JS-only keyboard polish; server smoke unchanged at 67/67). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 — slices 2jj (JS-only) + 2kk drafts unverified on cluster (gcloud auth expired during build); JS validates clean via `node --check`, smoke schema asserts updated. Run `bin/inbox-smoke-test.php` after every change.

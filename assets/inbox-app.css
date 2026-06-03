@@ -796,3 +796,13 @@ img.em-inbox-blocked-img {
     0%, 100% { transform: scale(1); }
     50%      { transform: scale(1.15); background: #fff3a3; }
 }
+
+/* Slice 2kk — drafts */
+.em-inbox-draft-status {
+    flex: 1;
+    font-size: 12px;
+    color: #646970;
+    text-align: left;
+}
+.em-inbox-draft-err { color: #b32d2e; }
+.em-inbox-composer-actions { align-items: center; }

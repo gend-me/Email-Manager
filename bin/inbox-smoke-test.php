@@ -90,6 +90,7 @@ foreach (array(
     'em_inbox_outq_db_version'     => '1.1.0',
     'em_inbox_filters_db_version'  => '1.0.0',
     'em_inbox_grants_db_version'   => '1.0.0',
+    'em_inbox_drafts_db_version'   => '1.0.0',
 ) as $opt => $expect) {
     $v = get_option($opt);
     smoke_assert('schema', $v === $expect, "$opt = $expect", "got: " . var_export($v, true));
@@ -312,6 +313,69 @@ smoke_assert('idem', function_exists('em_inbox_ledger_maybe_create_table'), 'ide
 
 // ─── 15. TRACKING (slice 2s) ────────────────────────────────────────
 smoke_assert('track', function_exists('em_inbox_track_inject_pixel'), 'tracking inject_pixel loaded');
+
+// ─── 15b. DRAFTS (slice 2kk) ─────────────────────────────────────────
+// Create a draft
+$res = post_json('/em/v1/inbox/drafts', array(
+    'from' => $inbox,
+    'to'   => array('someone@example.invalid'),
+    'subject' => "smoke $run_tag draft test",
+    'body_plain' => 'work in progress…',
+    'body_html'  => '<p>work in progress…</p>',
+));
+$d = $res->get_data();
+smoke_assert('drafts', $res->get_status() === 200 && ! empty($d['id']), 'draft create 200 + id');
+$draft_id = (int) ($d['id'] ?? 0);
+
+// List
+$req = new WP_REST_Request('GET', '/em/v1/inbox/drafts');
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('drafts', $res->get_status() === 200 && count($d['items']) >= 1, '/drafts lists at least 1');
+$listed = false;
+foreach ($d['items'] as $row) { if ((int) $row['id'] === $draft_id) { $listed = true; break; } }
+smoke_assert('drafts', $listed, 'list includes our newly-created draft');
+
+// Get one
+$req = new WP_REST_Request('GET', "/em/v1/inbox/drafts/$draft_id");
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('drafts', $res->get_status() === 200, '/drafts/{id} GET 200');
+smoke_assert('drafts', is_array($d['to']) && in_array('someone@example.invalid', $d['to']), 'to: round-trips as array');
+smoke_assert('drafts', $d['subject'] === "smoke $run_tag draft test", 'subject round-trips');
+
+// Update (upsert) — change subject
+$res = post_json("/em/v1/inbox/drafts/$draft_id", array(
+    'from' => $inbox,
+    'to'   => array('someone@example.invalid'),
+    'subject' => "smoke $run_tag draft test EDITED",
+    'body_plain' => 'work in progress (v2)…',
+    'body_html'  => '<p>v2</p>',
+));
+smoke_assert('drafts', $res->get_status() === 200, 'draft upsert 200');
+$req = new WP_REST_Request('GET', "/em/v1/inbox/drafts/$draft_id");
+$d = rest_do_request($req)->get_data();
+smoke_assert('drafts', $d['subject'] === "smoke $run_tag draft test EDITED", 'upsert changed subject');
+
+// Permission: a draft created by user A is not visible to user B.
+$other = wp_create_user('smoke_other_' . substr(bin2hex(random_bytes(3)), 0, 6), wp_generate_password(20, true), 'smoke-other-' . $run_tag . '@example.invalid');
+$prev = get_current_user_id();
+wp_set_current_user($other);
+$req = new WP_REST_Request('GET', "/em/v1/inbox/drafts/$draft_id");
+$res = rest_do_request($req);
+smoke_assert('drafts', $res->get_status() !== 200, 'foreign user gets non-200 on someone else\'s draft');
+$req = new WP_REST_Request('DELETE', "/em/v1/inbox/drafts/$draft_id");
+$res = rest_do_request($req);
+smoke_assert('drafts', $res->get_status() === 403, 'foreign user gets 403 on delete');
+wp_set_current_user($prev);
+wp_delete_user($other);
+
+// Delete
+$req = new WP_REST_Request('DELETE', "/em/v1/inbox/drafts/$draft_id");
+$res = rest_do_request($req);
+smoke_assert('drafts', $res->get_status() === 200, 'draft delete 200');
+$still = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}gdc_inbox_drafts WHERE id = %d", $draft_id));
+smoke_assert('drafts', $still === 0, 'draft row deleted');
 
 // ─── 16. GRANTS / DELEGATION (slice 2ee) ─────────────────────────────
 // Create a second user so we have someone to grant to. If a smoke-test
