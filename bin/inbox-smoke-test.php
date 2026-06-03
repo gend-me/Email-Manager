@@ -145,6 +145,17 @@ smoke_assert('part', $res->get_status() === 200, '/unsnooze endpoint 200');
 $cur = $wpdb->get_var($wpdb->prepare("SELECT snoozed_until FROM {$wpdb->prefix}gdc_inbox_participants WHERE thread_id = %d AND user_id = %d", $thread1, $uid));
 smoke_assert('part', $cur === null, '/unsnooze cleared snoozed_until');
 
+// ─── 3b. UNREAD-COUNT (slice 2ii) ────────────────────────────────────
+$req = new WP_REST_Request('GET', '/em/v1/inbox/unread-count');
+$req->set_query_params(array('inbox' => $inbox));
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('bell', $res->get_status() === 200, '/unread-count 200');
+smoke_assert('bell', isset($d['unread']) && isset($d['total']), 'unread + total fields present');
+$req = new WP_REST_Request('GET', '/em/v1/inbox/unread-count');
+$res = rest_do_request($req);
+smoke_assert('bell', $res->get_status() === 400, '/unread-count without inbox = 400');
+
 // ─── 4. LISTING + COUNTS (slice 2g + 2aa) ─────────────────────────────
 $req = new WP_REST_Request('GET', '/em/v1/inbox/threads');
 $req->set_query_params(array('inbox' => $inbox));

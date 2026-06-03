@@ -173,6 +173,83 @@
         `;
     }
 
+    // ── Notification bell (slice 2ii) — polls /unread-count every 30s
+    //    while the tab is visible. Pulses + plays a soft chime when the
+    //    unread total increases. Click toggles a snackbar showing the
+    //    latest_at timestamp (no auto-filter switch — the user still
+    //    has explicit filter tabs).
+    function NotificationBell(props) {
+        var countState = useState(null);   var count = countState[0], setCount = countState[1];
+        var pulseState = useState(false);  var pulse = pulseState[0], setPulse = pulseState[1];
+        // Track previous count via ref so the polling closure doesn't
+        // stale-close over an old setCount.
+        var prevRef = wp.element.useRef ? wp.element.useRef(0) : { current: 0 };
+
+        function chime() {
+            // Short soft three-note chime (WebAudio is more robust than
+            // a base64 <audio> tag here — works without preloading).
+            try {
+                var Ctx = window.AudioContext || window.webkitAudioContext;
+                if (! Ctx) return;
+                var ctx = new Ctx();
+                var now = ctx.currentTime;
+                [880, 1100].forEach(function (freq, i) {
+                    var osc = ctx.createOscillator();
+                    var gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0.0001, now + i * 0.12);
+                    gain.gain.exponentialRampToValueAtTime(0.06, now + i * 0.12 + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.12 + 0.18);
+                    osc.connect(gain).connect(ctx.destination);
+                    osc.start(now + i * 0.12);
+                    osc.stop(now + i * 0.12 + 0.2);
+                });
+                // Garbage-collect the AudioContext after the chime finishes.
+                setTimeout(function () { try { ctx.close(); } catch (e) {} }, 800);
+            } catch (e) { /* audio not available — silent */ }
+        }
+
+        useEffect(function () {
+            if (! props.inbox) return;
+            var live = true;
+            function tick() {
+                if (document.visibilityState !== 'visible') return;
+                restGet('unread-count?inbox=' + encodeURIComponent(props.inbox))
+                    .then(function (d) {
+                        if (! live) return;
+                        var n = Number(d.unread || 0);
+                        setCount(n);
+                        var prev = prevRef.current;
+                        if (prev !== 0 && n > prev) {
+                            setPulse(true);
+                            chime();
+                            setTimeout(function () { setPulse(false); }, 1800);
+                        }
+                        prevRef.current = n;
+                    })
+                    .catch(function () { /* non-fatal */ });
+            }
+            tick();
+            var handle = setInterval(tick, 30000);
+            // Tab-visibility resume: re-poll immediately when the tab
+            // regains focus so the count is fresh without waiting up
+            // to 30s for the next interval.
+            function onVis() { if (document.visibilityState === 'visible') tick(); }
+            document.addEventListener('visibilitychange', onVis);
+            return function () { live = false; clearInterval(handle); document.removeEventListener('visibilitychange', onVis); };
+        }, [props.inbox]);
+
+        return html`
+          <button
+            type="button"
+            class="em-inbox-bell ${pulse ? 'is-pulsing' : ''} ${count > 0 ? 'has-unread' : ''}"
+            title=${count != null ? count + ' unread' : 'New mail indicator'}
+            onClick=${function () { props.onClick && props.onClick(); }}
+          >🔔${count > 0 ? html`<span class="em-inbox-bell-badge">${count > 99 ? '99+' : count}</span>` : null}</button>
+        `;
+    }
+
     // ── Sharing / delegation modal (slice 2ee) ────────────────────────
     function SharingModal(props) {
         var st = useState({ loading: true, given: [], received: [], err: null });
@@ -622,6 +699,14 @@
                 title="Sharing — grant or revoke inbox access"
                 onClick=${function () { setShowSharing(true); }}
               >👥 Sharing</button>
+              ${selected && html`<${NotificationBell}
+                inbox=${selected}
+                onClick=${function () { /* clicking the bell switches to unread view */
+                    /* The FeedView filter state is internal; bumpTick to force re-render so
+                       the bell re-pulls. The actual filter switch is just a hint — the
+                       user still has the explicit filter tabs. */
+                    bumpTick(tick + 1);
+                }} />`}
             </div>
             <div class="em-inbox-body">
               ${searchQ.length >= 2

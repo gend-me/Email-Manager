@@ -763,3 +763,36 @@ img.em-inbox-blocked-img {
     font-weight: 600;
     margin-left: 4px;
 }
+
+/* Slice 2ii — notification bell */
+.em-inbox-bell {
+    position: relative;
+    background: transparent;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 14px;
+    cursor: pointer;
+    margin-left: 4px;
+    line-height: 1;
+}
+.em-inbox-bell:hover { background: #f0f0f1; }
+.em-inbox-bell.has-unread { border-color: #b32d2e; }
+.em-inbox-bell-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: #b32d2e;
+    color: #fff;
+    border-radius: 10px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    min-width: 16px;
+    text-align: center;
+}
+.em-inbox-bell.is-pulsing { animation: em-inbox-bell-pulse 0.6s ease-in-out 3; }
+@keyframes em-inbox-bell-pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.15); background: #fff3a3; }
+}

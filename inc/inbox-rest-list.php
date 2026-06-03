@@ -165,6 +165,56 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
 }
 
 /* -------------------------------------------------------------------------
+ * /inbox/unread-count (slice 2ii) — minimal-payload poll for the
+ * notification bell. Returns unread + total for ONE inbox in a single
+ * indexed COUNT(*). Read-permission gated.
+ * ------------------------------------------------------------------------- */
+
+add_action('rest_api_init', function () {
+    register_rest_route('em/v1', '/inbox/unread-count', array(
+        'methods'             => WP_REST_Server::READABLE,
+        'callback'            => 'em_inbox_unread_count',
+        'permission_callback' => function () { return is_user_logged_in(); },
+        'args' => array(
+            'inbox' => array('type' => 'string', 'required' => true),
+        ),
+    ));
+});
+
+function em_inbox_unread_count(WP_REST_Request $r) {
+    global $wpdb;
+    $inbox = trim((string) $r->get_param('inbox'));
+    if ($inbox === '') return new WP_Error('em_unread_no_inbox', 'inbox required', array('status' => 400));
+    if (function_exists('em_inbox_user_can_read_inbox') && ! em_inbox_user_can_read_inbox($inbox)) {
+        return new WP_Error('em_unread_forbidden', 'Cannot read this inbox', array('status' => 403));
+    }
+    $u  = wp_get_current_user();
+    $uid = ($u && $u->ID) ? (int) $u->ID : 0;
+    $threads = $wpdb->prefix . 'gdc_inbox_threads';
+    $part    = $wpdb->prefix . 'gdc_inbox_participants';
+    $row = $wpdb->get_row($wpdb->prepare(
+        "SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN COALESCE(p.is_read,1) = 0
+                 AND COALESCE(p.is_archived,0) = 0
+                 AND COALESCE(p.is_trashed,0) = 0
+                 AND (p.snoozed_until IS NULL OR p.snoozed_until <= UTC_TIMESTAMP())
+                THEN 1 ELSE 0 END) AS unread,
+            MAX(t.updated_at) AS latest_at
+         FROM $threads t
+         LEFT JOIN $part p ON p.thread_id = t.id AND p.user_id = %d
+         WHERE t.inbox_address = %s",
+        $uid, $inbox
+    ), ARRAY_A);
+    return rest_ensure_response(array(
+        'inbox'    => $inbox,
+        'unread'   => (int) ($row['unread'] ?? 0),
+        'total'    => (int) ($row['total']  ?? 0),
+        'latest_at'=> $row['latest_at'] ?? null,
+    ));
+}
+
+/* -------------------------------------------------------------------------
  * /inbox/threads
  * ------------------------------------------------------------------------- */
 

@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2hh shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2ii shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -124,6 +124,7 @@ GET    /vacation
 POST   /vacation                       body: {enabled, start_at, end_at, subject, body_plain, body_html}
 GET/POST/PUT/DELETE /filters
 POST   /filters/{id}/test              body: {from, to, subject, body} → {match: bool}
+GET    /unread-count?inbox=             {unread, total, latest_at} — bell polls every 30s
 GET    /grants                         {given: [...], received: [...]}
 POST   /grants                         body: {grantee_email, scope: read|read_send, expires_at?}
 DELETE /grants/{id}                    either party can revoke
@@ -226,7 +227,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 64   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 67   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -282,4 +283,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 (slice 2hh). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 (slice 2ii). Run `bin/inbox-smoke-test.php` after every change.
