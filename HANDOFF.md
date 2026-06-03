@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2pp shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2qq shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -287,4 +287,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm/2oo/2pp unverified on cluster (gcloud auth expired during 2jj build); JS validates clean via `node --check`. 2pp adds offline IndexedDB cache for drafts: every Composer autosave writes to IDB first, then to server when online. Online event flushes pendingSync rows. PWA install (manifest + service worker) deferred — wp-admin's URL/auth model makes a clean SW non-trivial. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm/2oo/2pp/2qq unverified on cluster (gcloud auth expired during 2jj build); JS validates clean via `node --check`. 2qq passes a baseline accessibility audit: aria-live on bell/draft-status/undo-snack, aria-label on icon-only buttons (star/bell/×/caret), thread rows are keyboard-activatable (role=button + tabindex + Enter/Space), filter tabs have role=tablist + aria-selected, prefers-reduced-motion respected for bell pulse. Run `bin/inbox-smoke-test.php` after every change.

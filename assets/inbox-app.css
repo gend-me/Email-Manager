@@ -797,6 +797,25 @@ img.em-inbox-blocked-img {
     50%      { transform: scale(1.15); background: #fff3a3; }
 }
 
+/* Slice 2qq — accessibility utilities */
+.screen-reader-text {
+    position: absolute !important;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+    .em-inbox-bell.is-pulsing { animation: none; }
+    .em-inbox-bell.is-pulsing { background: #fff3a3; }
+}
+.em-inbox-thread-body[role="button"]:focus-visible {
+    outline: 2px solid #2271b1;
+    outline-offset: -2px;
+}
+
 /* Slice 2kk — drafts */
 .em-inbox-draft-status {
     flex: 1;

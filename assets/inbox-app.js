@@ -82,7 +82,7 @@
                 });
         }
         return html`
-          <div class="em-inbox-undo-snack">
+          <div class="em-inbox-undo-snack" role="status" aria-live="assertive">
             <span>Sent. Cancel in ${remain}s</span>
             <button type="button" class="em-inbox-undo-btn" onClick=${undo}>Undo</button>
           </div>
@@ -251,8 +251,13 @@
             type="button"
             class="em-inbox-bell ${pulse ? 'is-pulsing' : ''} ${count > 0 ? 'has-unread' : ''}"
             title=${count != null ? count + ' unread' : 'New mail indicator'}
+            aria-label=${count != null ? count + ' unread message' + (count === 1 ? '' : 's') : 'New mail indicator'}
             onClick=${function () { props.onClick && props.onClick(); }}
-          >🔔${count > 0 ? html`<span class="em-inbox-bell-badge">${count > 99 ? '99+' : count}</span>` : null}</button>
+          >
+            <span aria-hidden="true">🔔</span>
+            ${count > 0 ? html`<span class="em-inbox-bell-badge" aria-hidden="true">${count > 99 ? '99+' : count}</span>` : null}
+            <span class="screen-reader-text" aria-live="polite">${count != null ? count + ' unread' : ''}</span>
+          </button>
         `;
     }
 
@@ -449,7 +454,7 @@
                             var next = editing.conditions.slice(); next[i] = Object.assign({}, next[i], { value: e.target.value });
                             setEditing(Object.assign({}, editing, { conditions: next }));
                         }} />
-                        <button type="button" class="em-inbox-row-rm" onClick=${function () {
+                        <button type="button" class="em-inbox-row-rm" aria-label="Remove row" onClick=${function () {
                             var next = editing.conditions.slice(); next.splice(i, 1);
                             if (! next.length) next.push({ field: 'from', op: 'contains', value: '' });
                             setEditing(Object.assign({}, editing, { conditions: next }));
@@ -489,7 +494,7 @@
                               setEditing(Object.assign({}, editing, { actions: next }));
                           }} />
                         ` : html`<span class="em-inbox-filters-noval">(no parameter)</span>`}
-                        <button type="button" class="em-inbox-row-rm" onClick=${function () {
+                        <button type="button" class="em-inbox-row-rm" aria-label="Remove row" onClick=${function () {
                             var next = editing.actions.slice(); next.splice(i, 1);
                             if (! next.length) next.push({ type: 'label', value: '' });
                             setEditing(Object.assign({}, editing, { actions: next }));
@@ -1337,7 +1342,7 @@
                         <li key=${i}>
                           <span class="em-inbox-att-name">${a.filename}</span>
                           <span class="em-inbox-att-size">${humanBytes(a.size)}</span>
-                          <button type="button" class="em-inbox-att-remove" onClick=${function () { removeAtt(i); }}>×</button>
+                          <button type="button" class="em-inbox-att-remove" aria-label=${'Remove attachment ' + (a.filename || 'unnamed')} onClick=${function () { removeAtt(i); }}><span aria-hidden="true">×</span></button>
                         </li>
                       `;
                   })}
@@ -1360,7 +1365,7 @@
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
             ${! online && html`<${Notice} status="warning" isDismissible=${false}>You're offline. Your draft is saved locally and will sync when you're back online.<//>`}
             <div class="em-inbox-composer-actions">
-              <span class="em-inbox-draft-status">
+              <span class="em-inbox-draft-status" aria-live="polite" aria-atomic="true">
                 ${saveErr ? html`<span class="em-inbox-draft-err">⚠ ${saveErr}</span>`
                  : lastSaved ? html`<span title=${new Date(lastSaved).toLocaleString()}>${online ? '✓ Draft saved' : '✓ Draft cached locally'}</span>`
                  : null}
@@ -1652,6 +1657,8 @@
             return html`<button
                 type="button"
                 class="em-inbox-filter ${filter === key ? 'is-active' : ''}"
+                role="tab"
+                aria-selected=${filter === key ? 'true' : 'false'}
                 onClick=${function () { setFilter(key); setSelected({}); }}>${label}</button>`;
         };
 
@@ -1659,9 +1666,9 @@
         var allOnPageSelected = state.items.length > 0 && state.items.every(function (t) { return selected[Number(t.id)]; });
 
         return html`
-          <aside class="em-inbox-feed">
+          <aside class="em-inbox-feed" aria-label="Inbox thread list">
             <header class="em-inbox-feed-header">
-              <div class="em-inbox-filters">
+              <div class="em-inbox-filters" role="tablist" aria-label="Inbox filters">
                 ${btn('all',       'All' + (counts.total != null ? ' · ' + counts.total : ''))}
                 ${btn('unread',    'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
                 ${btn('starred',   '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
@@ -1754,13 +1761,23 @@
                             type="button"
                             class="em-inbox-star ${starred ? 'is-starred' : ''}"
                             title=${starred ? 'Unstar' : 'Star'}
+                            aria-label=${starred ? 'Remove star' : 'Add star'}
+                            aria-pressed=${starred ? 'true' : 'false'}
                             onClick=${function (e) {
                                 e.stopPropagation();
                                 restPost('threads/' + tid + '/' + (starred ? 'unstar' : 'star'), {})
                                     .then(function () { props.onBulkApplied && props.onBulkApplied(); });
                             }}
-                          >${starred ? '★' : '☆'}</button>
-                          <div class="em-inbox-thread-body" onClick=${function () { props.onOpenThread(tid); }}>
+                          ><span aria-hidden="true">${starred ? '★' : '☆'}</span></button>
+                          <div
+                            class="em-inbox-thread-body"
+                            role="button"
+                            tabindex="0"
+                            aria-label=${'Open thread: ' + (t.subject_first || 'no subject')}
+                            onClick=${function () { props.onOpenThread(tid); }}
+                            onKeyDown=${function (e) {
+                                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onOpenThread(tid); }
+                            }}>
                             <div class="em-inbox-thread-sender">${t.last_sender || '(no sender)'}</div>
                             <div class="em-inbox-thread-subject">
                               ${(t.labels || []).map(function (l) {
