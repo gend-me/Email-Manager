@@ -394,8 +394,67 @@ smoke_assert('grant', $still === 0, 'revoke removed the row');
 wp_set_current_user((int) $grantee->ID);
 smoke_assert('grant', ! em_inbox_current_user_can_read_address($inbox), 'grantee read predicate fails after revoke');
 
-// Cleanup: delete the grantee user.
+// ─── 16b. SEND-AS via from_override (slice 2hh) ──────────────────────
+// Recreate the grant + run a send as the grantee with from_override
+// pointing at the owner. Smoke test the path; the actual relay will
+// land in retrying as usual (no Workspace allowlist), which is fine.
 wp_set_current_user($prev_user_id);
+$res2 = post_json('/em/v1/inbox/grants', array(
+    'grantee_email' => $grantee_email,
+    'scope' => 'read_send',
+));
+$grant_id2 = (int) ($res2->get_data()['id'] ?? 0);
+
+wp_set_current_user((int) $grantee->ID);
+$res = post_json('/em/v1/inbox/send', array(
+    'to' => array('nowhere-sendas@example.invalid'),
+    'subject' => "smoke $run_tag send-as",
+    'body_plain' => 'x',
+    'body_html'  => '<p>x</p>',
+    'send_at'    => gmdate('c', time() + 600),  // schedule far out so we don't drain
+    'from_override' => $inbox,
+));
+$d = $res->get_data();
+smoke_assert('sendas', $res->get_status() === 200, 'grantee read_send /send with from_override 200');
+smoke_assert('sendas', ($d['delivery_status'] ?? '') === 'scheduled', 'mirror is scheduled');
+$sendas_raw_id = (int) ($d['raw_id'] ?? 0);
+// Mirror's sender should be the owner address (the override), and the
+// raw_headers should include X-EM-Acted-By naming the grantee.
+$row = $wpdb->get_row($wpdb->prepare("SELECT sender, raw_headers FROM {$wpdb->prefix}gdc_inbox_raw WHERE id = %d", $sendas_raw_id), ARRAY_A);
+smoke_assert('sendas', $row && strtolower($row['sender']) === $inbox, 'mirror.sender = owner inbox after override');
+$hdrs_have_actedby = false;
+foreach ((array) json_decode((string) $row['raw_headers'], true) as $h) {
+    if (isset($h['name']) && strcasecmp($h['name'], 'X-EM-Acted-By') === 0) { $hdrs_have_actedby = true; break; }
+}
+smoke_assert('sendas', $hdrs_have_actedby, 'raw_headers carries X-EM-Acted-By audit header');
+
+// Cleanup mirror row.
+if ($sendas_raw_id) {
+    $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_messages WHERE raw_id = %d", $sendas_raw_id));
+    $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_raw WHERE id = %d", $sendas_raw_id));
+}
+
+// Read-only grant: from_override should be forbidden.
+wp_set_current_user($prev_user_id);
+post_json('/em/v1/inbox/grants', array(
+    'grantee_email' => $grantee_email,
+    'scope' => 'read',
+));
+wp_set_current_user((int) $grantee->ID);
+$res = post_json('/em/v1/inbox/send', array(
+    'to' => array('nowhere@example.invalid'),
+    'subject' => 'should be forbidden',
+    'body_plain' => 'x',
+    'from_override' => $inbox,
+));
+smoke_assert('sendas', $res->get_status() === 403, 'read-only grantee gets 403 on from_override send');
+
+// Cleanup: revoke the grant + delete the grantee user.
+wp_set_current_user($prev_user_id);
+if ($grant_id2) {
+    $req = new WP_REST_Request('DELETE', "/em/v1/inbox/grants/$grant_id2");
+    rest_do_request($req);
+}
 wp_delete_user((int) $grantee->ID);
 
 // ─── CLEANUP ─────────────────────────────────────────────────────────

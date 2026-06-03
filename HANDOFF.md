@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2gg shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2hh shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -226,7 +226,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 59   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 64   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -269,7 +269,7 @@ Each slice left small TODOs intentionally:
 - **2bb** (scheduled): no recurring sends, no per-user timezone resolution beyond browser locale
 - **2aa** (snooze): no per-message snooze, no smart resurface time
 - **2y** (undo): if `track_open=true` and the first attempt SUCCEEDED, the recipient's copy won't have the pixel (raw_id post-insert)
-- **2ee** (delegation): UI doesn't yet let grantee switch the composer's From dropdown to a delegated inbox — only the API path supports it via `from_override`; filters fire only on the OWNER's user_id (so a grantee won't trigger their own filter rules on someone else's incoming mail — intentional but worth noting)
+- **2ee** (delegation): filters fire only on the OWNER's user_id (so a grantee won't trigger their own filter rules on someone else's incoming mail — intentional but worth noting). Composer From-dropdown UI shipped as slice 2hh.
 
 ## 15 · Memory pointers
 
@@ -282,4 +282,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 (slice 2gg). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 (slice 2hh). Run `bin/inbox-smoke-test.php` after every change.

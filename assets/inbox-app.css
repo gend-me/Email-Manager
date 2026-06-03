@@ -747,3 +747,19 @@ img.em-inbox-blocked-img {
     margin-left: 4px;
     color: #50575e;
 }
+
+/* Slice 2hh — composer From dropdown for delegated inboxes */
+.em-inbox-from-select {
+    font: inherit;
+    padding: 2px 6px;
+    border: 1px solid #dcdcde;
+    border-radius: 3px;
+    background: #fff;
+    margin-right: 8px;
+}
+.em-inbox-from-warning {
+    color: #b32d2e;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 4px;
+}

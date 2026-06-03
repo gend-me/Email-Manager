@@ -483,6 +483,25 @@
         useEffect(function () { restGet('vacation').then(setVacationCfg); }, [tick]);
         var filtersState = useState(false);       var showFilters = filtersState[0], setShowFilters = filtersState[1];
         var sharingState = useState(false);       var showSharing = sharingState[0], setShowSharing = sharingState[1];
+        // Slice 2hh: list of addresses the user can send AS (own inbox
+        // + every read_send grant). Refreshed when the SharingModal
+        // closes or tick bumps. Used by Composer to render the From
+        // dropdown when there's more than one option.
+        var fromsState = useState([]);            var availableFroms = fromsState[0], setAvailableFroms = fromsState[1];
+        useEffect(function () {
+            restGet('grants').then(function (d) {
+                var list = [];
+                // Own address is always available — derive from cfg
+                // (server-injected current-user email).
+                if (cfg.currentUserEmail) list.push({ address: cfg.currentUserEmail, label: cfg.currentUserEmail + ' (me)', self: true });
+                (d.received || []).forEach(function (g) {
+                    if (g.scope === 'read_send' && g.owner_email) {
+                        list.push({ address: g.owner_email, label: g.owner_email + ' (delegated)', self: false });
+                    }
+                });
+                setAvailableFroms(list);
+            }).catch(function () { /* non-fatal */ });
+        }, [tick]);
         var focusedThreadState = useState(null);  var focusedThreadId = focusedThreadState[0], setFocusedThreadId = focusedThreadState[1];
         // searchInputRef so '/' can focus the search bar.
         var searchInputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
@@ -673,6 +692,7 @@
             ${composerProps && html`
               <${Composer}
                 initial=${composerProps}
+                availableFroms=${availableFroms}
                 onClose=${function () { setComposerProps(null); }}
                 onSent=${function (res) {
                     setComposerProps(null);
@@ -877,6 +897,18 @@
 
     function Composer(props) {
         var initial = props.initial || {};
+        // Slice 2hh: when the user has delegated read_send grants, the
+        // From line becomes a dropdown so they can compose as the
+        // delegated owner. Default to initial.from (the inbox they're
+        // viewing) if it's in availableFroms, else the first option.
+        var availableFroms = Array.isArray(props.availableFroms) ? props.availableFroms : [];
+        var defaultFrom = initial.from || (availableFroms[0] && availableFroms[0].address) || '';
+        if (availableFroms.length > 0 && ! availableFroms.find(function (f) { return f.address === defaultFrom; })) {
+            // initial.from refers to an inbox not in our send-as list — fall back to own.
+            var self = availableFroms.find(function (f) { return f.self; });
+            defaultFrom = self ? self.address : availableFroms[0].address;
+        }
+        var fromState = useState(defaultFrom);                     var from = fromState[0], setFrom = fromState[1];
         var toState = useState(initial.to || []);                  var to = toState[0], setTo = toState[1];
         var includeSigState = useState(true);                      var includeSig = includeSigState[0], setIncludeSig = includeSigState[1];
         var sigState = useState('');                               var sig = sigState[0], setSig = sigState[1];
@@ -970,6 +1002,14 @@
                 track_open:  track,
                 attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
             };
+            // Slice 2hh: when the user picks a non-self From, pass
+            // from_override. The server enforces the permission check
+            // (read_send grant required for non-admins) via
+            // em_inbox_current_user_can_send_as.
+            var selected = (availableFroms || []).find(function (f) { return f.address === from; });
+            if (selected && ! selected.self) {
+                payload.from_override = selected.address;
+            }
             if (sendAt) {
                 payload.send_at = sendAt;
                 payload.undo_seconds = 0;
@@ -996,7 +1036,14 @@
               onDragLeave=${onDragLeave}
               onDrop=${onDrop}>
             <p class="em-inbox-composer-from">
-              From: <strong>${initial.from || '(no inbox)'}</strong>
+              From: ${availableFroms.length > 1
+                ? html`<select class="em-inbox-from-select" value=${from} onChange=${function (e) { setFrom(e.target.value); }}>
+                    ${availableFroms.map(function (f) { return html`<option key=${f.address} value=${f.address}>${f.label}</option>`; })}
+                  </select>`
+                : html`<strong>${from || initial.from || '(no inbox)'}</strong>`}
+              ${availableFroms.length > 1 && from && ! (availableFroms.find(function (f) { return f.address === from; }) || {}).self
+                ? html`<span class="em-inbox-from-warning"> · sending AS ${from} (audited)</span>`
+                : null}
               ${!showCcBcc && html`<button type="button" class="em-inbox-link-btn" onClick=${function () { setShowCcBcc(true); }}>Cc / Bcc</button>`}
             </p>
             <${ContactTokenField}
