@@ -983,7 +983,7 @@
             ${open && html`
               <div class="em-inbox-snooze-menu">
                 ${presets.map(function (p, i) {
-                    return html`<button key=${i} type="button" onClick=${function () { snoozeUntil(p[1]); }}>${p[0]} <span class="em-snooze-when">${p[1].toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}</span></button>`;
+                    return html`<button key=${i} type="button" onClick=${function () { snoozeUntil(p[1]); }}>${p[0]} <span class="em-snooze-when">${em_inbox_fmt_tz(p[1], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}</span></button>`;
                 })}
                 ${snoozed && html`
                   <button type="button" class="em-snooze-unsnooze" onClick=${unsnooze}>↺ Unsnooze (was: ${props.snoozedUntil} UTC)</button>
@@ -1321,21 +1321,33 @@
                 ${schedMenu && html`
                   <div class="em-inbox-sched-menu">
                     ${(function () {
+                        // Slice 2mm: presets are computed in the WP-configured
+                        // user timezone (cfg.userTimezone), not the browser's.
                         var presets = [];
                         var now = new Date();
-                        var tomorrow9 = new Date(now); tomorrow9.setDate(tomorrow9.getDate() + 1); tomorrow9.setHours(9,0,0,0);
-                        var monday9 = new Date(now);
-                        var addDays = ((1 - monday9.getDay()) + 7) % 7;
-                        if (addDays === 0) addDays = 7;
-                        monday9.setDate(monday9.getDate() + addDays); monday9.setHours(9,0,0,0);
-                        var laterToday = new Date(now); laterToday.setHours(now.getHours() + 4, 0, 0, 0);
-                        if (laterToday.getDate() === now.getDate() && laterToday.getHours() < 22) {
+                        // Day-of-week in user-tz for the "Monday morning" calc.
+                        var dowStr = new Intl.DateTimeFormat('en-US', { timeZone: cfg.userTimezone || 'UTC', weekday: 'short' }).format(now);
+                        var dowMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+                        var dow = dowMap[dowStr] || 0;
+                        var tomorrowSrc = new Date(now.getTime() + 86400000);
+                        var mondayDays = ((1 - dow) + 7) % 7; if (mondayDays === 0) mondayDays = 7;
+                        var mondaySrc  = new Date(now.getTime() + mondayDays * 86400000);
+                        var tomorrow9   = em_inbox_tz_aware_ts(tomorrowSrc, 9, 0);
+                        var monday9     = em_inbox_tz_aware_ts(mondaySrc,   9, 0);
+                        // Later-today: 4h from now, rounded to top of hour, in user-tz.
+                        var laterSrc = new Date(now.getTime() + 4 * 3600 * 1000);
+                        var laterHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: cfg.userTimezone || 'UTC', hour: '2-digit', hour12: false }).format(laterSrc));
+                        var laterToday = em_inbox_tz_aware_ts(laterSrc, laterHour % 24, 0);
+                        // Include Later-today only if it's still the same calendar day in user-tz and before 22:00.
+                        var todayDay = new Intl.DateTimeFormat('en-US', { timeZone: cfg.userTimezone || 'UTC', day: 'numeric' }).format(now);
+                        var laterDay = new Intl.DateTimeFormat('en-US', { timeZone: cfg.userTimezone || 'UTC', day: 'numeric' }).format(laterToday);
+                        if (todayDay === laterDay && laterHour < 22) {
                             presets.push(['Later today', laterToday]);
                         }
                         presets.push(['Tomorrow morning', tomorrow9]);
                         presets.push(['Monday morning', monday9]);
                         return presets.map(function (p, i) {
-                            return html`<button key=${i} type="button" onClick=${function () { setSendAt(p[1].toISOString()); setSchedMenu(false); }}>${p[0]} <span class="em-sched-when">${p[1].toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'})}</span></button>`;
+                            return html`<button key=${i} type="button" onClick=${function () { setSendAt(p[1].toISOString()); setSchedMenu(false); }}>${p[0]} <span class="em-sched-when">${em_inbox_fmt_tz(p[1], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZoneName:'short'})}</span></button>`;
                         });
                     })()}
                     <div class="em-inbox-sched-custom">
@@ -1355,7 +1367,7 @@
                 `}
               </div>
             </div>
-            ${sendAt && html`<p class="em-inbox-sched-hint">Will be queued to send at <strong>${new Date(sendAt).toLocaleString()}</strong>.</p>`}
+            ${sendAt && html`<p class="em-inbox-sched-hint">Will be queued to send at <strong>${em_inbox_fmt_tz(new Date(sendAt), { dateStyle: 'medium', timeStyle: 'short', timeZoneName: 'short' })}</strong>.</p>`}
             ${dragging && html`<div class="em-inbox-drop-overlay">Drop files to attach</div>`}
             </div>
           <//>
@@ -1433,7 +1445,7 @@
                 return html`
                   <li key=${m.raw_id} class="em-inbox-scheduled-row">
                     <div class="em-inbox-scheduled-meta">
-                      <div class="em-inbox-scheduled-when">${d ? d.toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}) : '(no time)'}</div>
+                      <div class="em-inbox-scheduled-when">${d ? em_inbox_fmt_tz(d, {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZoneName:'short'}) : '(no time)'}</div>
                       <div class="em-inbox-scheduled-to">To: ${m.to_display || '(no recipient)'}</div>
                       <div class="em-inbox-scheduled-subject">${m.subject || '(no subject)'}</div>
                     </div>
@@ -2187,6 +2199,39 @@
             return wrapper;
         }
         return null;
+    }
+
+    // Slice 2mm: timezone-aware date construction. Returns a Date
+    // whose UTC instant corresponds to <hour>:<minute> wall-clock time
+    // in `tz` on the same calendar day as `targetDate` (also in `tz`).
+    // Falls back to browser-local when Intl APIs are unavailable.
+    function em_inbox_tz_aware_ts(targetDate, hour, minute) {
+        var tz = cfg.userTimezone || 'UTC';
+        try {
+            var fmt = new Intl.DateTimeFormat('en-US', {
+                timeZone: tz,
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                timeZoneName: 'longOffset',
+            });
+            var parts = fmt.formatToParts(targetDate);
+            function pick(t) { var p = parts.find(function (x) { return x.type === t; }); return p ? p.value : ''; }
+            var y = pick('year'), m = pick('month'), d = pick('day');
+            var offRaw = pick('timeZoneName') || 'GMT+00:00';
+            var off = offRaw.replace(/^GMT/, '');
+            if (off === '' || off === 'Z') off = '+00:00';
+            var hh = String(hour).padStart(2, '0');
+            var mm = String(minute).padStart(2, '0');
+            return new Date(y + '-' + m + '-' + d + 'T' + hh + ':' + mm + ':00' + off);
+        } catch (e) {
+            var fallback = new Date(targetDate.getTime());
+            fallback.setHours(hour, minute, 0, 0);
+            return fallback;
+        }
+    }
+    function em_inbox_fmt_tz(date, opts) {
+        var tz = cfg.userTimezone || undefined;
+        try { return date.toLocaleString([], Object.assign({}, opts || {}, { timeZone: tz })); }
+        catch (e) { return date.toLocaleString([], opts || {}); }
     }
 
     function humanBytes(n) {

@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2ll shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2mm shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -286,4 +286,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 — slices 2jj/2kk/2ll unverified on cluster (gcloud auth expired during build); JS validates clean via `node --check`, smoke schema asserts updated. 2ll is JS-only (re-uses existing /message/{id}/attachment/{idx} endpoint which already serves Content-Disposition: inline). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm unverified on cluster (gcloud auth expired during build); JS validates clean via `node --check`, smoke schema asserts updated. 2mm reads new EM_INBOX_CONFIG.userTimezone from wp_timezone_string() to compute presets + format display via Intl APIs. Run `bin/inbox-smoke-test.php` after every change.
