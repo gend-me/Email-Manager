@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2mm shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2oo shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -107,7 +107,7 @@ All require `is_user_logged_in()` unless noted.
 ```
 POST   /webhook/receive                 HMAC-signed, no auth (slice 2a)
 GET    /inboxes
-GET    /threads?inbox=&page=&per_page=&unread|archived|trashed|starred|snoozed|scheduled|label_id
+GET    /threads?inbox=&page=&per_page=&unread|archived|trashed|starred|snoozed|scheduled|label_id    inbox=* = unified across every readable inbox (slice 2oo)
 GET    /threads/{id}
 GET    /search?q=&inbox=
 POST   /threads/{id}/read|unread|archive|unarchive|trash|restore|star|unstar|unsnooze
@@ -286,4 +286,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm unverified on cluster (gcloud auth expired during build); JS validates clean via `node --check`, smoke schema asserts updated. 2mm reads new EM_INBOX_CONFIG.userTimezone from wp_timezone_string() to compute presets + format display via Intl APIs. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm/2oo unverified on cluster (gcloud auth expired during 2jj build); JS validates clean via `node --check`, smoke schema asserts updated. 2oo adds inbox='*' merged view to /threads + /unread-count; UI prepends "— All inboxes —" option when user has >1 inbox; per-row origin chip rendered when inbox='*'. Run `bin/inbox-smoke-test.php` after every change.

@@ -684,6 +684,7 @@
 
         var inboxOptions = inboxes.map(function (r) {
             var label = r.inbox_address;
+            if (r.shared) label += ' (delegated)';
             if (r.unread_count !== null && r.unread_count !== undefined && Number(r.unread_count) > 0) {
                 label += ' · ' + r.unread_count + ' unread';
             } else {
@@ -691,6 +692,11 @@
             }
             return { value: r.inbox_address, label: label };
         });
+        // Slice 2oo: prepend an "All inboxes" option when there's more
+        // than one to merge. Selecting it passes inbox='*' to /threads.
+        if (inboxes.length > 1) {
+            inboxOptions = [{ value: '*', label: '— All inboxes —' }].concat(inboxOptions);
+        }
 
         return html`
           <div class="em-inbox">
@@ -1715,7 +1721,7 @@
                               })}
                               ${t.subject_first || '(no subject)'}
                             </div>
-                            <div class="em-inbox-thread-meta">${t.message_count} msg · ${formatDate(t.updated_at)}</div>
+                            <div class="em-inbox-thread-meta">${t.message_count} msg · ${formatDate(t.updated_at)}${props.inbox === '*' && t.inbox_address ? html`<span class="em-inbox-origin-chip">${t.inbox_address}</span>` : null}</div>
                           </div>
                         </li>
                       `;

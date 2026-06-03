@@ -832,3 +832,15 @@ img.em-inbox-blocked-img {
     font-size: 12px;
     white-space: pre;
 }
+
+/* Slice 2oo — unified inbox origin chip */
+.em-inbox-origin-chip {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 8px;
+    background: #ebebeb;
+    color: #50575e;
+    font-size: 10px;
+    font-weight: 500;
+}

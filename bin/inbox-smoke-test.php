@@ -165,6 +165,19 @@ $d = $res->get_data();
 smoke_assert('list', $res->get_status() === 200, '/threads list 200');
 smoke_assert('list', isset($d['counts']['snoozed']), 'counts include snoozed key');
 
+// Slice 2oo: inbox='*' returns merged results + counts across every readable inbox.
+$req = new WP_REST_Request('GET', '/em/v1/inbox/threads');
+$req->set_query_params(array('inbox' => '*'));
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('unified', $res->get_status() === 200, '/threads?inbox=* 200');
+smoke_assert('unified', isset($d['counts']) && isset($d['counts']['unread']), 'counts populated for inbox=*');
+$req = new WP_REST_Request('GET', '/em/v1/inbox/unread-count');
+$req->set_query_params(array('inbox' => '*'));
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('unified', $res->get_status() === 200 && isset($d['unread']), '/unread-count?inbox=* 200');
+
 // ─── 5. LABELS (slice 2r.1) ──────────────────────────────────────────
 $lname = "smoke_$run_tag";
 $wpdb->insert($wpdb->prefix . 'gdc_inbox_labels', array(

@@ -185,13 +185,55 @@ function em_inbox_unread_count(WP_REST_Request $r) {
     global $wpdb;
     $inbox = trim((string) $r->get_param('inbox'));
     if ($inbox === '') return new WP_Error('em_unread_no_inbox', 'inbox required', array('status' => 400));
-    if (function_exists('em_inbox_user_can_read_inbox') && ! em_inbox_user_can_read_inbox($inbox)) {
-        return new WP_Error('em_unread_forbidden', 'Cannot read this inbox', array('status' => 403));
-    }
-    $u  = wp_get_current_user();
+    $u   = wp_get_current_user();
     $uid = ($u && $u->ID) ? (int) $u->ID : 0;
     $threads = $wpdb->prefix . 'gdc_inbox_threads';
     $part    = $wpdb->prefix . 'gdc_inbox_participants';
+
+    // Slice 2oo: inbox='*' sums across every inbox the user can read.
+    $is_all = ($inbox === '*' || $inbox === '__all__');
+    if ($is_all) {
+        if (current_user_can('manage_options')) {
+            $where = '';
+        } else {
+            if ($uid <= 0) return rest_ensure_response(array('inbox' => '*', 'unread' => 0, 'total' => 0, 'latest_at' => null));
+            $addrs = array();
+            if ($u->user_email) $addrs[] = strtolower($u->user_email);
+            $meta = strtolower((string) get_user_meta($uid, 'em_inbox_address', true));
+            if ($meta) $addrs[] = $meta;
+            if (function_exists('em_inbox_grants_received_by')) {
+                foreach (em_inbox_grants_received_by($uid) as $g) {
+                    if (! empty($g['owner_email'])) $addrs[] = strtolower($g['owner_email']);
+                }
+            }
+            $addrs = array_values(array_unique($addrs));
+            if (empty($addrs)) return rest_ensure_response(array('inbox' => '*', 'unread' => 0, 'total' => 0, 'latest_at' => null));
+            $ph = implode(',', array_fill(0, count($addrs), '%s'));
+            $where = $wpdb->prepare("WHERE LOWER(t.inbox_address) IN ($ph)", ...$addrs);
+        }
+        $sql = "SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN COALESCE(p.is_read,1) = 0
+                 AND COALESCE(p.is_archived,0) = 0
+                 AND COALESCE(p.is_trashed,0) = 0
+                 AND (p.snoozed_until IS NULL OR p.snoozed_until <= UTC_TIMESTAMP())
+                THEN 1 ELSE 0 END) AS unread,
+            MAX(t.updated_at) AS latest_at
+         FROM $threads t
+         LEFT JOIN $part p ON p.thread_id = t.id AND p.user_id = " . $uid . "
+         $where";
+        $row = $wpdb->get_row($sql, ARRAY_A);
+        return rest_ensure_response(array(
+            'inbox'    => '*',
+            'unread'   => (int) ($row['unread'] ?? 0),
+            'total'    => (int) ($row['total']  ?? 0),
+            'latest_at'=> $row['latest_at'] ?? null,
+        ));
+    }
+
+    if (function_exists('em_inbox_user_can_read_inbox') && ! em_inbox_user_can_read_inbox($inbox)) {
+        return new WP_Error('em_unread_forbidden', 'Cannot read this inbox', array('status' => 403));
+    }
     $row = $wpdb->get_row($wpdb->prepare(
         "SELECT
             COUNT(*) AS total,
@@ -228,11 +270,37 @@ function em_inbox_list_threads(WP_REST_Request $request) {
     $per_page  = max(1, min(100, (int) $request->get_param('per_page')));
     $offset    = ($page - 1) * $per_page;
 
-    if ($inbox !== '' && ! em_inbox_user_can_read_inbox($inbox)) {
+    // Slice 2oo: inbox='*' means "every inbox the current user can
+    // read" — own + delegated (read or read_send). Counts are summed
+    // across the union; rows carry their inbox_address so the UI can
+    // tag origin.
+    $is_all = ($inbox === '*' || $inbox === '__all__');
+    if (! $is_all && $inbox !== '' && ! em_inbox_user_can_read_inbox($inbox)) {
         return new WP_Error('em_inbox_forbidden', 'Cannot read this inbox', array('status' => 403));
     }
 
-    if ($inbox !== '') {
+    if ($is_all) {
+        // Build the readable set.
+        if (current_user_can('manage_options')) {
+            $where = '';  // admin sees all
+        } else {
+            $u = wp_get_current_user();
+            if (! $u || ! $u->ID) return rest_ensure_response(array('items' => array(), 'total' => 0));
+            $addrs = array();
+            if ($u->user_email) $addrs[] = strtolower($u->user_email);
+            $meta = strtolower((string) get_user_meta($u->ID, 'em_inbox_address', true));
+            if ($meta) $addrs[] = $meta;
+            if (function_exists('em_inbox_grants_received_by')) {
+                foreach (em_inbox_grants_received_by((int) $u->ID) as $g) {
+                    if (! empty($g['owner_email'])) $addrs[] = strtolower($g['owner_email']);
+                }
+            }
+            $addrs = array_values(array_unique($addrs));
+            if (empty($addrs)) return rest_ensure_response(array('items' => array(), 'total' => 0));
+            $ph = implode(',', array_fill(0, count($addrs), '%s'));
+            $where = $wpdb->prepare("WHERE LOWER(t.inbox_address) IN ($ph)", ...$addrs);
+        }
+    } elseif ($inbox !== '') {
         $where = $wpdb->prepare('WHERE t.inbox_address = %s', $inbox);
     } elseif (! current_user_can('manage_options')) {
         $u = wp_get_current_user();
@@ -332,10 +400,13 @@ function em_inbox_list_threads(WP_REST_Request $request) {
     }
 
     // Per-inbox aggregate: unread + archived + trashed counts for the current user.
+    // Slice 2oo: when inbox='*' (unified view), reuse the WHERE clause we
+    // built above so counts span every readable inbox.
     $counts = array();
-    if ($user_id > 0 && $inbox !== '') {
-        $counts = $wpdb->get_row($wpdb->prepare(
-            "SELECT
+    if ($user_id > 0 && ($inbox !== '' || $is_all)) {
+        if ($is_all) {
+            $count_where = $where;  // already built earlier, includes WHERE keyword
+            $count_sql = "SELECT
                 COUNT(*) AS total,
                 SUM(CASE WHEN COALESCE(p.is_read,1) = 0 AND COALESCE(p.is_archived,0) = 0 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS unread,
                 SUM(CASE WHEN COALESCE(p.is_archived,0) = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS archived,
@@ -343,10 +414,23 @@ function em_inbox_list_threads(WP_REST_Request $request) {
                 SUM(CASE WHEN COALESCE(p.is_starred,0)  = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS starred,
                 SUM(CASE WHEN p.snoozed_until IS NOT NULL AND p.snoozed_until > UTC_TIMESTAMP() AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS snoozed
              FROM $threads_table t
-             LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = %d
-             WHERE t.inbox_address = %s",
-            $user_id, $inbox
-        ), ARRAY_A);
+             LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = " . (int) $user_id . " $count_where";
+            $counts = $wpdb->get_row($count_sql, ARRAY_A);
+        } else {
+            $counts = $wpdb->get_row($wpdb->prepare(
+                "SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN COALESCE(p.is_read,1) = 0 AND COALESCE(p.is_archived,0) = 0 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS unread,
+                    SUM(CASE WHEN COALESCE(p.is_archived,0) = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS archived,
+                    SUM(CASE WHEN COALESCE(p.is_trashed,0)  = 1 THEN 1 ELSE 0 END) AS trashed,
+                    SUM(CASE WHEN COALESCE(p.is_starred,0)  = 1 AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS starred,
+                    SUM(CASE WHEN p.snoozed_until IS NOT NULL AND p.snoozed_until > UTC_TIMESTAMP() AND COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS snoozed
+                 FROM $threads_table t
+                 LEFT JOIN $part_table p ON p.thread_id = t.id AND p.user_id = %d
+                 WHERE t.inbox_address = %s",
+                $user_id, $inbox
+            ), ARRAY_A);
+        }
     }
 
     return rest_ensure_response(array(
