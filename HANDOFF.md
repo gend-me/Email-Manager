@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2oo shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2pp shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -274,6 +274,7 @@ Each slice left small TODOs intentionally:
 - **2aa** (snooze): no per-message snooze, no smart resurface time
 - **2y** (undo): if `track_open=true` and the first attempt SUCCEEDED, the recipient's copy won't have the pixel (raw_id post-insert)
 - **2ee** (delegation): filters fire only on the OWNER's user_id (so a grantee won't trigger their own filter rules on someone else's incoming mail — intentional but worth noting). Composer From-dropdown UI shipped as slice 2hh.
+- **2pp** (offline drafts): only the COMPOSER auto-save uses IDB. The Drafts tab still reads from the server (so offline browsing of the drafts list won't work). Full PWA install (manifest.webmanifest + service worker + install button) deferred — wp-admin's URL structure + nonce auth model fight a clean service-worker scope. Worth picking up only if there's demand for installable inbox.
 
 ## 15 · Memory pointers
 
@@ -286,4 +287,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm/2oo unverified on cluster (gcloud auth expired during 2jj build); JS validates clean via `node --check`, smoke schema asserts updated. 2oo adds inbox='*' merged view to /threads + /unread-count; UI prepends "— All inboxes —" option when user has >1 inbox; per-row origin chip rendered when inbox='*'. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm/2oo/2pp unverified on cluster (gcloud auth expired during 2jj build); JS validates clean via `node --check`. 2pp adds offline IndexedDB cache for drafts: every Composer autosave writes to IDB first, then to server when online. Online event flushes pendingSync rows. PWA install (manifest + service worker) deferred — wp-admin's URL/auth model makes a clean SW non-trivial. Run `bin/inbox-smoke-test.php` after every change.

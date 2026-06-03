@@ -1094,8 +1094,8 @@
             restGet('signature').then(function (d) { setSig((d && d.html) || ''); });
         }, []);
 
-        // Slice 2kk: auto-save to /drafts on idle. Debounced 1500ms.
-        // Skip the very first render (initial.* hasn't been touched yet).
+        // Slice 2kk + 2pp: auto-save to /drafts on idle, write through
+        // to IndexedDB so an offline edit isn't lost. Debounced 1500ms.
         var firstDraftRenderRef = wp.element.useRef ? wp.element.useRef(true) : { current: true };
         useEffect(function () {
             if (firstDraftRenderRef.current) { firstDraftRenderRef.current = false; return; }
@@ -1115,15 +1115,47 @@
                     track_open: track,
                     attachments: atts.map(function (a) { return { filename: a.filename, content_type: a.content_type, content_b64: a.content_b64 }; }),
                 };
+                // 1) Write through to IDB ALWAYS, even when online — so
+                //    if the network blips mid-keystroke nothing is lost.
+                var idbRow = {
+                    clientId:    clientIdRef.current,
+                    serverId:    draftId || null,
+                    payload:     payload,
+                    pendingSync: !navigator.onLine,
+                    savedAt:     Date.now(),
+                };
+                em_inbox_idb_put_draft(idbRow).catch(function () { /* idb unavailable — fine */ });
+
+                // 2) If online, push to server too.
+                if (! navigator.onLine) {
+                    setLastSaved(Date.now()); setSaveErr(null);
+                    return;
+                }
                 var url = draftId > 0 ? 'drafts/' + draftId : 'drafts';
                 apiFetch({ url: cfg.restRoot + url, method: 'POST', data: payload })
                     .then(function (res) {
-                        if (res && res.id) { if (draftId === 0) setDraftId(res.id); setLastSaved(Date.now()); setSaveErr(null); }
+                        if (res && res.id) {
+                            if (draftId === 0) setDraftId(res.id);
+                            // Mark cache row as synced.
+                            idbRow.serverId = res.id;
+                            idbRow.pendingSync = false;
+                            idbRow.lastSyncedAt = Date.now();
+                            em_inbox_idb_put_draft(idbRow);
+                            setLastSaved(Date.now());
+                            setSaveErr(null);
+                        }
                     })
-                    .catch(function (e) { setSaveErr((e && e.message) || 'autosave failed'); });
+                    .catch(function (e) {
+                        // Server failed despite navigator.onLine — leave
+                        // cache row pendingSync so the next online-event
+                        // tick retries.
+                        idbRow.pendingSync = true;
+                        em_inbox_idb_put_draft(idbRow);
+                        setSaveErr((e && e.message) || 'autosave failed');
+                    });
             }, 1500);
             return function () { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-        }, [from, to, cc, bcc, subject, bodyHtml, track, atts.length]);
+        }, [from, to, cc, bcc, subject, bodyHtml, track, atts.length, online]);
         var ccState = useState(initial.cc || []);                  var cc = ccState[0], setCc = ccState[1];
         var bccState = useState(initial.bcc || []);                var bcc = bccState[0], setBcc = bccState[1];
         var showCcBccState = useState(!!(initial.cc && initial.cc.length) || !!(initial.bcc && initial.bcc.length));
@@ -1142,6 +1174,18 @@
         var lastSavedState = useState(null);                       var lastSaved = lastSavedState[0], setLastSaved = lastSavedState[1];
         var saveErrState = useState(null);                         var saveErr = saveErrState[0], setSaveErr = saveErrState[1];
         var saveTimerRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        // Slice 2pp: offline cache. Each Composer instance keeps a
+        // stable clientId (per-mount uuid) so the IDB row is upsert-able
+        // even before the server assigns an id.
+        var clientIdRef  = wp.element.useRef ? wp.element.useRef(em_inbox_idb_uuid()) : { current: em_inbox_idb_uuid() };
+        var onlineState  = useState(navigator.onLine);             var online = onlineState[0], setOnline = onlineState[1];
+        useEffect(function () {
+            function on()  { setOnline(true);  em_inbox_flush_pending_drafts(); }
+            function off() { setOnline(false); }
+            window.addEventListener('online',  on);
+            window.addEventListener('offline', off);
+            return function () { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+        }, []);
         // Slice 2bb: scheduled send menu state. When sendAtIso is set,
         // the Send button shows the scheduled time + submits send_at to
         // the server. The dropdown is just a popover next to the Send btn.
@@ -1230,11 +1274,13 @@
             }
             restPost('send', payload).then(function (res) {
                 setSending(false);
-                // Slice 2kk: send succeeded → discard the draft so it
-                // doesn't linger in the Drafts list as a duplicate.
+                // Slice 2kk + 2pp: send succeeded → discard the draft
+                // (server + offline cache) so it doesn't linger in the
+                // Drafts list as a duplicate.
                 if (draftId > 0) {
                     apiFetch({ url: cfg.restRoot + 'drafts/' + draftId, method: 'DELETE' }).catch(function () { /* non-fatal */ });
                 }
+                em_inbox_idb_delete_draft(clientIdRef.current).catch(function () {});
                 props.onSent && props.onSent(res);
             }).catch(function (e) {
                 setSending(false);
@@ -1312,10 +1358,11 @@
               onClose=${function () { setShowSigEdit(false); }}
               onSaved=${function () { restGet('signature').then(function (d) { setSig((d && d.html) || ''); }); }} />`}
             ${err && html`<${Notice} status="error" isDismissible=${false}>${err}<//>`}
+            ${! online && html`<${Notice} status="warning" isDismissible=${false}>You're offline. Your draft is saved locally and will sync when you're back online.<//>`}
             <div class="em-inbox-composer-actions">
               <span class="em-inbox-draft-status">
                 ${saveErr ? html`<span class="em-inbox-draft-err">⚠ ${saveErr}</span>`
-                 : lastSaved ? html`<span title=${new Date(lastSaved).toLocaleString()}>✓ Draft saved</span>`
+                 : lastSaved ? html`<span title=${new Date(lastSaved).toLocaleString()}>${online ? '✓ Draft saved' : '✓ Draft cached locally'}</span>`
                  : null}
               </span>
               <${Button} variant="tertiary" onClick=${props.onClose} disabled=${sending}>Cancel<//>
@@ -2205,6 +2252,109 @@
             return wrapper;
         }
         return null;
+    }
+
+    // ── Slice 2pp: offline draft cache via IndexedDB ──────────────────
+    // Why an IDB cache + not just localStorage:
+    //  - drafts include attachments (potentially MB of base64) — way
+    //    over localStorage's typical 5MB limit, but well inside IDB's
+    //    multi-GB quota
+    //  - structured-clone serialization preserves the payload shape
+    //    without a JSON.parse(JSON.stringify(...)) round-trip
+    //
+    // Schema: store 'drafts' keyed by clientId (a uuid generated up
+    // front so the row exists in cache before it has a server id).
+    // Each row carries `serverId` (null until first sync), `payload`
+    // (the raw POST body), `savedAt`, `pendingSync` (boolean — true
+    // when offline edits made and not yet pushed).
+    var EM_IDB_NAME = 'em-inbox';
+    var EM_IDB_VERSION = 1;
+    var em_idb_promise = null;
+    function em_inbox_idb() {
+        if (em_idb_promise) return em_idb_promise;
+        em_idb_promise = new Promise(function (resolve, reject) {
+            if (! window.indexedDB) { reject(new Error('IndexedDB unavailable')); return; }
+            var req = indexedDB.open(EM_IDB_NAME, EM_IDB_VERSION);
+            req.onupgradeneeded = function () {
+                var db = req.result;
+                if (! db.objectStoreNames.contains('drafts')) {
+                    var store = db.createObjectStore('drafts', { keyPath: 'clientId' });
+                    store.createIndex('serverId',    'serverId',    { unique: false });
+                    store.createIndex('pendingSync', 'pendingSync', { unique: false });
+                }
+            };
+            req.onsuccess = function () { resolve(req.result); };
+            req.onerror   = function () { reject(req.error); };
+        });
+        return em_idb_promise;
+    }
+    function em_inbox_idb_uuid() {
+        if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        return 'em-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+    }
+    function em_inbox_idb_put_draft(row) {
+        return em_inbox_idb().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction('drafts', 'readwrite');
+                tx.objectStore('drafts').put(row);
+                tx.oncomplete = function () { resolve(row); };
+                tx.onerror    = function () { reject(tx.error); };
+            });
+        });
+    }
+    function em_inbox_idb_delete_draft(clientId) {
+        return em_inbox_idb().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction('drafts', 'readwrite');
+                tx.objectStore('drafts').delete(clientId);
+                tx.oncomplete = function () { resolve(); };
+                tx.onerror    = function () { reject(tx.error); };
+            });
+        });
+    }
+    function em_inbox_idb_list_pending() {
+        return em_inbox_idb().then(function (db) {
+            return new Promise(function (resolve, reject) {
+                var tx = db.transaction('drafts', 'readonly');
+                var out = [];
+                var req = tx.objectStore('drafts').openCursor();
+                req.onsuccess = function () {
+                    var cur = req.result;
+                    if (cur) { if (cur.value && cur.value.pendingSync) out.push(cur.value); cur.continue(); }
+                    else resolve(out);
+                };
+                req.onerror = function () { reject(req.error); };
+            });
+        });
+    }
+
+    // Push every queued (pendingSync=true) draft to the server. Called
+    // by the global online-event listener.
+    function em_inbox_flush_pending_drafts() {
+        if (!navigator.onLine) return;
+        em_inbox_idb_list_pending().then(function (rows) {
+            rows.forEach(function (row) {
+                var url = row.serverId > 0 ? 'drafts/' + row.serverId : 'drafts';
+                apiFetch({ url: cfg.restRoot + url, method: 'POST', data: row.payload })
+                    .then(function (res) {
+                        if (res && res.id) {
+                            row.serverId = res.id;
+                            row.pendingSync = false;
+                            row.lastSyncedAt = Date.now();
+                            em_inbox_idb_put_draft(row);
+                        }
+                    })
+                    .catch(function () { /* leave pendingSync=true for next online tick */ });
+            });
+        }).catch(function () { /* idb unavailable — fine */ });
+    }
+    // Wire once globally.
+    if (! window.__em_inbox_online_wired) {
+        window.__em_inbox_online_wired = true;
+        window.addEventListener('online',  em_inbox_flush_pending_drafts);
+        // Try once at boot in case we're online but with pending rows
+        // from a previous offline session.
+        setTimeout(em_inbox_flush_pending_drafts, 1500);
     }
 
     // Slice 2mm: timezone-aware date construction. Returns a Date
