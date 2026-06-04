@@ -230,7 +230,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 67   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 83   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -287,4 +287,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-02 — slices 2jj/2kk/2ll/2mm/2oo/2pp/2qq unverified on cluster (gcloud auth expired during 2jj build); JS validates clean via `node --check`. 2qq passes a baseline accessibility audit: aria-live on bell/draft-status/undo-snack, aria-label on icon-only buttons (star/bell/×/caret), thread rows are keyboard-activatable (role=button + tabindex + Enter/Space), filter tabs have role=tablist + aria-selected, prefers-reduced-motion respected for bell pulse. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-04 — slices 2a → 2qq all verified clean: **83/83 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). Run `bin/inbox-smoke-test.php` after every change.
