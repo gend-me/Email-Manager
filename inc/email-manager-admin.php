@@ -136,13 +136,16 @@ function em_render_email_manager_page()
     $gdc_email_wrap_class = '';
     $gdc_email_embed_panel = '';
 
-    // Define tabs
+    // Define tabs. Slice 2tt: Inbox moves in here as the 2nd tab (was
+    // its own admin submenu page). Diagnostics is then a sub-tab below
+    // Inbox, not a peer in the global admin nav.
     $tabs = array(
-        'email' => __('Email', 'email-manager'),
-        'forms' => __('Forms', 'email-manager'),
-        'chatflows' => __('Chatflows', 'email-manager'),
+        'email'        => __('Email', 'email-manager'),
+        'inbox'        => __('Inbox', 'email-manager'),
+        'forms'        => __('Forms', 'email-manager'),
+        'chatflows'    => __('Chatflows', 'email-manager'),
         'applications' => __('Applications', 'email-manager'),
-        'support' => __('Support', 'email-manager'),
+        'support'      => __('Support', 'email-manager'),
     );
 
     // WordPress core system emails (static – these are built into WP core)
@@ -317,6 +320,7 @@ function em_render_email_manager_page()
                     // Define icons for tabs
                     $tab_icons = array(
                         'email'        => 'dashicons-email',
+                        'inbox'        => 'dashicons-email-alt2',
                         'forms'        => 'dashicons-feedback',
                         'chatflows'    => 'dashicons-format-chat',
                         'applications' => 'dashicons-id-alt',
@@ -713,6 +717,49 @@ function em_render_email_manager_page()
 
                                     $('.gdc-sub-tabpanel').hide();
                                     $('.gdc-sub-tabpanel[data-panel="' + tab + '"]').show();
+                                });
+                            });
+                        </script>
+                    </section>
+
+                    <!-- Inbox Tab (slice 2tt — was a standalone admin submenu page) -->
+                    <section class="gdc-sub-tabpanel" data-panel="inbox" hidden>
+                        <div class="gdc-subtabs">
+                            <button type="button" class="gdc-subtab active" data-subtab="inbox-app">
+                                <?php esc_html_e('App', 'email-manager'); ?>
+                            </button>
+                            <?php if (current_user_can('manage_options')): ?>
+                            <button type="button" class="gdc-subtab" data-subtab="inbox-diagnostics">
+                                <?php esc_html_e('Diagnostics', 'email-manager'); ?>
+                            </button>
+                            <?php endif; ?>
+                        </div>
+
+                        <!-- Inbox App sub-tab — React SPA mount -->
+                        <div class="gdc-subtab-panel" data-subtab-panel="inbox-app">
+                            <div class="em-inbox-wrap"><div id="em-inbox-root" data-loading="1"><?php esc_html_e('Loading inbox…', 'email-manager'); ?></div></div>
+                        </div>
+
+                        <!-- Inbox Diagnostics sub-tab — server-rendered -->
+                        <?php if (current_user_can('manage_options')): ?>
+                        <div class="gdc-subtab-panel" data-subtab-panel="inbox-diagnostics" hidden>
+                            <?php if (function_exists('em_inbox_diag_render')) { em_inbox_diag_render(); } ?>
+                        </div>
+                        <?php endif; ?>
+
+                        <script>
+                            jQuery(function ($) {
+                                // Hook the standard subtab-switch behavior used by the rest
+                                // of the page: data-subtab attribute on the button toggles
+                                // the matching [data-subtab-panel] sibling.
+                                $('.gdc-sub-tabpanel[data-panel="inbox"] .gdc-subtab').on('click', function () {
+                                    var $btn = $(this);
+                                    var target = $btn.data('subtab');
+                                    var $panel = $btn.closest('.gdc-sub-tabpanel');
+                                    $panel.find('.gdc-subtab').removeClass('active');
+                                    $btn.addClass('active');
+                                    $panel.find('.gdc-subtab-panel').attr('hidden', true);
+                                    $panel.find('.gdc-subtab-panel[data-subtab-panel="' + target + '"]').removeAttr('hidden');
                                 });
                             });
                         </script>

@@ -14,25 +14,20 @@
 
 defined('ABSPATH') || exit;
 
-add_action('admin_menu', function () {
-    $parent_slug = defined('GS_VERSION') ? 'gs-app' : (defined('GDC_VERSION') ? 'gdc-app' : 'email-manager');
-    add_submenu_page(
-        $parent_slug,
-        __('Inbox', 'email-manager'),
-        __('Inbox', 'email-manager'),
-        'read',                              // every logged-in user; granular gating happens in REST
-        'email-manager-inbox',
-        'em_inbox_render_admin_page'
-    );
-}, 1200);
-
-function em_inbox_render_admin_page() {
-    echo '<div class="wrap em-inbox-wrap"><div id="em-inbox-root" data-loading="1">Loading inbox…</div></div>';
-}
+// Slice 2tt: the Inbox is no longer its own admin submenu page — it's
+// the second tab inside the main email-manager admin page (see
+// email-manager-admin.php). The asset enqueue check below was widened
+// from a single page slug to the email-manager parent slug so the
+// React bundle loads whenever an admin lands on the email-manager
+// page (any tab — fine, the React mount only finds #em-inbox-root
+// when the Inbox tab is active in the DOM).
 
 add_action('admin_enqueue_scripts', function ($hook) {
     $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
-    if ($page !== 'email-manager-inbox') return;
+    // Slice 2tt: load assets on the email-manager parent page. Continue
+    // honoring the legacy slug for any tooling/CRON callers that still
+    // hit it, even though no menu entry exposes it now.
+    if (! in_array($page, array('email-manager', 'email-manager-inbox'), true)) return;
 
     wp_enqueue_style(
         'em-inbox-app',

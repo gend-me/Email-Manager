@@ -17,17 +17,11 @@
 
 defined('ABSPATH') || exit;
 
-add_action('admin_menu', function () {
-    $parent_slug = defined('GS_VERSION') ? 'gs-app' : (defined('GDC_VERSION') ? 'gdc-app' : 'email-manager');
-    add_submenu_page(
-        $parent_slug,
-        __('Inbox Diagnostics', 'email-manager'),
-        __('Inbox Diagnostics', 'email-manager'),
-        'manage_options',
-        'email-manager-inbox-diag',
-        'em_inbox_diag_render'
-    );
-}, 1300);
+// Slice 2tt: Diagnostics is no longer a top-level submenu page — it's
+// the second sub-tab under the Inbox tab inside the main email-manager
+// page (see email-manager-admin.php → data-panel="inbox" →
+// data-subtab-panel="inbox-diagnostics"). em_inbox_diag_render() is
+// still the entry point; it's now called from that template instead.
 
 function em_inbox_diag_render() {
     $data = em_inbox_diag_gather();

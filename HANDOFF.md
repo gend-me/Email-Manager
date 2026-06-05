@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2ss shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2tt shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -288,4 +288,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-05 — slices 2a → 2ss all verified clean: **101/101 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2ss is a glassmorphic skin overlay using gend-society design tokens (`--gs-magenta`, `--gs-blue`, `--gs-accent`, etc.), staggered entrance animations, wrap-friendly pill filters (so Drafts/Archived/Trashed are no longer cut off), and an admin-only "+ Inbox" button → /em/v1/inbox/admin/inboxes that creates a new WP user or assigns the address to an existing one. All styles scoped to .em-inbox-wrap so the wp-admin chrome around the page is untouched. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-05 — slices 2a → 2tt all verified clean: **101/101 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2tt folds the previously-standalone Inbox + Inbox Diagnostics submenu pages into the main Email Manager admin page (`page=email-manager`) as a new "Inbox" tab (2nd, right after Email) with sub-tabs "App" (React SPA mount) and "Diagnostics" (admin-only, server-rendered via em_inbox_diag_render). Page=email-manager-inbox still works for legacy callers. Asset enqueue widened so inbox-app.js/css load on the email-manager parent page. Run `bin/inbox-smoke-test.php` after every change.
