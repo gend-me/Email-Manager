@@ -340,6 +340,27 @@ smoke_assert('idem', function_exists('em_inbox_ledger_maybe_create_table'), 'ide
 // ─── 15. TRACKING (slice 2s) ────────────────────────────────────────
 smoke_assert('track', function_exists('em_inbox_track_inject_pixel'), 'tracking inject_pixel loaded');
 
+// ─── 14b. CUSTOMER CARD (slice 2uu) ──────────────────────────────────
+$req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
+$req->set_query_params(array('email' => $inbox));
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('card', $res->get_status() === 200, '/customer-card 200');
+smoke_assert('card', array_key_exists('user', $d) && array_key_exists('forms', $d) && array_key_exists('contracts', $d) && array_key_exists('orders', $d) && array_key_exists('wallet', $d), 'customer-card returns all 5 section keys');
+smoke_assert('card', is_array($d['user']) && ! empty($d['user']['exists']), 'user section: exists=true for admin email');
+
+$req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
+$req->set_query_params(array('email' => 'no-such-' . $run_tag . '@example.invalid'));
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('card', $res->get_status() === 200, '/customer-card 200 for unknown email');
+smoke_assert('card', is_array($d['user']) && empty($d['user']['exists']), 'user section: exists=false for unknown email');
+
+$req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
+$req->set_query_params(array('email' => 'not-an-email'));
+$res = rest_do_request($req);
+smoke_assert('card', $res->get_status() === 400, '/customer-card 400 for invalid email');
+
 // ─── 15a. ADMIN ADD-INBOX (slice 2ss) ────────────────────────────────
 // Acting as admin: create-new should make a fresh user.
 $new_email = 'new-' . $run_tag . '@example.invalid';

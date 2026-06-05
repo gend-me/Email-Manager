@@ -649,6 +649,13 @@
         var filtersState = useState(false);       var showFilters = filtersState[0], setShowFilters = filtersState[1];
         var sharingState = useState(false);       var showSharing = sharingState[0], setShowSharing = sharingState[1];
         var addInboxState = useState(false);      var showAddInbox = addInboxState[0], setShowAddInbox = addInboxState[1];
+        // Slice 2uu: lift filter + counts + other-party email so the
+        // left rail (filters or customer card) and the feed view share
+        // them. Other-party email is derived by ThreadView from the
+        // thread's messages and pushed up via onOtherParty.
+        var filterState  = useState('all');       var filter = filterState[0], setFilter = filterState[1];
+        var countsState  = useState(null);        var counts = countsState[0], setCounts = countsState[1];
+        var otherEmailState = useState(null);     var otherPartyEmail = otherEmailState[0], setOtherPartyEmail = otherEmailState[1];
         // Slice 2hh: list of addresses the user can send AS (own inbox
         // + every read_send grant). Refreshed when the SharingModal
         // closes or tick bumps. Used by Composer to render the From
@@ -788,18 +795,8 @@
                 label="Inbox"
                 value=${selected}
                 options=${inboxOptions}
-                onChange=${function (v) { setSelected(v); setOpenThreadId(null); setSearchQ(''); }}
+                onChange=${function (v) { setSelected(v); setOpenThreadId(null); setSearchQ(''); setOtherPartyEmail(null); }}
               />
-              <div class="em-inbox-search-wrap">
-                <${TextControl}
-                  label="Search"
-                  placeholder="Subject, body, sender…   (press / to focus)"
-                  value=${searchQ}
-                  onChange=${function (v) { setSearchQ(v); setOpenThreadId(null); }}
-                  ref=${function (n) { if (n) searchInputRef.current = n.querySelector ? n.querySelector('input') : n; }}
-                  __nextHasNoMarginBottom=${true}
-                />
-              </div>
               <${Button}
                 variant="primary"
                 onClick=${function () { setComposerProps({ from: selected, mode: 'new' }); }}
@@ -843,7 +840,20 @@
                     bumpTick(tick + 1);
                 }} />`}
             </div>
-            <div class="em-inbox-body">
+            <div class="em-inbox-body em-inbox-body--three-col">
+              <${LeftRail}
+                searchQ=${searchQ}
+                onSearchQChange=${function (v) { setSearchQ(v); if (openThreadId) setOpenThreadId(null); }}
+                searchInputRef=${searchInputRef}
+                filter=${filter}
+                onFilterChange=${function (k) { setFilter(k); }}
+                counts=${counts}
+                openThreadId=${openThreadId}
+                otherPartyEmail=${otherPartyEmail}
+                labels=${labels}
+                labelFilterId=${labelFilterId}
+                onLabelFilter=${setLabelFilterId}
+                onManageLabels=${function () { setShowManageLabels(true); }} />
               ${searchQ.length >= 2
                 ? html`<${SearchResults}
                     query=${searchQ}
@@ -858,6 +868,10 @@
                     onLabelFilter=${setLabelFilterId}
                     onManageLabels=${function () { setShowManageLabels(true); }}
                     onOpenThread=${setOpenThreadId}
+                    hideHeader=${true}
+                    filter=${filter}
+                    onFilterChange=${setFilter}
+                    onCountsChange=${setCounts}
                     onBulkApplied=${function () { bumpTick(tick + 1); }}
                     onOpenDraft=${function (d) {
                         setComposerProps({
@@ -880,7 +894,8 @@
                 ? html`<${ThreadView}
                     threadId=${openThreadId}
                     labels=${labels}
-                    onBack=${function () { setOpenThreadId(null); }}
+                    onBack=${function () { setOpenThreadId(null); setOtherPartyEmail(null); }}
+                    onOtherParty=${setOtherPartyEmail}
                     onReply=${function (thread, lastMsg) {
                         setComposerProps({
                             from: thread.inbox_address,
@@ -1600,6 +1615,161 @@
         `;
     }
 
+    // ── LeftRail (slice 2uu) — col-1 of the 3-col body. Holds the
+    //    search input + (filter pills OR a CustomerCard when a thread
+    //    is open). ─────────────────────────────────────────────────────
+    function LeftRail(props) {
+        var counts = props.counts || {};
+        function btn(key, label) {
+            return html`<button
+                type="button"
+                class="em-inbox-filter ${props.filter === key ? 'is-active' : ''}"
+                role="tab"
+                aria-selected=${props.filter === key ? 'true' : 'false'}
+                onClick=${function () { props.onFilterChange && props.onFilterChange(key); }}>${label}</button>`;
+        }
+        return html`
+          <aside class="em-inbox-leftrail" aria-label="Inbox sidebar">
+            <div class="em-inbox-leftrail-search">
+              <${TextControl}
+                label="Search"
+                placeholder="Subject, body, sender…   (/)"
+                value=${props.searchQ}
+                onChange=${function (v) { props.onSearchQChange && props.onSearchQChange(v); }}
+                ref=${function (n) {
+                    if (n && props.searchInputRef) {
+                        props.searchInputRef.current = n.querySelector ? n.querySelector('input') : n;
+                    }
+                }}
+                __nextHasNoMarginBottom=${true}
+              />
+            </div>
+            ${props.openThreadId
+              ? html`<${CustomerCard} email=${props.otherPartyEmail} />`
+              : html`
+                <div class="em-inbox-leftrail-filters">
+                  <div class="em-inbox-filters em-inbox-filters--column" role="tablist" aria-label="Inbox filters">
+                    ${btn('all',       'All' + (counts.total != null ? ' · ' + counts.total : ''))}
+                    ${btn('unread',    'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
+                    ${btn('starred',   '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
+                    ${btn('snoozed',   '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
+                    ${btn('scheduled', '⏱ Scheduled')}
+                    ${btn('drafts',    '📝 Drafts')}
+                    ${btn('archived',  'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
+                    ${btn('trashed',   'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
+                  </div>
+                  ${(props.labels && props.labels.length) || props.onManageLabels
+                    ? html`
+                      <div class="em-inbox-label-bar em-inbox-label-bar--column">
+                        <button type="button"
+                          class="em-inbox-label-pill ${props.labelFilterId === 0 ? '' : 'is-muted'}"
+                          onClick=${function () { props.onLabelFilter && props.onLabelFilter(0); }}>All labels</button>
+                        ${(props.labels || []).map(function (l) {
+                          var active = Number(props.labelFilterId) === Number(l.id);
+                          return html`<button type="button"
+                            key=${l.id}
+                            class="em-inbox-label-pill ${active ? 'is-active' : ''}"
+                            style=${{ borderColor: l.color, color: active ? '#fff' : l.color, backgroundColor: active ? l.color : 'transparent' }}
+                            onClick=${function () { props.onLabelFilter && props.onLabelFilter(active ? 0 : Number(l.id)); }}>${l.name}</button>`;
+                        })}
+                        <button type="button" class="em-inbox-label-manage" onClick=${props.onManageLabels}>Manage…</button>
+                      </div>
+                    `
+                    : null}
+                </div>
+              `}
+          </aside>
+        `;
+    }
+
+    // ── CustomerCard (slice 2uu) — fetches /customer-card?email=…
+    //    and renders sections. Each section degrades gracefully when
+    //    the backing plugin (Woo / contracts / mycred / chat-forms)
+    //    isn't installed.
+    function CustomerCard(props) {
+        var st = useState({ loading: true, data: null, err: null });
+        var state = st[0], setState = st[1];
+        useEffect(function () {
+            if (! props.email) { setState({ loading: false, data: null, err: null }); return; }
+            setState({ loading: true, data: state.data, err: null });
+            restGet('customer-card?email=' + encodeURIComponent(props.email))
+                .then(function (d) { setState({ loading: false, data: d, err: null }); })
+                .catch(function (e) { setState({ loading: false, data: null, err: e.message || 'Failed to load customer card' }); });
+        }, [props.email]);
+
+        if (! props.email) return html`<div class="em-inbox-card em-inbox-card--empty"><p>Loading conversation…</p></div>`;
+        if (state.loading)  return html`<div class="em-inbox-card em-inbox-card--loading"><${Spinner} /></div>`;
+        if (state.err)      return html`<div class="em-inbox-card"><${Notice} status="error" isDismissible=${false}>${state.err}<//></div>`;
+        var d = state.data || {};
+        var u = d.user || {};
+        var f = d.forms || null;
+        var c = d.contracts || null;
+        var o = d.orders || null;
+        var w = d.wallet || null;
+        function num(v) { return v == null ? '—' : v; }
+        function money(v, cur) { if (v == null) return '—'; return (cur || '$') + ' ' + Number(v).toFixed(2); }
+        return html`
+          <div class="em-inbox-card">
+            <header class="em-inbox-card-header">
+              ${u.avatar_url && html`<img src=${u.avatar_url} alt="" class="em-inbox-card-avatar" />`}
+              <div class="em-inbox-card-id">
+                <div class="em-inbox-card-name">${u.display_name || d.email}</div>
+                <div class="em-inbox-card-email">${d.email}</div>
+                ${u.exists ? html`<div class="em-inbox-card-meta">member since ${u.registered ? formatDate(u.registered) : '—'}</div>` :
+                              html`<div class="em-inbox-card-meta em-inbox-card-meta-warn">⚠ no WP account</div>`}
+              </div>
+            </header>
+
+            <section class="em-inbox-card-section">
+              <h3>Forms filled</h3>
+              ${f === null
+                ? html`<p class="em-inbox-card-na">— forms plugin not active</p>`
+                : html`<dl class="em-inbox-card-stats">
+                    <dt>Submissions</dt><dd>${num(f.total)}</dd>
+                    <dt>Last</dt><dd>${f.last_at ? formatDate(f.last_at) : '—'}</dd>
+                  </dl>`}
+            </section>
+
+            <section class="em-inbox-card-section">
+              <h3>Active proposals / contracts</h3>
+              ${c === null
+                ? html`<p class="em-inbox-card-na">— contracts plugin not active</p>`
+                : html`<dl class="em-inbox-card-stats">
+                    <dt>Active</dt><dd>${num(c.active)}</dd>
+                    <dt>Offered</dt><dd>${num(c.offered_total)}</dd>
+                    <dt>Awarded</dt><dd>${num(c.awarded_total)}</dd>
+                    <dt>Last</dt><dd>${c.last_at ? formatDate(c.last_at) : '—'}</dd>
+                  </dl>`}
+            </section>
+
+            <section class="em-inbox-card-section">
+              <h3>Store orders</h3>
+              ${o === null
+                ? html`<p class="em-inbox-card-na">— WooCommerce not active</p>`
+                : html`<dl class="em-inbox-card-stats">
+                    <dt>Orders</dt><dd>${num(o.total)}</dd>
+                    <dt>Total spent</dt><dd>${money(o.total_spent, o.currency)}</dd>
+                    <dt>Last status</dt><dd>${o.last_status || '—'}</dd>
+                    <dt>Last</dt><dd>${o.last_at ? formatDate(o.last_at) : '—'}</dd>
+                  </dl>`}
+            </section>
+
+            <section class="em-inbox-card-section">
+              <h3>Wallet</h3>
+              ${w === null
+                ? html`<p class="em-inbox-card-na">— MyCred not active or no WP user</p>`
+                : html`<dl class="em-inbox-card-stats">
+                    ${w.mycred != null && html`<${WaPair} k="Points" v=${Number(w.mycred).toFixed(2)} />`}
+                    ${w.dgen != null && html`<${WaPair} k="DGEN" v=${Number(w.dgen).toFixed(2)} />`}
+                    ${w.task_credit != null && html`<${WaPair} k="Task Credit" v=${Number(w.task_credit).toFixed(2)} />`}
+                    ${(w.mycred == null && w.dgen == null && w.task_credit == null) && html`<dt>Wallet</dt><dd>—</dd>`}
+                  </dl>`}
+            </section>
+          </div>
+        `;
+    }
+    function WaPair(props) { return html`<dt>${props.k}</dt><dd>${props.v}</dd>`; }
+
     function DraftsList(props) {
         var st = useState({ loading: true, items: [], err: null });
         var state = st[0], setState = st[1];
@@ -1650,18 +1820,31 @@
     function FeedView(props) {
         var st = useState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
         var state = st[0], setState = st[1];
-        var filterState = useState('all'); var filter = filterState[0], setFilter = filterState[1];
+        // Slice 2uu: filter state can come from a parent (App lifted it
+        // so the left rail can render the filter pills). Fall back to
+        // internal state for backwards compat / standalone use.
+        var internalFilterState = useState('all');
+        var filter    = (props.filter !== undefined) ? props.filter : internalFilterState[0];
+        var setFilter = function (v) {
+            if (props.onFilterChange) props.onFilterChange(v);
+            else internalFilterState[1](v);
+        };
         // Slice 2jj: listen for the g+letter keyboard sequence.
         useEffect(function () {
             function onFilterEvent(e) {
                 var t = e && e.detail;
-                if (t === 'all' || t === 'unread' || t === 'starred' || t === 'snoozed' || t === 'scheduled' || t === 'archived' || t === 'trashed') {
+                if (t === 'all' || t === 'unread' || t === 'starred' || t === 'snoozed' || t === 'scheduled' || t === 'archived' || t === 'trashed' || t === 'drafts') {
                     setFilter(t);
                 }
             }
             window.addEventListener('em-inbox-filter', onFilterEvent);
             return function () { window.removeEventListener('em-inbox-filter', onFilterEvent); };
         }, []);
+        // Slice 2uu: push counts up to App so LeftRail can render
+        // them next to each filter pill.
+        useEffect(function () {
+            if (props.onCountsChange && state.counts) props.onCountsChange(state.counts);
+        }, [state.counts && JSON.stringify(state.counts)]);
         var selState = useState({});      var selected = selState[0], setSelected = selState[1];
         var loadingMoreState = useState(false); var loadingMore = loadingMoreState[0], setLoadingMore = loadingMoreState[1];
         var inbox = props.inbox;
@@ -1753,34 +1936,36 @@
         return html`
           <aside class="em-inbox-feed" aria-label="Inbox thread list">
             <header class="em-inbox-feed-header">
-              <div class="em-inbox-filters" role="tablist" aria-label="Inbox filters">
-                ${btn('all',       'All' + (counts.total != null ? ' · ' + counts.total : ''))}
-                ${btn('unread',    'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
-                ${btn('starred',   '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
-                ${btn('snoozed',   '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
-                ${btn('scheduled', '⏱ Scheduled')}
-                ${btn('drafts',    '📝 Drafts')}
-                ${btn('archived',  'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
-                ${btn('trashed',   'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
-              </div>
-              ${(props.labels && props.labels.length) || props.onManageLabels
-                ? html`
-                  <div class="em-inbox-label-bar">
-                    <button type="button"
-                      class="em-inbox-label-pill ${props.labelFilterId === 0 ? '' : 'is-muted'}"
-                      onClick=${function () { props.onLabelFilter(0); }}>All labels</button>
-                    ${(props.labels || []).map(function (l) {
-                      var active = Number(props.labelFilterId) === Number(l.id);
-                      return html`<button type="button"
-                        key=${l.id}
-                        class="em-inbox-label-pill ${active ? 'is-active' : ''}"
-                        style=${{ borderColor: l.color, color: active ? '#fff' : l.color, backgroundColor: active ? l.color : 'transparent' }}
-                        onClick=${function () { props.onLabelFilter(active ? 0 : Number(l.id)); }}>${l.name}</button>`;
-                    })}
-                    <button type="button" class="em-inbox-label-manage" onClick=${props.onManageLabels}>Manage…</button>
-                  </div>
-                `
-                : null}
+              ${! props.hideHeader && html`
+                <div class="em-inbox-filters" role="tablist" aria-label="Inbox filters">
+                  ${btn('all',       'All' + (counts.total != null ? ' · ' + counts.total : ''))}
+                  ${btn('unread',    'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
+                  ${btn('starred',   '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
+                  ${btn('snoozed',   '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
+                  ${btn('scheduled', '⏱ Scheduled')}
+                  ${btn('drafts',    '📝 Drafts')}
+                  ${btn('archived',  'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
+                  ${btn('trashed',   'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
+                </div>
+                ${(props.labels && props.labels.length) || props.onManageLabels
+                  ? html`
+                    <div class="em-inbox-label-bar">
+                      <button type="button"
+                        class="em-inbox-label-pill ${props.labelFilterId === 0 ? '' : 'is-muted'}"
+                        onClick=${function () { props.onLabelFilter(0); }}>All labels</button>
+                      ${(props.labels || []).map(function (l) {
+                        var active = Number(props.labelFilterId) === Number(l.id);
+                        return html`<button type="button"
+                          key=${l.id}
+                          class="em-inbox-label-pill ${active ? 'is-active' : ''}"
+                          style=${{ borderColor: l.color, color: active ? '#fff' : l.color, backgroundColor: active ? l.color : 'transparent' }}
+                          onClick=${function () { props.onLabelFilter(active ? 0 : Number(l.id)); }}>${l.name}</button>`;
+                      })}
+                      <button type="button" class="em-inbox-label-manage" onClick=${props.onManageLabels}>Manage…</button>
+                    </div>
+                  `
+                  : null}
+              `}
               ${selIds.length > 0 && html`
                 <div class="em-inbox-bulk-bar">
                   <span>${selIds.length} selected</span>
@@ -1901,6 +2086,36 @@
                     // server-side for the owner — let App refresh the feed
                     // so the bold-unread row clears.
                     props.onLoaded && props.onLoaded();
+                    // Slice 2uu: identify the OTHER party in the
+                    // conversation (the customer) so App can drive a
+                    // CustomerCard in the left rail. Picks the first
+                    // message whose sender != inbox_address. For an
+                    // entirely-outbound thread, falls back to the first
+                    // To: header.
+                    if (props.onOtherParty && data.thread) {
+                        var owner = (data.thread.inbox_address || '').toLowerCase();
+                        var other = null;
+                        (data.messages || []).some(function (m) {
+                            if (m.sender && m.sender.toLowerCase() !== owner) { other = m.sender; return true; }
+                            return false;
+                        });
+                        if (! other) {
+                            // outbound-only thread — read the first To: header
+                            (data.messages || []).some(function (m) {
+                                var hdrs = m.headers || [];
+                                for (var i = 0; i < hdrs.length; i++) {
+                                    if (hdrs[i].name && hdrs[i].name.toLowerCase() === 'to') {
+                                        var v = String(hdrs[i].value || '').split(/[,;]/)[0];
+                                        var mm = v.match(/<([^>]+)>/);
+                                        other = (mm ? mm[1] : v).trim();
+                                        return !!other;
+                                    }
+                                }
+                                return false;
+                            });
+                        }
+                        if (other) props.onOtherParty(other.toLowerCase());
+                    }
                 })
                 .catch(function (e) { setState({ loading: false, thread: null, messages: [], err: e.message || 'Failed to load thread' }); });
             // NOTE: deliberately NOT depending on props.refreshKey here.

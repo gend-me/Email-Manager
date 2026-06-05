@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2tt shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2uu shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -129,6 +129,7 @@ POST   /filters/{id}/test              body: {from, to, subject, body} → {matc
 GET    /unread-count?inbox=             {unread, total, latest_at} — bell polls every 30s
 GET/POST/PUT/DELETE /drafts/{id?}      composer auto-saves here every ~1.5s on idle
 POST   /admin/inboxes                  admin-only: create new WP user or assign existing to inbox address
+GET    /customer-card?email=            customer aggregate: user, forms, contracts, orders, wallet (each section null when its plugin is inactive)
 GET    /grants                         {given: [...], received: [...]}
 POST   /grants                         body: {grantee_email, scope: read|read_send, expires_at?}
 DELETE /grants/{id}                    either party can revoke
@@ -231,7 +232,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 101   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 107   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -288,4 +289,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-05 — slices 2a → 2tt all verified clean: **101/101 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2tt folds the previously-standalone Inbox + Inbox Diagnostics submenu pages into the main Email Manager admin page (`page=email-manager`) as a new "Inbox" tab (2nd, right after Email) with sub-tabs "App" (React SPA mount) and "Diagnostics" (admin-only, server-rendered via em_inbox_diag_render). Page=email-manager-inbox still works for legacy callers. Asset enqueue widened so inbox-app.js/css load on the email-manager parent page. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-05 — slices 2a → 2uu all verified clean: **107/107 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2uu restructures the inbox body to a 3-column layout: LeftRail (search + filter pills OR CustomerCard) | thread list | reader. New /em/v1/inbox/customer-card endpoint aggregates {user, forms, contracts, orders, wallet} from each plugin via function_exists guards (graceful nulls). ThreadView reports the other-party email up to App via onOtherParty so LeftRail can swap to the CustomerCard when a thread is open. Run `bin/inbox-smoke-test.php` after every change.

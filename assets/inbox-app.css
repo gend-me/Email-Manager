@@ -1312,6 +1312,151 @@ img.em-inbox-blocked-img {
 .em-inbox-labels-modal,
 .em-inbox-addinbox-modal { /* light theme already from wp-components */ }
 
+/* === SLICE 2uu — Three-column body layout === */
+.em-inbox-body.em-inbox-body--three-col {
+    display: grid !important;
+    grid-template-columns: minmax(260px, 320px) minmax(280px, 380px) 1fr;
+    gap: 0;
+}
+
+.em-inbox-leftrail {
+    background: rgba(11, 14, 20, 0.55);
+    border-right: 1px solid var(--gs-border);
+    padding: 16px 14px 18px;
+    overflow-y: auto;
+    max-height: 75vh;
+    animation: em-inbox-rise-left 0.6s var(--gs-ease) 0.2s both;
+}
+.em-inbox-leftrail-search {
+    margin: 0 0 14px;
+    animation: em-inbox-rise 0.5s var(--gs-ease) 0.3s both;
+}
+.em-inbox-leftrail-filters {
+    animation: em-inbox-rise 0.5s var(--gs-ease) 0.4s both;
+}
+
+/* Filter pills stack vertically in the left rail */
+.em-inbox-wrap .em-inbox-filters.em-inbox-filters--column {
+    flex-direction: column !important;
+    align-items: stretch !important;
+}
+.em-inbox-wrap .em-inbox-filters.em-inbox-filters--column .em-inbox-filter {
+    text-align: left !important;
+    padding: 8px 14px !important;
+    border-radius: 8px !important;
+    white-space: nowrap;
+}
+
+/* Label bar also stacks below the filter pills */
+.em-inbox-wrap .em-inbox-label-bar.em-inbox-label-bar--column {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--gs-border);
+}
+.em-inbox-wrap .em-inbox-label-bar.em-inbox-label-bar--column .em-inbox-label-pill {
+    text-align: left !important;
+    padding: 5px 10px !important;
+}
+
+/* === CustomerCard === */
+.em-inbox-card {
+    color: var(--gs-text);
+    animation: em-inbox-rise 0.5s var(--gs-ease) 0.2s both;
+}
+.em-inbox-card--loading, .em-inbox-card--empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: var(--gs-muted);
+}
+.em-inbox-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--gs-border);
+}
+.em-inbox-card-avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 2px solid var(--gs-border-strong);
+    flex-shrink: 0;
+}
+.em-inbox-card-id { min-width: 0; flex: 1; }
+.em-inbox-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--gs-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.em-inbox-card-email {
+    font-size: 12px;
+    color: var(--gs-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+.em-inbox-card-meta {
+    font-size: 11px;
+    color: var(--gs-muted);
+    margin-top: 4px;
+}
+.em-inbox-card-meta-warn { color: #ffb84d !important; }
+
+.em-inbox-card-section {
+    background: var(--gs-glass);
+    border: 1px solid var(--gs-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    animation: em-inbox-rise 0.5s var(--gs-ease) both;
+}
+.em-inbox-card-section:nth-child(2) { animation-delay: 0.30s; }
+.em-inbox-card-section:nth-child(3) { animation-delay: 0.40s; }
+.em-inbox-card-section:nth-child(4) { animation-delay: 0.50s; }
+.em-inbox-card-section:nth-child(5) { animation-delay: 0.60s; }
+
+.em-inbox-card-section h3 {
+    margin: 0 0 8px;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--gs-muted);
+    font-weight: 600;
+}
+.em-inbox-card-stats {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    margin: 0;
+}
+.em-inbox-card-stats dt {
+    color: var(--gs-muted);
+    font-size: 12px;
+    margin: 0;
+}
+.em-inbox-card-stats dd {
+    color: var(--gs-text);
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    text-align: right;
+}
+.em-inbox-card-na {
+    color: var(--gs-muted);
+    font-style: italic;
+    font-size: 11px;
+    margin: 0;
+}
+
 /* === ADD-INBOX modal (slice 2ss-D) === */
 .em-inbox-addinbox-modal .components-modal__content { max-width: 480px; }
 .em-inbox-addinbox-help {

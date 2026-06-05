@@ -1,0 +1,206 @@
+<?php
+/**
+ * Member Inbox: customer card data aggregator (slice 2uu).
+ *
+ * When a thread is open in the reader, the left rail collapses the
+ * filter list and replaces it with a card about the OTHER party in the
+ * conversation. This endpoint serves the data for that card.
+ *
+ * Every section is wrapped in a function_exists / class_exists guard so
+ * a site without WooCommerce / contracts-and-payments / chat-forms /
+ * mycred just gets null for that section rather than a 500.
+ *
+ * Endpoint:
+ *   GET /em/v1/inbox/customer-card?email=foo@bar.com
+ *   → {
+ *       user:     { exists, id?, display_name?, registered? }
+ *       forms:    { total, last_at }
+ *       contracts:{ active, escrowed_dgen, last_at }
+ *       orders:   { total, total_spent, last_status, last_at }
+ *       wallet:   { dgen, mycred, points_balance }
+ *     }
+ *
+ * @package EmailManager
+ * @since   1.5.0
+ */
+
+defined('ABSPATH') || exit;
+
+add_action('rest_api_init', function () {
+    register_rest_route('em/v1', '/inbox/customer-card', array(
+        'methods'             => WP_REST_Server::READABLE,
+        'callback'            => 'em_inbox_customer_card',
+        'permission_callback' => function () { return is_user_logged_in(); },
+        'args' => array(
+            'email' => array('type' => 'string', 'required' => true),
+        ),
+    ));
+});
+
+function em_inbox_customer_card(WP_REST_Request $r) {
+    global $wpdb;
+    $email = strtolower(trim((string) $r->get_param('email')));
+    if (! is_email($email)) {
+        return new WP_Error('em_card_bad_email', 'A valid email is required', array('status' => 400));
+    }
+
+    $out = array(
+        'email'     => $email,
+        'user'      => em_inbox_card_user($email),
+        'forms'     => em_inbox_card_forms($email),
+        'contracts' => em_inbox_card_contracts($email),
+        'orders'    => em_inbox_card_orders($email),
+        'wallet'    => em_inbox_card_wallet($email),
+    );
+    return rest_ensure_response($out);
+}
+
+/* -------------------------------------------------------------------------
+ * Per-section gatherers — each returns null when its data source isn't
+ * available, an array of stats when it is. Errors are swallowed.
+ * ------------------------------------------------------------------------- */
+
+function em_inbox_card_user($email) {
+    $u = get_user_by('email', $email);
+    if (! $u) return array('exists' => false);
+    $last_login = get_user_meta($u->ID, 'em_last_login', true);
+    return array(
+        'exists'       => true,
+        'id'           => (int) $u->ID,
+        'display_name' => $u->display_name,
+        'username'     => $u->user_login,
+        'registered'   => $u->user_registered,
+        'last_login'   => $last_login ?: null,
+        'avatar_url'   => get_avatar_url($u->ID, array('size' => 80)),
+    );
+}
+
+function em_inbox_card_forms($email) {
+    global $wpdb;
+    // chat_submission rows store answers serialized in the
+    // _chat_submission_data postmeta. A meta_value LIKE on the email
+    // is good enough for a count + the latest submission date.
+    if (! post_type_exists('chat_submission')) return null;
+    try {
+        $like = '%' . $wpdb->esc_like($email) . '%';
+        $row = $wpdb->get_row($wpdb->prepare(
+            "SELECT COUNT(*) AS n, MAX(p.post_date_gmt) AS last_at
+             FROM {$wpdb->posts} p
+             JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+             WHERE p.post_type = 'chat_submission' AND p.post_status = 'publish'
+               AND pm.meta_key = '_chat_submission_data'
+               AND pm.meta_value LIKE %s",
+            $like
+        ), ARRAY_A);
+        return array(
+            'total'   => (int) ($row['n'] ?? 0),
+            'last_at' => $row['last_at'] ?? null,
+        );
+    } catch (\Throwable $e) { return null; }
+}
+
+function em_inbox_card_contracts($email) {
+    global $wpdb;
+    // contracts-and-payments uses mycred logs for task-contract escrow
+    // events: type='task_contract_escrow' (negative on offerer),
+    // type='task_contract_payout' (positive on recipient). We summarize
+    // by looking up the WP user for this email, then counting active
+    // escrow rows (escrow not yet released).
+    $u = get_user_by('email', $email);
+    if (! $u) return null;
+    if (! class_exists('mycred_query_log') && ! function_exists('mycred_get_users_balance')) {
+        return null;
+    }
+    try {
+        $log_table = $wpdb->prefix . 'mycred_log';
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $log_table)) !== $log_table) {
+            return null;
+        }
+        // Active = positive escrow lines minus their matched release.
+        // Approx: count contracts where user appears as either offerer
+        // or escrow holder and the release counter-entry hasn't fired.
+        $offered = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $log_table
+             WHERE user_id = %d AND ctype LIKE %s AND ref LIKE %s",
+            $u->ID, '%dgen%', 'task_contract_escrow'
+        ));
+        $awarded = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM $log_table
+             WHERE user_id = %d AND ref = 'task_contract_payout'",
+            $u->ID
+        ));
+        $last_at = $wpdb->get_var($wpdb->prepare(
+            "SELECT FROM_UNIXTIME(MAX(time)) FROM $log_table
+             WHERE user_id = %d AND ref LIKE 'task_contract%%'",
+            $u->ID
+        ));
+        return array(
+            'active'        => max(0, $offered - $awarded),
+            'offered_total' => $offered,
+            'awarded_total' => $awarded,
+            'last_at'       => $last_at,
+        );
+    } catch (\Throwable $e) { return null; }
+}
+
+function em_inbox_card_orders($email) {
+    if (! class_exists('WooCommerce')) return null;
+    try {
+        $orders = wc_get_orders(array(
+            'billing_email' => $email,
+            'limit'         => 100,
+            'orderby'       => 'date',
+            'order'         => 'DESC',
+        ));
+        if (! is_array($orders)) return null;
+        $total = count($orders);
+        $total_spent = 0.0;
+        $last_status = null;
+        $last_at = null;
+        foreach ($orders as $i => $o) {
+            if (! is_object($o)) continue;
+            if (method_exists($o, 'get_total')) $total_spent += (float) $o->get_total();
+            if ($i === 0) {
+                if (method_exists($o, 'get_status'))      $last_status = $o->get_status();
+                if (method_exists($o, 'get_date_created')) {
+                    $d = $o->get_date_created();
+                    if ($d) $last_at = $d->date('Y-m-d H:i:s');
+                }
+            }
+        }
+        return array(
+            'total'       => $total,
+            'total_spent' => round($total_spent, 2),
+            'currency'    => function_exists('get_woocommerce_currency') ? get_woocommerce_currency() : '',
+            'last_status' => $last_status,
+            'last_at'     => $last_at,
+        );
+    } catch (\Throwable $e) { return null; }
+}
+
+function em_inbox_card_wallet($email) {
+    $u = get_user_by('email', $email);
+    if (! $u) return null;
+    $out = array('user_id' => (int) $u->ID);
+    // MyCred default point type balance.
+    if (function_exists('mycred_get_users_balance')) {
+        try {
+            $out['mycred'] = (float) mycred_get_users_balance($u->ID);
+        } catch (\Throwable $e) { $out['mycred'] = null; }
+    }
+    // DGEN balance — separate ctype in contracts-and-payments.
+    if (function_exists('mycred_get_users_balance')) {
+        try {
+            $dgen = mycred_get_users_balance($u->ID, 'dgen');
+            $out['dgen'] = $dgen !== null ? (float) $dgen : null;
+        } catch (\Throwable $e) { $out['dgen'] = null; }
+    }
+    // Task credit balance.
+    if (function_exists('mycred_get_users_balance')) {
+        try {
+            $tc = mycred_get_users_balance($u->ID, 'task_credit');
+            $out['task_credit'] = $tc !== null ? (float) $tc : null;
+        } catch (\Throwable $e) { $out['task_credit'] = null; }
+    }
+    return $out;
+}
