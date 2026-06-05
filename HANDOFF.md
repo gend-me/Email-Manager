@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2qq shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2rr shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -230,7 +230,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 83   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 92   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -287,4 +287,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-04 — slices 2a → 2qq all verified clean: **83/83 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-04 — slices 2a → 2rr all verified clean: **92/92 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). Run `bin/inbox-smoke-test.php` after every change.

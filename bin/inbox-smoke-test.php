@@ -316,9 +316,22 @@ $req = new WP_REST_Request('GET', '/em/v1/inbox/signature');
 $res = rest_do_request($req);
 smoke_assert('sig', $res->get_status() === 200, '/signature GET 200');
 
-// ─── 13. DIAGNOSTICS (slice 2m) ──────────────────────────────────────
+// ─── 13. DIAGNOSTICS (slice 2m + 2rr) ────────────────────────────────
 smoke_assert('diag', function_exists('em_inbox_diag_render'), 'diagnostics render function loaded');
 smoke_assert('diag', function_exists('em_inbox_diag_gather'), 'diagnostics gather function loaded');
+// Slice 2rr: ensure the new card sections appear in the gather result
+// and the per-card renderers don't throw on the data shape.
+$diag = em_inbox_diag_gather();
+foreach (array('drain', 'vacation', 'filters', 'userstate') as $section) {
+    smoke_assert('diag', isset($diag[$section]) && is_array($diag[$section]), "gather() returns section: $section");
+}
+smoke_assert('diag', is_string(em_inbox_diag_drain    ($diag['drain'])),     'diag_drain renderer returns HTML');
+smoke_assert('diag', is_string(em_inbox_diag_vacation ($diag['vacation'])),  'diag_vacation renderer returns HTML');
+smoke_assert('diag', is_string(em_inbox_diag_filters  ($diag['filters'])),   'diag_filters renderer returns HTML');
+smoke_assert('diag', is_string(em_inbox_diag_userstate($diag['userstate'])), 'diag_userstate renderer returns HTML');
+// Bump the drain-tracking options to prove em_inbox_outq_drain wrote them after a real run.
+em_inbox_outq_drain(1);
+smoke_assert('diag', get_option('em_inbox_outq_drain_last_at') !== false, 'drain writes em_inbox_outq_drain_last_at');
 
 // ─── 14. IDEMPOTENCY LEDGER (slice 2o) ──────────────────────────────
 smoke_assert('idem', function_exists('em_inbox_ledger_record'), 'idempotency ledger record function loaded');

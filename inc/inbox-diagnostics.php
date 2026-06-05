@@ -43,7 +43,11 @@ function em_inbox_diag_render() {
         <?php em_inbox_diag_card('Inbound (last 24h)',     em_inbox_diag_inbound($data['inbound'])); ?>
         <?php em_inbox_diag_card('Outbound (last 24h)',    em_inbox_diag_outbound($data['outbound'])); ?>
         <?php em_inbox_diag_card('Retry queue',            em_inbox_diag_queue($data['queue'])); ?>
+        <?php em_inbox_diag_card('Drain stats',            em_inbox_diag_drain($data['drain'])); ?>
         <?php em_inbox_diag_card('Cron schedule',          em_inbox_diag_cron($data['cron'])); ?>
+        <?php em_inbox_diag_card('Vacation responder',     em_inbox_diag_vacation($data['vacation'])); ?>
+        <?php em_inbox_diag_card('Filter engine',          em_inbox_diag_filters($data['filters'])); ?>
+        <?php em_inbox_diag_card('User state',             em_inbox_diag_userstate($data['userstate'])); ?>
         <?php em_inbox_diag_card('DNS sanity',             em_inbox_diag_dns($data['dns'])); ?>
         <?php em_inbox_diag_card('Recent inbound (20)',    em_inbox_diag_recent($data['recent_inbound'])); ?>
         <?php em_inbox_diag_card('Recent outbound (20)',   em_inbox_diag_recent($data['recent_outbound'])); ?>
@@ -145,6 +149,61 @@ function em_inbox_diag_gather() {
     // DNS sanity
     $dns = em_inbox_diag_dns_check($domain);
 
+    // Slice 2rr: drain freshness
+    $drain = array(
+        'last_at'         => get_option('em_inbox_outq_drain_last_at',         null),
+        'last_processed'  => (int) get_option('em_inbox_outq_drain_last_processed',  0),
+        'processed_total' => (int) get_option('em_inbox_outq_drain_processed_total', 0),
+    );
+
+    // Slice 2rr: vacation responder activity (table is optional - guard)
+    $vac_table = $wpdb->prefix . 'gdc_inbox_vacation_log';
+    $vacation = array('enabled' => false, 'fired_24h' => 0, 'fired_total' => 0, 'last_at' => null);
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $vac_table)) === $vac_table) {
+        $vacation['fired_24h']   = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $vac_table WHERE sent_at >= %s", $cutoff));
+        $vacation['fired_total'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM $vac_table");
+        $vacation['last_at']     = $wpdb->get_var("SELECT MAX(sent_at) FROM $vac_table");
+    }
+    // Count how many users currently have vacation enabled via user_meta.
+    $vacation['enabled_users'] = (int) $wpdb->get_var(
+        "SELECT COUNT(*) FROM {$wpdb->usermeta} WHERE meta_key = 'em_inbox_vacation' AND meta_value LIKE '%\"enabled\";b:1%'"
+    );
+
+    // Slice 2rr: filter engine activity (guard — table is per slice 2cc).
+    $filt_table = $wpdb->prefix . 'gdc_inbox_filters';
+    $filters = array('total' => 0, 'enabled' => 0, 'matches_total' => 0, 'matches_24h' => 0, 'top' => array());
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $filt_table)) === $filt_table) {
+        $filters['total']         = (int) $wpdb->get_var("SELECT COUNT(*) FROM $filt_table");
+        $filters['enabled']       = (int) $wpdb->get_var("SELECT COUNT(*) FROM $filt_table WHERE enabled = 1");
+        $filters['matches_total'] = (int) $wpdb->get_var("SELECT COALESCE(SUM(match_count), 0) FROM $filt_table");
+        $filters['matches_24h']   = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $filt_table WHERE last_matched_at >= %s", $cutoff));
+        $filters['top']           = $wpdb->get_results("SELECT name, match_count FROM $filt_table WHERE match_count > 0 ORDER BY match_count DESC LIMIT 5", ARRAY_A);
+    }
+
+    // Slice 2rr: snooze + drafts + grants (small counters; tables optional).
+    $part_table   = $wpdb->prefix . 'gdc_inbox_participants';
+    $drafts_table = $wpdb->prefix . 'gdc_inbox_drafts';
+    $grants_table = $wpdb->prefix . 'gdc_inbox_grants';
+    $userstate = array(
+        'snoozed_active'        => 0,
+        'snoozed_resurface_next'=> null,
+        'drafts_total'          => 0,
+        'grants_active'         => 0,
+    );
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $part_table)) === $part_table) {
+        $cols = $wpdb->get_col("SHOW COLUMNS FROM $part_table");
+        if (in_array('snoozed_until', $cols, true)) {
+            $userstate['snoozed_active']         = (int) $wpdb->get_var("SELECT COUNT(*) FROM $part_table WHERE snoozed_until IS NOT NULL AND snoozed_until > UTC_TIMESTAMP()");
+            $userstate['snoozed_resurface_next'] =        $wpdb->get_var("SELECT MIN(snoozed_until) FROM $part_table WHERE snoozed_until IS NOT NULL AND snoozed_until > UTC_TIMESTAMP()");
+        }
+    }
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $drafts_table)) === $drafts_table) {
+        $userstate['drafts_total'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM $drafts_table");
+    }
+    if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $grants_table)) === $grants_table) {
+        $userstate['grants_active'] = (int) $wpdb->get_var("SELECT COUNT(*) FROM $grants_table WHERE expires_at IS NULL OR expires_at > UTC_TIMESTAMP()");
+    }
+
     return array(
         'generated_at'    => gmdate('Y-m-d H:i:s') . ' UTC',
         'mta'             => $mta,
@@ -152,7 +211,11 @@ function em_inbox_diag_gather() {
         'inbound'         => $inbound,
         'outbound'        => $outbound,
         'queue'           => $queue,
+        'drain'           => $drain,
         'cron'            => $cron,
+        'vacation'        => $vacation,
+        'filters'         => $filters,
+        'userstate'       => $userstate,
         'dns'             => $dns,
         'recent_inbound'  => $recent_in,
         'recent_outbound' => $recent_out,
@@ -281,6 +344,59 @@ function em_inbox_diag_dns($d) {
         $cell  = ($r['ok'] ? '✓ ' : '✗ ') . ($r['first'] ? '<span class="em-diag-mono">' . esc_html($r['first']) . '</span>' : '(no record)');
         $out  .= em_inbox_diag_row($type, $cell, $level);
     }
+    return $out;
+}
+
+function em_inbox_diag_drain($d) {
+    // Health rule: drain should have run within the last 5 min (cron
+    // schedule is every minute). Anything older → warn, >30 min → err.
+    $last_at = $d['last_at'];
+    $level = 'ok';
+    $detail = '(never)';
+    if ($last_at) {
+        $age = time() - strtotime($last_at . ' UTC');
+        if      ($age > 1800) $level = 'err';
+        elseif  ($age > 300)  $level = 'warn';
+        $detail = esc_html($last_at) . ' UTC (' . human_time_diff(time() - $age, time()) . ' ago)';
+    } else {
+        $level = 'err';
+    }
+    $out  = em_inbox_diag_row('Last drain',           $detail, $level);
+    $out .= em_inbox_diag_row('Last processed',       esc_html($d['last_processed']) . ' row' . ($d['last_processed'] === 1 ? '' : 's'));
+    $out .= em_inbox_diag_row('Processed all-time',   esc_html($d['processed_total']));
+    return $out;
+}
+
+function em_inbox_diag_vacation($v) {
+    $out  = em_inbox_diag_row('Users with vacation ON', esc_html($v['enabled_users']), $v['enabled_users'] > 0 ? 'warn' : 'ok');
+    $out .= em_inbox_diag_row('Auto-replies 24h',       esc_html($v['fired_24h']));
+    $out .= em_inbox_diag_row('Auto-replies all-time',  esc_html($v['fired_total']));
+    $out .= em_inbox_diag_row('Last auto-reply',        $v['last_at'] ? esc_html($v['last_at']) . ' UTC' : '(none)');
+    return $out;
+}
+
+function em_inbox_diag_filters($f) {
+    $out  = em_inbox_diag_row('Filters defined', esc_html($f['total']));
+    $out .= em_inbox_diag_row('Enabled',         esc_html($f['enabled']));
+    $out .= em_inbox_diag_row('Matches 24h',     esc_html($f['matches_24h']));
+    $out .= em_inbox_diag_row('Matches all-time',esc_html($f['matches_total']));
+    if (! empty($f['top'])) {
+        $list = '<ul style="margin:0;padding-left:14px;">';
+        foreach ($f['top'] as $r) {
+            $list .= '<li>' . esc_html($r['name']) . ' · ' . (int) $r['match_count'] . '</li>';
+        }
+        $list .= '</ul>';
+        $out .= em_inbox_diag_row('Top firing filters', $list);
+    }
+    return $out;
+}
+
+function em_inbox_diag_userstate($u) {
+    $next = $u['snoozed_resurface_next'];
+    $out  = em_inbox_diag_row('Active snoozed threads', esc_html($u['snoozed_active']));
+    $out .= em_inbox_diag_row('Next resurface',         $next ? esc_html($next) . ' UTC' : '(none)');
+    $out .= em_inbox_diag_row('Drafts saved',           esc_html($u['drafts_total']));
+    $out .= em_inbox_diag_row('Active delegations',     esc_html($u['grants_active']));
     return $out;
 }
 

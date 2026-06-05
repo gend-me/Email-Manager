@@ -155,6 +155,11 @@ add_action('em_inbox_outq_cron', 'em_inbox_outq_drain');
 function em_inbox_outq_drain($limit = 10) {
     global $wpdb;
     $raw = $wpdb->prefix . 'gdc_inbox_raw';
+    // Slice 2rr: track when drain last ran + how many rows it touched
+    // so the ops health card can surface drain freshness. Always write
+    // the timestamp even on no-op runs (proves cron is firing); the
+    // counter is cumulative across drains.
+    update_option('em_inbox_outq_drain_last_at', current_time('mysql', 1), false);
 
     // Picks up 'pending' (post-undo-window first-attempts, slice 2y),
     // 'scheduled' (user-deferred send, slice 2bb), and 'retrying' (failed
@@ -223,5 +228,11 @@ function em_inbox_outq_drain($limit = 10) {
             ), array('id' => (int) $row['id']), array('%s','%d','%s','%s'), array('%d'));
         }
     }
-    return count($rows);
+    $n = count($rows);
+    if ($n > 0) {
+        $prev = (int) get_option('em_inbox_outq_drain_processed_total', 0);
+        update_option('em_inbox_outq_drain_processed_total', $prev + $n, false);
+        update_option('em_inbox_outq_drain_last_processed', $n, false);
+    }
+    return $n;
 }
