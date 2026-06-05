@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2uu shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2vv shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -289,4 +289,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-05 — slices 2a → 2uu all verified clean: **107/107 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2uu restructures the inbox body to a 3-column layout: LeftRail (search + filter pills OR CustomerCard) | thread list | reader. New /em/v1/inbox/customer-card endpoint aggregates {user, forms, contracts, orders, wallet} from each plugin via function_exists guards (graceful nulls). ThreadView reports the other-party email up to App via onOtherParty so LeftRail can swap to the CustomerCard when a thread is open. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-05 — slices 2a → 2vv all verified clean: **107/107 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2vv reduces the layout from 3 columns back to 2: LeftRail (search + filter pills OR CustomerCard) | MainCol. MainCol shows FeedView/SearchResults when no thread is open, ThreadView reader when one is. ThreadView's existing Back button (onBack → setOpenThreadId(null)) returns to the list — no extra wiring needed. 2uu's customer-card endpoint + CustomerCard component + lifted filter/counts state all stay. Run `bin/inbox-smoke-test.php` after every change.

@@ -854,42 +854,6 @@
                 labelFilterId=${labelFilterId}
                 onLabelFilter=${setLabelFilterId}
                 onManageLabels=${function () { setShowManageLabels(true); }} />
-              ${searchQ.length >= 2
-                ? html`<${SearchResults}
-                    query=${searchQ}
-                    inbox=${selected}
-                    openThreadId=${openThreadId}
-                    onOpenThread=${setOpenThreadId} />`
-                : html`<${FeedView}
-                    inbox=${selected}
-                    openThreadId=${openThreadId}
-                    labelFilterId=${labelFilterId}
-                    labels=${labels}
-                    onLabelFilter=${setLabelFilterId}
-                    onManageLabels=${function () { setShowManageLabels(true); }}
-                    onOpenThread=${setOpenThreadId}
-                    hideHeader=${true}
-                    filter=${filter}
-                    onFilterChange=${setFilter}
-                    onCountsChange=${setCounts}
-                    onBulkApplied=${function () { bumpTick(tick + 1); }}
-                    onOpenDraft=${function (d) {
-                        setComposerProps({
-                            draftId: d.id,
-                            from: d.from_address || selected,
-                            mode: d.thread_id ? 'reply' : 'new',
-                            threadId: d.thread_id || undefined,
-                            to: d.to || [],
-                            cc: d.cc || [],
-                            bcc: d.bcc || [],
-                            subject: d.subject || '',
-                            bodyHtml: d.body_html || '',
-                            atts: d.attachments || [],
-                        });
-                    }}
-                    focusedThreadId=${focusedThreadId}
-                    onFocusedChange=${setFocusedThreadId}
-                    refreshKey=${tick} />`}
               ${openThreadId
                 ? html`<${ThreadView}
                     threadId=${openThreadId}
@@ -965,7 +929,42 @@
                     onMarkedUnread=${function () { setOpenThreadId(null); bumpTick(tick + 1); }}
                     onLoaded=${function () { bumpTick(tick + 1); }}
                     refreshKey=${tick} />`
-                : html`<div class="em-inbox-pane-placeholder">Select a thread to read.</div>`}
+                : searchQ.length >= 2
+                ? html`<${SearchResults}
+                    query=${searchQ}
+                    inbox=${selected}
+                    openThreadId=${openThreadId}
+                    onOpenThread=${setOpenThreadId} />`
+                : html`<${FeedView}
+                    inbox=${selected}
+                    openThreadId=${openThreadId}
+                    labelFilterId=${labelFilterId}
+                    labels=${labels}
+                    onLabelFilter=${setLabelFilterId}
+                    onManageLabels=${function () { setShowManageLabels(true); }}
+                    onOpenThread=${setOpenThreadId}
+                    hideHeader=${true}
+                    filter=${filter}
+                    onFilterChange=${setFilter}
+                    onCountsChange=${setCounts}
+                    onBulkApplied=${function () { bumpTick(tick + 1); }}
+                    onOpenDraft=${function (d) {
+                        setComposerProps({
+                            draftId: d.id,
+                            from: d.from_address || selected,
+                            mode: d.thread_id ? 'reply' : 'new',
+                            threadId: d.thread_id || undefined,
+                            to: d.to || [],
+                            cc: d.cc || [],
+                            bcc: d.bcc || [],
+                            subject: d.subject || '',
+                            bodyHtml: d.body_html || '',
+                            atts: d.attachments || [],
+                        });
+                    }}
+                    focusedThreadId=${focusedThreadId}
+                    onFocusedChange=${setFocusedThreadId}
+                    refreshKey=${tick} />`}
             </div>
             ${composerProps && html`
               <${Composer}

@@ -1312,10 +1312,15 @@ img.em-inbox-blocked-img {
 .em-inbox-labels-modal,
 .em-inbox-addinbox-modal { /* light theme already from wp-components */ }
 
-/* === SLICE 2uu — Three-column body layout === */
+/* === SLICE 2uu / 2vv — Two-column body layout
+ * Col 1: LeftRail (search + filters OR CustomerCard).
+ * Col 2: toggles between the threads list (FeedView) and the open
+ *        thread reader (ThreadView). User goes Back from the reader
+ *        to return to the list — single pane reused.
+ */
 .em-inbox-body.em-inbox-body--three-col {
     display: grid !important;
-    grid-template-columns: minmax(260px, 320px) minmax(280px, 380px) 1fr;
+    grid-template-columns: minmax(260px, 360px) 1fr;
     gap: 0;
 }
 
