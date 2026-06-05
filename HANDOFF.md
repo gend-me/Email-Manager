@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2rr shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2ss shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -128,6 +128,7 @@ GET/POST/PUT/DELETE /filters
 POST   /filters/{id}/test              body: {from, to, subject, body} → {match: bool}
 GET    /unread-count?inbox=             {unread, total, latest_at} — bell polls every 30s
 GET/POST/PUT/DELETE /drafts/{id?}      composer auto-saves here every ~1.5s on idle
+POST   /admin/inboxes                  admin-only: create new WP user or assign existing to inbox address
 GET    /grants                         {given: [...], received: [...]}
 POST   /grants                         body: {grantee_email, scope: read|read_send, expires_at?}
 DELETE /grants/{id}                    either party can revoke
@@ -230,7 +231,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 92   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 101   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -287,4 +288,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-04 — slices 2a → 2rr all verified clean: **92/92 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-05 — slices 2a → 2ss all verified clean: **101/101 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2ss is a glassmorphic skin overlay using gend-society design tokens (`--gs-magenta`, `--gs-blue`, `--gs-accent`, etc.), staggered entrance animations, wrap-friendly pill filters (so Drafts/Archived/Trashed are no longer cut off), and an admin-only "+ Inbox" button → /em/v1/inbox/admin/inboxes that creates a new WP user or assigns the address to an existing one. All styles scoped to .em-inbox-wrap so the wp-admin chrome around the page is untouched. Run `bin/inbox-smoke-test.php` after every change.

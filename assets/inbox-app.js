@@ -261,6 +261,83 @@
         `;
     }
 
+    // ── Admin: add new inbox modal (slice 2ss) ────────────────────────
+    function AddInboxModal(props) {
+        var formState = useState({ email: '', display_name: '', mode: 'new_user', role: 'subscriber', send_invite: true });
+        var form = formState[0], setForm = formState[1];
+        var busyState = useState(false); var busy = busyState[0], setBusy = busyState[1];
+        var msgState = useState(null);   var msg  = msgState[0],  setMsg  = msgState[1];
+
+        function submit() {
+            setBusy(true); setMsg(null);
+            apiFetch({ url: cfg.restRoot + 'admin/inboxes', method: 'POST', data: form })
+                .then(function (res) {
+                    setBusy(false);
+                    if (res && res.created) {
+                        setMsg({ status: 'success', text: 'Created user (' + (res.login || '') + ') for ' + res.email + (res.invite_sent ? ' — invite email sent.' : ' — no invite sent.') });
+                    } else if (res && res.already_existed) {
+                        setMsg({ status: 'info', text: 'User for ' + res.email + ' already existed. Stamped em_inbox_address user_meta.' });
+                    } else {
+                        setMsg({ status: 'success', text: 'Assigned inbox ' + res.email + ' to existing user.' });
+                    }
+                    props.onCreated && props.onCreated(res);
+                })
+                .catch(function (e) {
+                    setBusy(false);
+                    setMsg({ status: 'error', text: (e && e.message) || 'Add-inbox failed' });
+                });
+        }
+
+        return html`
+          <${Modal} title="Add a new inbox" onRequestClose=${props.onClose} className="em-inbox-addinbox-modal">
+            <p class="em-inbox-addinbox-help">
+              Creates a new WP user whose email <strong>is</strong> the inbox address (or
+              assigns the address to an existing user). The address is stamped onto
+              <code>em_inbox_address</code> user_meta, which is what threading uses to map
+              inbound messages to an owner.
+            </p>
+            <${TextControl}
+              label="Email address"
+              help="Becomes both the user's login email AND their inbox address."
+              type="email"
+              value=${form.email}
+              onChange=${function (v) { setForm(Object.assign({}, form, { email: v })); }}
+              __nextHasNoMarginBottom=${true} />
+            <${TextControl}
+              label="Display name (optional)"
+              value=${form.display_name}
+              onChange=${function (v) { setForm(Object.assign({}, form, { display_name: v })); }}
+              __nextHasNoMarginBottom=${true} />
+            <label class="em-inbox-rte-label">Mode</label>
+            <select value=${form.mode} onChange=${function (e) { setForm(Object.assign({}, form, { mode: e.target.value })); }}>
+              <option value="new_user">Create new WP user</option>
+              <option value="existing_user">Assign to existing WP user</option>
+            </select>
+            ${form.mode === 'new_user' && html`
+              <label class="em-inbox-rte-label" style=${{ marginTop: '12px' }}>Role</label>
+              <select value=${form.role} onChange=${function (e) { setForm(Object.assign({}, form, { role: e.target.value })); }}>
+                <option value="subscriber">Subscriber</option>
+                <option value="contributor">Contributor</option>
+                <option value="author">Author</option>
+                <option value="editor">Editor</option>
+                <option value="administrator">Administrator</option>
+              </select>
+              <label class="em-inbox-track-toggle" style=${{ marginTop: '12px' }}>
+                <input type="checkbox" checked=${!!form.send_invite} onChange=${function (e) { setForm(Object.assign({}, form, { send_invite: e.target.checked })); }} />
+                <span>Send invite email (password-reset link)</span>
+              </label>
+            `}
+            ${msg && html`<${Notice} status=${msg.status} isDismissible=${false}>${msg.text}<//>`}
+            <div class="em-inbox-composer-actions">
+              <${Button} variant="tertiary" onClick=${props.onClose} disabled=${busy}>Close<//>
+              <${Button} variant="primary" onClick=${submit} disabled=${busy || ! form.email}>
+                ${busy ? html`<${Spinner} />` : (form.mode === 'new_user' ? 'Create inbox' : 'Assign')}
+              <//>
+            </div>
+          <//>
+        `;
+    }
+
     // ── Sharing / delegation modal (slice 2ee) ────────────────────────
     function SharingModal(props) {
         var st = useState({ loading: true, given: [], received: [], err: null });
@@ -571,6 +648,7 @@
         useEffect(function () { restGet('vacation').then(setVacationCfg); }, [tick]);
         var filtersState = useState(false);       var showFilters = filtersState[0], setShowFilters = filtersState[1];
         var sharingState = useState(false);       var showSharing = sharingState[0], setShowSharing = sharingState[1];
+        var addInboxState = useState(false);      var showAddInbox = addInboxState[0], setShowAddInbox = addInboxState[1];
         // Slice 2hh: list of addresses the user can send AS (own inbox
         // + every read_send grant). Refreshed when the SharingModal
         // closes or tick bumps. Used by Composer to render the From
@@ -750,6 +828,12 @@
                 title="Sharing — grant or revoke inbox access"
                 onClick=${function () { setShowSharing(true); }}
               >👥 Sharing</button>
+              ${cfg.isAdmin && html`<button
+                type="button"
+                class="em-inbox-addinbox-btn"
+                title="Add a new inbox (admin only)"
+                onClick=${function () { setShowAddInbox(true); }}
+              >+ Inbox</button>`}
               ${selected && html`<${NotificationBell}
                 inbox=${selected}
                 onClick=${function () { /* clicking the bell switches to unread view */
@@ -897,6 +981,7 @@
             ${showVacation && html`<${VacationModal} onClose=${function () { setShowVacation(false); }} onChanged=${setVacationCfg} />`}
             ${showFilters && html`<${FiltersModal} labels=${labels} onClose=${function () { setShowFilters(false); }} />`}
             ${showSharing && html`<${SharingModal} onClose=${function () { setShowSharing(false); bumpTick(tick + 1); }} />`}
+            ${showAddInbox && html`<${AddInboxModal} onClose=${function () { setShowAddInbox(false); }} onCreated=${function () { setShowAddInbox(false); bumpTick(tick + 1); }} />`}
           </div>
         `;
     }

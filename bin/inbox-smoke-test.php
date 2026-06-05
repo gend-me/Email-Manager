@@ -340,6 +340,61 @@ smoke_assert('idem', function_exists('em_inbox_ledger_maybe_create_table'), 'ide
 // ─── 15. TRACKING (slice 2s) ────────────────────────────────────────
 smoke_assert('track', function_exists('em_inbox_track_inject_pixel'), 'tracking inject_pixel loaded');
 
+// ─── 15a. ADMIN ADD-INBOX (slice 2ss) ────────────────────────────────
+// Acting as admin: create-new should make a fresh user.
+$new_email = 'new-' . $run_tag . '@example.invalid';
+$res = post_json('/em/v1/inbox/admin/inboxes', array(
+    'email' => $new_email,
+    'display_name' => 'Smoke Test ' . $run_tag,
+    'mode' => 'new_user',
+    'role' => 'subscriber',
+    'send_invite' => 0,
+));
+$d = $res->get_data();
+smoke_assert('addinbox', $res->get_status() === 200 && ! empty($d['user_id']), 'create-new returns user_id');
+smoke_assert('addinbox', ! empty($d['created']), 'created=true on first attempt');
+$new_uid = (int) $d['user_id'];
+$meta_addr = strtolower((string) get_user_meta($new_uid, 'em_inbox_address', true));
+smoke_assert('addinbox', $meta_addr === strtolower($new_email), 'em_inbox_address user_meta stamped');
+
+// Idempotent: same email again returns the existing user, not 500.
+$res = post_json('/em/v1/inbox/admin/inboxes', array(
+    'email' => $new_email,
+    'mode' => 'new_user',
+    'send_invite' => 0,
+));
+$d = $res->get_data();
+smoke_assert('addinbox', $res->get_status() === 200 && (int) $d['user_id'] === $new_uid, 'second create returns same user (idempotent)');
+smoke_assert('addinbox', ! empty($d['already_existed']), 'already_existed=true');
+
+// Bad email rejected.
+$res = post_json('/em/v1/inbox/admin/inboxes', array('email' => 'not-an-email'));
+smoke_assert('addinbox', $res->get_status() === 400, 'bad email returns 400');
+
+// existing_user mode: assign to an already-existing user.
+$res = post_json('/em/v1/inbox/admin/inboxes', array(
+    'email' => $inbox,
+    'mode' => 'existing_user',
+));
+smoke_assert('addinbox', $res->get_status() === 200, 'existing_user mode 200 for known address');
+$res = post_json('/em/v1/inbox/admin/inboxes', array(
+    'email' => 'nobody-' . $run_tag . '@example.invalid',
+    'mode' => 'existing_user',
+));
+smoke_assert('addinbox', $res->get_status() === 404, 'existing_user mode 404 for unknown email');
+
+// Non-admin call is forbidden.
+$other = wp_create_user('smoke_nonadmin_' . substr(bin2hex(random_bytes(3)), 0, 6), wp_generate_password(20, true), 'smoke-nonadmin-' . $run_tag . '@example.invalid');
+$prev = get_current_user_id();
+wp_set_current_user($other);
+$res = post_json('/em/v1/inbox/admin/inboxes', array('email' => 'x-' . $run_tag . '@example.invalid'));
+smoke_assert('addinbox', $res->get_status() === 403 || $res->get_status() === 401, 'non-admin gets 401/403');
+wp_set_current_user($prev);
+
+// Cleanup
+wp_delete_user($new_uid);
+wp_delete_user($other);
+
 // ─── 15b. DRAFTS (slice 2kk) ─────────────────────────────────────────
 // Create a draft
 $res = post_json('/em/v1/inbox/drafts', array(

@@ -863,3 +863,462 @@ img.em-inbox-blocked-img {
     font-size: 10px;
     font-weight: 500;
 }
+
+/* ============================================================
+ * SLICE 2ss — GLASSMORPHIC OVERHAUL
+ * Borrowed design tokens from gend-society admin-style.css so the
+ * inbox feels native to the platform. All styles are scoped to
+ * .em-inbox-wrap so the rest of wp-admin keeps its default chrome.
+ * ============================================================ */
+
+.em-inbox-wrap {
+    --gs-magenta: #b608c9;
+    --gs-red:     #cc0000;
+    --gs-blue:    #6ec1e4;
+    --gs-accent:  #97e46e;
+    --gs-bg:      #0b0e14;
+    --gs-surface: rgba(15, 20, 32, 0.92);
+    --gs-glass:   rgba(255, 255, 255, 0.05);
+    --gs-glass-strong: rgba(255, 255, 255, 0.10);
+    --gs-border:  rgba(255, 255, 255, 0.10);
+    --gs-border-strong: rgba(255, 255, 255, 0.22);
+    --gs-text:    #e8edf5;
+    --gs-muted:   #8b98b0;
+    --gs-radius:  14px;
+    --gs-ease:    cubic-bezier(0.22, 1, 0.36, 1);
+
+    max-width: 1600px;
+    margin: 18px auto 40px;
+    padding: 28px 28px 40px;
+    background:
+        radial-gradient(circle at 15% 0%, rgba(182, 8, 201, 0.18) 0%, transparent 50%),
+        radial-gradient(circle at 85% 100%, rgba(110, 193, 228, 0.16) 0%, transparent 55%),
+        linear-gradient(180deg, #0b0e14 0%, #11161f 100%);
+    border-radius: var(--gs-radius);
+    border: 1px solid var(--gs-border);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+    color: var(--gs-text);
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+/* Stagger source: each immediate child of .em-inbox animates in turn */
+@keyframes em-inbox-rise {
+    from { opacity: 0; transform: translateY(18px); filter: blur(4px); }
+    to   { opacity: 1; transform: translateY(0);    filter: blur(0); }
+}
+@keyframes em-inbox-rise-left {
+    from { opacity: 0; transform: translateX(-22px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes em-inbox-rise-right {
+    from { opacity: 0; transform: translateX(22px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes em-inbox-pop {
+    from { opacity: 0; transform: scale(0.85); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+.em-inbox-wrap > .em-inbox-toolbar,
+.em-inbox-wrap > .em-inbox,
+.em-inbox-wrap > .em-inbox > .em-inbox-toolbar,
+.em-inbox-wrap > .em-inbox > .em-inbox-body {
+    animation: em-inbox-rise 0.6s var(--gs-ease) both;
+}
+
+.em-inbox-toolbar { animation-delay: 0.05s; padding-bottom: 6px; }
+.em-inbox-body    { animation-delay: 0.15s; }
+
+/* === HEADER TOOLBAR === */
+
+.em-inbox-toolbar {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    flex-wrap: wrap;
+    align-items: center !important;
+    gap: 12px;
+}
+.em-inbox-toolbar > div { flex: 0 1 auto; }
+
+/* Override the wp.components SelectControl chrome so the "Inbox" picker
+ * matches the glass surface. */
+.em-inbox-wrap .components-base-control__label,
+.em-inbox-wrap .components-input-control__label,
+.em-inbox-wrap .components-text-control__input + label {
+    color: var(--gs-muted) !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.em-inbox-wrap .components-select-control__input,
+.em-inbox-wrap .components-text-control__input,
+.em-inbox-wrap .components-textarea-control__input,
+.em-inbox-wrap input[type="text"],
+.em-inbox-wrap input[type="email"],
+.em-inbox-wrap input[type="datetime-local"],
+.em-inbox-wrap select {
+    background: var(--gs-glass) !important;
+    border: 1px solid var(--gs-border) !important;
+    color: var(--gs-text) !important;
+    border-radius: 8px !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+.em-inbox-wrap input::placeholder { color: var(--gs-muted); }
+
+/* The custom icon buttons in the header (help, vacation, filters,
+ * sharing, bell, add-inbox) — give them a uniform glass treatment. */
+.em-inbox-wrap .em-inbox-help-btn,
+.em-inbox-wrap .em-inbox-vac-btn,
+.em-inbox-wrap .em-inbox-filters-btn,
+.em-inbox-wrap .em-inbox-bell,
+.em-inbox-wrap .em-inbox-addinbox-btn {
+    background: var(--gs-glass) !important;
+    border: 1px solid var(--gs-border) !important;
+    color: var(--gs-text) !important;
+    border-radius: 10px !important;
+    padding: 6px 12px !important;
+    backdrop-filter: blur(10px) saturate(160%);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    transition: background 0.2s var(--gs-ease), transform 0.2s var(--gs-ease), border-color 0.2s var(--gs-ease);
+}
+.em-inbox-wrap .em-inbox-help-btn:hover,
+.em-inbox-wrap .em-inbox-vac-btn:hover,
+.em-inbox-wrap .em-inbox-filters-btn:hover,
+.em-inbox-wrap .em-inbox-bell:hover,
+.em-inbox-wrap .em-inbox-addinbox-btn:hover {
+    background: var(--gs-glass-strong) !important;
+    border-color: var(--gs-border-strong) !important;
+    transform: translateY(-1px);
+}
+
+/* Compose button stays prominent — gradient brand color */
+.em-inbox-wrap .em-inbox-toolbar .components-button.is-primary {
+    background: linear-gradient(135deg, var(--gs-magenta) 0%, var(--gs-blue) 100%) !important;
+    border: none !important;
+    color: #fff !important;
+    border-radius: 10px !important;
+    padding: 8px 18px !important;
+    font-weight: 600;
+    box-shadow: 0 4px 14px rgba(182, 8, 201, 0.35);
+    transition: transform 0.2s var(--gs-ease), box-shadow 0.2s var(--gs-ease);
+}
+.em-inbox-wrap .em-inbox-toolbar .components-button.is-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(182, 8, 201, 0.5);
+}
+
+/* === BODY: TWO-PANE === */
+
+.em-inbox-body {
+    background: var(--gs-surface) !important;
+    border: 1px solid var(--gs-border) !important;
+    border-radius: var(--gs-radius) !important;
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+    overflow: hidden;
+}
+
+.em-inbox-feed {
+    border-right: 1px solid var(--gs-border) !important;
+    background: rgba(11, 14, 20, 0.55);
+    animation: em-inbox-rise-left 0.6s var(--gs-ease) 0.2s both;
+}
+.em-inbox-feed-header {
+    background: rgba(11, 14, 20, 0.65) !important;
+    border-bottom: 1px solid var(--gs-border) !important;
+    color: var(--gs-text) !important;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 16px 18px !important;
+}
+
+/* === FILTER PILLS (wrap-friendly + visible scroll) === */
+
+.em-inbox-filters {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    padding: 4px 0;
+}
+.em-inbox-filter {
+    background: var(--gs-glass) !important;
+    border: 1px solid var(--gs-border) !important;
+    border-right: 1px solid var(--gs-border) !important;
+    border-radius: 999px !important;
+    padding: 5px 12px !important;
+    font-size: 12px !important;
+    color: var(--gs-text) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: all 0.2s var(--gs-ease);
+    white-space: nowrap;
+    animation: em-inbox-pop 0.4s var(--gs-ease) both;
+}
+.em-inbox-filter:first-child,
+.em-inbox-filter:last-child { border-radius: 999px !important; }
+.em-inbox-filter:hover {
+    background: var(--gs-glass-strong) !important;
+    border-color: var(--gs-border-strong) !important;
+}
+.em-inbox-filter.is-active {
+    background: linear-gradient(135deg, var(--gs-magenta), var(--gs-blue)) !important;
+    border-color: transparent !important;
+    color: #fff !important;
+    font-weight: 600;
+    box-shadow: 0 4px 14px rgba(182, 8, 201, 0.35);
+}
+/* Stagger filter pills — up to 12 of them */
+.em-inbox-filter:nth-child(1) { animation-delay: 0.25s; }
+.em-inbox-filter:nth-child(2) { animation-delay: 0.30s; }
+.em-inbox-filter:nth-child(3) { animation-delay: 0.35s; }
+.em-inbox-filter:nth-child(4) { animation-delay: 0.40s; }
+.em-inbox-filter:nth-child(5) { animation-delay: 0.45s; }
+.em-inbox-filter:nth-child(6) { animation-delay: 0.50s; }
+.em-inbox-filter:nth-child(7) { animation-delay: 0.55s; }
+.em-inbox-filter:nth-child(8) { animation-delay: 0.60s; }
+.em-inbox-filter:nth-child(9) { animation-delay: 0.65s; }
+.em-inbox-filter:nth-child(10){ animation-delay: 0.70s; }
+
+/* === LABEL BAR pills === */
+.em-inbox-wrap .em-inbox-label-pill {
+    background: var(--gs-glass) !important;
+    border-radius: 999px !important;
+    color: var(--gs-text) !important;
+    padding: 4px 10px !important;
+    font-size: 11px !important;
+}
+.em-inbox-wrap .em-inbox-label-manage {
+    background: transparent !important;
+    color: var(--gs-blue) !important;
+    border: 1px dashed var(--gs-border-strong) !important;
+    border-radius: 999px !important;
+    padding: 3px 10px !important;
+    font-size: 11px !important;
+}
+
+/* === THREAD ROWS === */
+
+.em-inbox-thread-row {
+    border-bottom: 1px solid var(--gs-border) !important;
+    background: transparent;
+    padding: 12px 18px !important;
+    color: var(--gs-text);
+    transition: background 0.2s var(--gs-ease), padding-left 0.2s var(--gs-ease);
+    animation: em-inbox-rise 0.5s var(--gs-ease) both;
+}
+.em-inbox-thread-row:hover {
+    background: var(--gs-glass) !important;
+    padding-left: 22px !important;
+}
+.em-inbox-thread-row.is-unread {
+    background: var(--gs-glass) !important;
+    box-shadow: inset 3px 0 0 0 var(--gs-accent);
+}
+.em-inbox-thread-row.is-unread .em-inbox-thread-sender,
+.em-inbox-thread-row.is-unread .em-inbox-thread-subject {
+    color: var(--gs-text) !important;
+}
+.em-inbox-thread-row:not(.is-unread) .em-inbox-thread-sender,
+.em-inbox-thread-row:not(.is-unread) .em-inbox-thread-subject {
+    color: var(--gs-muted) !important;
+}
+.em-inbox-thread-row.is-focused {
+    box-shadow: inset 3px 0 0 0 var(--gs-blue) !important;
+    background: var(--gs-glass) !important;
+}
+.em-inbox-thread-row.is-open {
+    background: var(--gs-glass-strong) !important;
+    box-shadow: inset 3px 0 0 0 var(--gs-magenta);
+}
+.em-inbox-thread-row.is-selected {
+    background: rgba(151, 228, 110, 0.10) !important;
+}
+.em-inbox-thread-sender { font-size: 13px; font-weight: 600; }
+.em-inbox-thread-subject { font-size: 13px; margin-top: 1px; }
+.em-inbox-thread-meta { color: var(--gs-muted) !important; font-size: 11px; margin-top: 3px; }
+
+/* Stagger thread rows — up to 25 */
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(1)  { animation-delay: 0.25s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(2)  { animation-delay: 0.30s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(3)  { animation-delay: 0.35s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(4)  { animation-delay: 0.40s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(5)  { animation-delay: 0.45s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(6)  { animation-delay: 0.50s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(7)  { animation-delay: 0.55s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(8)  { animation-delay: 0.60s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(9)  { animation-delay: 0.65s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(10) { animation-delay: 0.70s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(11) { animation-delay: 0.75s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(12) { animation-delay: 0.80s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(13) { animation-delay: 0.85s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(14) { animation-delay: 0.90s; }
+.em-inbox-thread-list > li.em-inbox-thread-row:nth-child(15) { animation-delay: 0.95s; }
+
+/* Star button glass */
+.em-inbox-wrap .em-inbox-star {
+    background: transparent !important;
+    border: none !important;
+    color: var(--gs-muted) !important;
+    font-size: 16px;
+}
+.em-inbox-wrap .em-inbox-star.is-starred { color: var(--gs-accent) !important; }
+
+/* === THREAD READER pane === */
+
+.em-inbox-wrap .em-inbox-thread,
+.em-inbox-wrap .em-inbox-pane-placeholder {
+    background: transparent !important;
+    color: var(--gs-text) !important;
+    animation: em-inbox-rise-right 0.6s var(--gs-ease) 0.25s both;
+}
+.em-inbox-wrap .em-inbox-thread-header {
+    border-bottom: 1px solid var(--gs-border) !important;
+    padding: 16px 22px !important;
+    background: rgba(11, 14, 20, 0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+.em-inbox-wrap .em-inbox-thread-header h2 {
+    color: var(--gs-text) !important;
+    font-size: 18px !important;
+    font-weight: 600;
+}
+.em-inbox-wrap .em-inbox-thread-inbox {
+    color: var(--gs-muted) !important;
+    font-size: 12px;
+}
+
+/* Message cards as floating glass blocks */
+.em-inbox-wrap .em-inbox-message,
+.em-inbox-wrap .em-inbox-message .components-card,
+.em-inbox-wrap .em-inbox-message .components-card__header,
+.em-inbox-wrap .em-inbox-message .components-card__body {
+    background: rgba(11, 14, 20, 0.55) !important;
+    border: 1px solid var(--gs-border) !important;
+    border-radius: 12px !important;
+    color: var(--gs-text) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+.em-inbox-wrap .em-inbox-message .components-card__header { border-bottom: 1px solid var(--gs-border) !important; }
+.em-inbox-wrap .em-inbox-message {
+    margin: 16px 22px;
+    animation: em-inbox-rise 0.5s var(--gs-ease) both;
+}
+.em-inbox-wrap .em-inbox-message-from { color: var(--gs-text) !important; font-weight: 600; }
+.em-inbox-wrap .em-inbox-message.is-mine .em-inbox-message-from { color: var(--gs-blue) !important; }
+.em-inbox-wrap .em-inbox-message-meta,
+.em-inbox-wrap .em-inbox-message-date { color: var(--gs-muted) !important; font-size: 12px; }
+.em-inbox-wrap .em-inbox-message-body { color: var(--gs-text) !important; }
+.em-inbox-wrap .em-inbox-message-body a { color: var(--gs-blue) !important; }
+.em-inbox-wrap .em-inbox-message-plain { color: var(--gs-text) !important; background: transparent !important; }
+
+/* === ATTACHMENT LIST === */
+.em-inbox-wrap .em-inbox-attachments {
+    background: rgba(11, 14, 20, 0.5) !important;
+    border: 1px solid var(--gs-border) !important;
+    border-radius: 10px !important;
+    color: var(--gs-text) !important;
+}
+.em-inbox-wrap .em-inbox-attachments a { color: var(--gs-blue) !important; }
+.em-inbox-wrap .em-inbox-att-meta { color: var(--gs-muted) !important; }
+.em-inbox-wrap .em-inbox-att-preview {
+    color: var(--gs-blue) !important;
+    border-color: var(--gs-border-strong) !important;
+    background: var(--gs-glass) !important;
+}
+
+/* === BULK BAR + SEARCH RESULTS === */
+.em-inbox-wrap .em-inbox-bulk-bar {
+    background: rgba(11, 14, 20, 0.7) !important;
+    border-bottom: 1px solid var(--gs-border) !important;
+    color: var(--gs-text) !important;
+    padding: 10px 18px !important;
+}
+.em-inbox-wrap .em-inbox-bulk-act,
+.em-inbox-wrap .em-inbox-bulk-clear {
+    background: var(--gs-glass) !important;
+    border: 1px solid var(--gs-border) !important;
+    color: var(--gs-text) !important;
+    border-radius: 6px !important;
+    padding: 3px 10px !important;
+    font-size: 11px;
+}
+.em-inbox-wrap .em-inbox-bulk-act:hover { background: var(--gs-glass-strong) !important; }
+.em-inbox-wrap .em-inbox-search-snippet { color: var(--gs-muted) !important; }
+.em-inbox-wrap .em-inbox-empty { color: var(--gs-muted) !important; padding: 24px !important; text-align: center; }
+
+/* === SCHEDULED + DRAFTS list rows === */
+.em-inbox-wrap .em-inbox-scheduled-row {
+    border-bottom: 1px solid var(--gs-border) !important;
+    background: transparent;
+    animation: em-inbox-rise 0.5s var(--gs-ease) both;
+}
+.em-inbox-wrap .em-inbox-scheduled-row:hover { background: var(--gs-glass) !important; }
+.em-inbox-wrap .em-inbox-scheduled-when { color: var(--gs-accent) !important; }
+.em-inbox-wrap .em-inbox-scheduled-to,
+.em-inbox-wrap .em-inbox-scheduled-subject { color: var(--gs-text) !important; }
+
+/* === BELL: brighter pulse on glass === */
+.em-inbox-wrap .em-inbox-bell.has-unread { border-color: var(--gs-magenta) !important; }
+.em-inbox-wrap .em-inbox-bell-badge {
+    background: var(--gs-magenta) !important;
+    box-shadow: 0 0 12px rgba(182, 8, 201, 0.6);
+}
+@keyframes em-inbox-bell-pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.15); background: var(--gs-glass-strong) !important; }
+}
+
+/* === SELECT-PAGE row + thread-list select-all === */
+.em-inbox-wrap .em-inbox-selectall-row {
+    background: rgba(11,14,20,0.5) !important;
+    border-bottom: 1px solid var(--gs-border) !important;
+    color: var(--gs-muted) !important;
+}
+
+/* === Composer hint chips === */
+.em-inbox-wrap .em-inbox-sched-hint { color: var(--gs-accent) !important; text-align: right; }
+.em-inbox-wrap .em-inbox-origin-chip {
+    background: var(--gs-glass-strong) !important;
+    color: var(--gs-text) !important;
+}
+.em-inbox-wrap .em-inbox-snoozed-pill {
+    background: rgba(182, 8, 201, 0.2) !important;
+    color: #f4d4ff !important;
+}
+
+/* === Reduced motion respect === */
+@media (prefers-reduced-motion: reduce) {
+    .em-inbox-wrap *,
+    .em-inbox-wrap *::before,
+    .em-inbox-wrap *::after {
+        animation-duration: 0.001s !important;
+        animation-delay: 0s !important;
+        transition: none !important;
+    }
+}
+
+/* === Modals stay light to remain legible against wp-admin shell.
+ * Override key tokens INSIDE modals so form inputs use light theme. */
+.em-inbox-wrap .components-modal__frame,
+.em-inbox-composer-modal,
+.em-inbox-filters-modal,
+.em-inbox-vacation-modal,
+.em-inbox-preview-modal,
+.em-inbox-labels-modal,
+.em-inbox-addinbox-modal { /* light theme already from wp-components */ }
+
+/* === ADD-INBOX modal (slice 2ss-D) === */
+.em-inbox-addinbox-modal .components-modal__content { max-width: 480px; }
+.em-inbox-addinbox-help {
+    background: #f6f7f7;
+    border-left: 3px solid #2271b1;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #50575e;
+    margin-bottom: 12px;
+}
