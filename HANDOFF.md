@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2vv shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2ww shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -289,4 +289,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-05 — slices 2a → 2vv all verified clean: **107/107 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2vv reduces the layout from 3 columns back to 2: LeftRail (search + filter pills OR CustomerCard) | MainCol. MainCol shows FeedView/SearchResults when no thread is open, ThreadView reader when one is. ThreadView's existing Back button (onBack → setOpenThreadId(null)) returns to the list — no extra wiring needed. 2uu's customer-card endpoint + CustomerCard component + lifted filter/counts state all stay. Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-05 (slice 2vv) **107/107 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2ww adds an "Email" subnav under the BuddyPress Messages component on the frontend member profile (/members/<user>/messages/email/), gated by `em_inbox_user_has_inbox_access()` (admin / super-admin / em_inbox_address meta / wp_gdc_inbox_grants row). A small Email/Chat tab strip is injected at the top of every messages screen so members can flip between the React inbox SPA (Email) and BP's stock messaging (Chat). New file inc/inbox-bp-messages-tabs.php + assets/inbox-bp-tabs.css. 2ww unverified on cluster (gcloud auth expired during build). Run `bin/inbox-smoke-test.php` after every change.

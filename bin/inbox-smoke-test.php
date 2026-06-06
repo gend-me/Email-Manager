@@ -340,6 +340,18 @@ smoke_assert('idem', function_exists('em_inbox_ledger_maybe_create_table'), 'ide
 // ─── 15. TRACKING (slice 2s) ────────────────────────────────────────
 smoke_assert('track', function_exists('em_inbox_track_inject_pixel'), 'tracking inject_pixel loaded');
 
+// ─── 14a. BP MESSAGES ACCESS PREDICATE (slice 2ww) ───────────────────
+smoke_assert('bptabs', function_exists('em_inbox_user_has_inbox_access'), 'em_inbox_user_has_inbox_access loaded');
+smoke_assert('bptabs', em_inbox_user_has_inbox_access($uid), 'admin user has inbox access');
+$noaccess_uid = wp_create_user('smoke_noaccess_' . substr(bin2hex(random_bytes(3)), 0, 6), wp_generate_password(20, true), 'smoke-noaccess-' . $run_tag . '@example.invalid');
+delete_user_meta((int) $noaccess_uid, 'em_inbox_address');
+smoke_assert('bptabs', ! em_inbox_user_has_inbox_access((int) $noaccess_uid), 'subscriber without inbox/grants has NO access');
+// Grant em_inbox_address user_meta and the predicate should flip.
+update_user_meta((int) $noaccess_uid, 'em_inbox_address', 'smoke-' . $run_tag . '@example.invalid');
+smoke_assert('bptabs', em_inbox_user_has_inbox_access((int) $noaccess_uid), 'user with em_inbox_address meta gains access');
+wp_delete_user((int) $noaccess_uid);
+smoke_assert('bptabs', ! em_inbox_user_has_inbox_access(0), 'predicate returns false for uid=0');
+
 // ─── 14b. CUSTOMER CARD (slice 2uu) ──────────────────────────────────
 $req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
 $req->set_query_params(array('email' => $inbox));

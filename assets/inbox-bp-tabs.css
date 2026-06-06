@@ -1,0 +1,60 @@
+/* ============================================================
+ * Email + Chat tab strip on /members/me/messages/ (slice 2ww)
+ * Uses the gend-society glass token palette so it sits well next
+ * to the rest of the member profile.
+ * ============================================================ */
+
+.em-inbox-messages-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 0 14px;
+    margin: 0 0 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.em-inbox-messages-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    color: inherit;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    transition: background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+.em-inbox-messages-tab:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px);
+    color: inherit;
+}
+
+.em-inbox-messages-tab.is-active {
+    background: linear-gradient(135deg, #b608c9 0%, #6ec1e4 100%);
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 4px 14px rgba(182, 8, 201, 0.32);
+}
+
+.em-inbox-messages-tab-icon {
+    font-size: 15px;
+    line-height: 1;
+}
+
+/* Frontend wrapper: the Email screen embeds the same SPA used in
+ * wp-admin but reuses the slice-2ss .em-inbox-wrap design tokens.
+ * Slight overrides for the frontend context. */
+.em-inbox-wrap--frontend {
+    margin: 0 !important;
+    max-width: none !important;
+}

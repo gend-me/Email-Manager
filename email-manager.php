@@ -58,6 +58,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/inbox-grants.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-drafts.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-admin-create.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-customer-card.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-bp-messages-tabs.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';
 require_once EMAIL_MANAGER_PATH . 'inc/applications.php';
