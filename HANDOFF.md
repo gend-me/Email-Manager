@@ -232,7 +232,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 107   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 112   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -289,4 +289,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-05 (slice 2vv) **107/107 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2ww adds an "Email" subnav under the BuddyPress Messages component on the frontend member profile (/members/<user>/messages/email/), gated by `em_inbox_user_has_inbox_access()` (admin / super-admin / em_inbox_address meta / wp_gdc_inbox_grants row). A small Email/Chat tab strip is injected at the top of every messages screen so members can flip between the React inbox SPA (Email) and BP's stock messaging (Chat). New file inc/inbox-bp-messages-tabs.php + assets/inbox-bp-tabs.css. 2ww unverified on cluster (gcloud auth expired during build). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-06 (slice 2ww) **112/112 PASS** on both customer (wp-676babb3-014f-4b40-8991-459d5782557a) and hub (wp-hub). 2ww adds an "Email" subnav under the BuddyPress Messages component on the frontend member profile (/members/<user>/messages/email/), gated by `em_inbox_user_has_inbox_access()` (admin / super-admin / em_inbox_address meta / wp_gdc_inbox_grants row). A small Email/Chat tab strip is injected at the top of every messages screen so members can flip between the React inbox SPA (Email) and BP's stock messaging (Chat). New file inc/inbox-bp-messages-tabs.php + assets/inbox-bp-tabs.css. Run `bin/inbox-smoke-test.php` after every change.
