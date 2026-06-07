@@ -663,6 +663,47 @@ foreach ($created_thread_ids as $id) {
         $wpdb->delete($wpdb->prefix . 'gdc_inbox_participants', array('thread_id' => $id));
     }
 }
+// Slice 2xx: belt-and-suspenders sweep. The helpers above only track
+// threads that smoke_insert_inbound returned, but many tests fan out
+// across multiple synthetic threads whose ids never make it into
+// $created_thread_ids. Match orphans by run_tag in the subject AND
+// confirm message_count = 0 (real-world threads NEVER hit 0 messages
+// once threading has fired). Deletes the thread + participants but
+// leaves messages alone (there shouldn't be any).
+$orphan_tids = $wpdb->get_col($wpdb->prepare(
+    "SELECT t.id FROM {$wpdb->prefix}gdc_inbox_threads t
+     LEFT JOIN {$wpdb->prefix}gdc_inbox_messages m ON m.thread_id = t.id
+     WHERE (t.subject_first LIKE %s OR t.subject_normalized LIKE %s)
+       AND m.id IS NULL",
+    '%' . $wpdb->esc_like($run_tag) . '%',
+    '%' . $wpdb->esc_like($run_tag) . '%'
+));
+foreach ((array) $orphan_tids as $tid) {
+    $tid = (int) $tid;
+    $wpdb->delete($wpdb->prefix . 'gdc_inbox_threads', array('id' => $tid));
+    $wpdb->delete($wpdb->prefix . 'gdc_inbox_participants', array('thread_id' => $tid));
+    $wpdb->delete($wpdb->prefix . 'gdc_inbox_thread_labels', array('thread_id' => $tid));
+}
+if (! empty($orphan_tids)) echo "Swept " . count($orphan_tids) . " orphan thread(s) from this run.\n";
+
+// 2xx: also sweep stragglers left over from PRIOR smoke runs whose
+// run_tag we don't have any more. Markers: subject begins with
+// "smoke " OR "ordinary subject mentions sboost" (the 2ff sender-
+// boost helper) AND the thread has 0 messages. Bounded to messageless
+// rows so a legit thread that happens to begin "smoke" survives.
+$legacy_tids = $wpdb->get_col(
+    "SELECT t.id FROM {$wpdb->prefix}gdc_inbox_threads t
+     LEFT JOIN {$wpdb->prefix}gdc_inbox_messages m ON m.thread_id = t.id
+     WHERE (t.subject_first LIKE 'smoke %' OR t.subject_first LIKE 'sm-%' OR t.subject_first LIKE 'ordinary subject%sboost%')
+       AND m.id IS NULL"
+);
+foreach ((array) $legacy_tids as $tid) {
+    $tid = (int) $tid;
+    $wpdb->delete($wpdb->prefix . 'gdc_inbox_threads', array('id' => $tid));
+    $wpdb->delete($wpdb->prefix . 'gdc_inbox_participants', array('thread_id' => $tid));
+    $wpdb->delete($wpdb->prefix . 'gdc_inbox_thread_labels', array('thread_id' => $tid));
+}
+if (! empty($legacy_tids)) echo "Swept " . count($legacy_tids) . " legacy orphan thread(s).\n";
 
 echo "\n========================================\n";
 echo "PASS: $em_smoke_pass_count   FAIL: $em_smoke_fail_count\n";

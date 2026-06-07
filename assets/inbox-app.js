@@ -1696,7 +1696,16 @@
                 .catch(function (e) { setState({ loading: false, data: null, err: e.message || 'Failed to load customer card' }); });
         }, [props.email]);
 
-        if (! props.email) return html`<div class="em-inbox-card em-inbox-card--empty"><p>Loading conversation…</p></div>`;
+        // 2xx: tri-state on props.email
+        //   null       → ThreadView still loading the thread
+        //   ''         → resolved; no other party identifiable (orphan thread)
+        //   '<email>'  → resolved; show the card
+        if (props.email === null || props.email === undefined) {
+            return html`<div class="em-inbox-card em-inbox-card--empty"><p>Loading conversation…</p></div>`;
+        }
+        if (props.email === '') {
+            return html`<div class="em-inbox-card em-inbox-card--empty"><p>No participant could be identified for this thread.<br/><small>This usually means the thread has no messages yet (orphaned thread).</small></p></div>`;
+        }
         if (state.loading)  return html`<div class="em-inbox-card em-inbox-card--loading"><${Spinner} /></div>`;
         if (state.err)      return html`<div class="em-inbox-card"><${Notice} status="error" isDismissible=${false}>${state.err}<//></div>`;
         var d = state.data || {};
@@ -2090,7 +2099,10 @@
                     // CustomerCard in the left rail. Picks the first
                     // message whose sender != inbox_address. For an
                     // entirely-outbound thread, falls back to the first
-                    // To: header.
+                    // To: header. Slice 2xx: ALWAYS fire the callback —
+                    // pass '' (empty string) when we couldn't resolve a
+                    // party, so the App can swap the card from a
+                    // perpetual spinner to a "no participant" notice.
                     if (props.onOtherParty && data.thread) {
                         var owner = (data.thread.inbox_address || '').toLowerCase();
                         var other = null;
@@ -2113,7 +2125,7 @@
                                 return false;
                             });
                         }
-                        if (other) props.onOtherParty(other.toLowerCase());
+                        props.onOtherParty(other ? other.toLowerCase() : '');
                     }
                 })
                 .catch(function (e) { setState({ loading: false, thread: null, messages: [], err: e.message || 'Failed to load thread' }); });
