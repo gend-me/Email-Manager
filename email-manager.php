@@ -295,3 +295,49 @@ function em_register_admin_menu()
         );
     }
 }
+
+// =====================================================================
+// === Section 14-04 (EMAIL-01..03): UTM Injection + Click Tracking ===
+// =====================================================================
+//
+// Phase 14 slot 48 — wp_mail middleware that injects UTM params + 1x1 open
+// tracking pixel into outbound emails matching configured destination
+// domains, plus REST endpoints (/email/open + /email/click) that write
+// wp_cc_clicks rows tagged utm_source='email' so email-attributed opens +
+// clicks segregate from organic/social/ads in the click ledger.
+//
+// Per-campaign UTM template is editable in the email-manager admin sub-tab
+// at ?page=email-manager&subtab=utm with CLICK-06 controlled vocab
+// (wp_options gend_cc_utm_campaigns + gend_cc_utm_contents) — free-text
+// submissions rejected via WP_Error('cc_utm_invalid').
+//
+// Bootstrap priority 48 (Phase 14 slot 45-50: 14-01=45, 14-02=46, 14-03=47).
+//
+require_once EMAIL_MANAGER_PATH . 'inc/class-em-utm-injector.php';
+require_once EMAIL_MANAGER_PATH . 'inc/class-em-click-tracker.php';
+require_once EMAIL_MANAGER_PATH . 'inc/class-em-utm-template-admin.php';
+
+add_action('plugins_loaded', function () {
+    if (class_exists('EM_UTM_Injector')) {
+        EM_UTM_Injector::register();
+    }
+    if (class_exists('EM_UTM_Template_Admin')) {
+        EM_UTM_Template_Admin::register();
+    }
+}, 48);
+
+add_action('rest_api_init', function () {
+    if (class_exists('EM_Click_Tracker')) {
+        EM_Click_Tracker::register_routes();
+    }
+});
+
+// Activation: ensure the wp_em_utm_templates table exists (raw CREATE TABLE
+// IF NOT EXISTS — never dbDelta per v1.0 hard rule). Wired into the
+// existing em_activate_plugin via this dedicated hook so the original
+// callback stays narrowly-scoped.
+register_activation_hook(__FILE__, function () {
+    if (class_exists('EM_UTM_Template_Admin')) {
+        EM_UTM_Template_Admin::install_schema();
+    }
+});
