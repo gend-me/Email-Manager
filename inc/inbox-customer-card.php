@@ -44,6 +44,18 @@ function em_inbox_customer_card(WP_REST_Request $r) {
         return new WP_Error('em_card_bad_email', 'A valid email is required', array('status' => 400));
     }
 
+    // Slice 2yy: 60s transient cache. The slow sections (wc_get_orders,
+    // mycred balance lookups, chat_submission LIKE-on-postmeta) take
+    // hundreds of ms on a populated site and the same email gets
+    // requested every time the user clicks a different thread from the
+    // same sender. ?refresh=1 bypasses the cache for ops debugging.
+    $key = 'em_inbox_card_' . md5($email);
+    $force = (int) $r->get_param('refresh') === 1;
+    if (! $force) {
+        $cached = get_transient($key);
+        if (is_array($cached)) return rest_ensure_response($cached);
+    }
+
     $out = array(
         'email'     => $email,
         'user'      => em_inbox_card_user($email),
@@ -51,9 +63,42 @@ function em_inbox_customer_card(WP_REST_Request $r) {
         'contracts' => em_inbox_card_contracts($email),
         'orders'    => em_inbox_card_orders($email),
         'wallet'    => em_inbox_card_wallet($email),
+        '_cached_at'=> gmdate('c'),
     );
+    set_transient($key, $out, 60);
     return rest_ensure_response($out);
 }
+
+// Slice 2yy: bust the customer-card cache when anything that affects
+// it changes — new order, new wallet entry, new form submission for
+// the email. Errs on the side of being aggressive; the cache is only
+// 60s anyway so over-busting is cheap.
+add_action('woocommerce_new_order',        'em_inbox_card_bust_for_order', 10, 1);
+add_action('woocommerce_order_status_changed', 'em_inbox_card_bust_for_order', 10, 1);
+function em_inbox_card_bust_for_order($order_id) {
+    if (! class_exists('WooCommerce')) return;
+    try {
+        $order = wc_get_order($order_id);
+        if (! $order || ! method_exists($order, 'get_billing_email')) return;
+        $email = strtolower($order->get_billing_email());
+        if ($email) delete_transient('em_inbox_card_' . md5($email));
+    } catch (\Throwable $e) { /* skip */ }
+}
+// mycred fires hooks with this name as both an action (7 args) AND a
+// filter (3 args, e.g. apply_filters('mycred_add', true, $log_entry,
+// $settings)). Use variadic so we accept either shape without an
+// ArgumentCountError, and pull user_id by position.
+add_action('mycred_add', function () {
+    $args = func_get_args();
+    // 7-arg form: (ref, user_id, amount, entry, ref_id, data, ctype)
+    if (count($args) >= 2 && is_numeric($args[1])) {
+        $u = get_user_by('id', (int) $args[1]);
+        if ($u && $u->user_email) delete_transient('em_inbox_card_' . md5(strtolower($u->user_email)));
+    }
+    // 3-arg filter form: (return, log_entry, settings). Just return the
+    // first arg untouched so we don't break the filter chain.
+    return $args[0] ?? null;
+}, 10, 7);
 
 /* -------------------------------------------------------------------------
  * Per-section gatherers — each returns null when its data source isn't

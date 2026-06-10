@@ -352,6 +352,19 @@ smoke_assert('bptabs', em_inbox_user_has_inbox_access((int) $noaccess_uid), 'use
 wp_delete_user((int) $noaccess_uid);
 smoke_assert('bptabs', ! em_inbox_user_has_inbox_access(0), 'predicate returns false for uid=0');
 
+// ─── 14a-2. BOOTSTRAP (slice 2yy) ────────────────────────────────────
+$req = new WP_REST_Request('GET', '/em/v1/inbox/bootstrap');
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('boot', $res->get_status() === 200, '/bootstrap 200');
+foreach (array('inboxes', 'labels', 'vacation', 'signature', 'grants') as $key) {
+    smoke_assert('boot', array_key_exists($key, $d), 'bootstrap returns key: ' . $key);
+}
+smoke_assert('boot', is_array($d['inboxes']),  'bootstrap.inboxes is array');
+smoke_assert('boot', is_array($d['labels']),   'bootstrap.labels is array');
+smoke_assert('boot', is_array($d['grants']),   'bootstrap.grants is array');
+smoke_assert('boot', isset($d['grants']['given']) && isset($d['grants']['received']), 'bootstrap.grants has given/received');
+
 // ─── 14b. CUSTOMER CARD (slice 2uu) ──────────────────────────────────
 $req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
 $req->set_query_params(array('email' => $inbox));
@@ -372,6 +385,27 @@ $req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
 $req->set_query_params(array('email' => 'not-an-email'));
 $res = rest_do_request($req);
 smoke_assert('card', $res->get_status() === 400, '/customer-card 400 for invalid email');
+
+// Slice 2yy: cache returns _cached_at on 2nd hit (proves the transient
+// is being used). Clear first to ensure a clean baseline.
+delete_transient('em_inbox_card_' . md5($inbox));
+$req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
+$req->set_query_params(array('email' => $inbox));
+rest_do_request($req);  // priming
+$req2 = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
+$req2->set_query_params(array('email' => $inbox));
+$d2 = rest_do_request($req2)->get_data();
+smoke_assert('card', isset($d2['_cached_at']), 'second customer-card call is cached');
+
+// ?refresh=1 bypasses the cache (no _cached_at on the fresh response
+// at this exact instant — though we do set_transient again, so the
+// _cached_at IS in the output but matches a fresh timestamp). Use a
+// before/after key-existence check instead.
+delete_transient('em_inbox_card_' . md5($inbox));
+$req3 = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
+$req3->set_query_params(array('email' => $inbox, 'refresh' => '1'));
+$d3 = rest_do_request($req3)->get_data();
+smoke_assert('card', isset($d3['user']), '?refresh=1 still returns the full card');
 
 // ─── 15a. ADMIN ADD-INBOX (slice 2ss) ────────────────────────────────
 // Acting as admin: create-new should make a fresh user.

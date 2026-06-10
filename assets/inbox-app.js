@@ -645,7 +645,9 @@
         var helpState = useState(false);          var showHelp = helpState[0], setShowHelp = helpState[1];
         var vacationState = useState(false);      var showVacation = vacationState[0], setShowVacation = vacationState[1];
         var vacationCfgState = useState(null);    var vacationCfg = vacationCfgState[0], setVacationCfg = vacationCfgState[1];
-        useEffect(function () { restGet('vacation').then(setVacationCfg); }, [tick]);
+        // Slice 2yy: vacation is fetched in the single bootstrap call
+        // below — no per-tick refetch. The VacationModal updates the
+        // state directly via its onChanged prop.
         var filtersState = useState(false);       var showFilters = filtersState[0], setShowFilters = filtersState[1];
         var sharingState = useState(false);       var showSharing = sharingState[0], setShowSharing = sharingState[1];
         var addInboxState = useState(false);      var showAddInbox = addInboxState[0], setShowAddInbox = addInboxState[1];
@@ -661,20 +663,24 @@
         // closes or tick bumps. Used by Composer to render the From
         // dropdown when there's more than one option.
         var fromsState = useState([]);            var availableFroms = fromsState[0], setAvailableFroms = fromsState[1];
-        useEffect(function () {
-            restGet('grants').then(function (d) {
-                var list = [];
-                // Own address is always available — derive from cfg
-                // (server-injected current-user email).
-                if (cfg.currentUserEmail) list.push({ address: cfg.currentUserEmail, label: cfg.currentUserEmail + ' (me)', self: true });
-                (d.received || []).forEach(function (g) {
-                    if (g.scope === 'read_send' && g.owner_email) {
-                        list.push({ address: g.owner_email, label: g.owner_email + ' (delegated)', self: false });
-                    }
-                });
-                setAvailableFroms(list);
-            }).catch(function () { /* non-fatal */ });
-        }, [tick]);
+        // Slice 2yy: turn the grants payload from /bootstrap (or a
+        // sharing-modal save) into the From-dropdown list. Extracted so
+        // the bootstrap effect + SharingModal onClose can both call it.
+        function applyGrantsToFroms(grantsObj) {
+            var list = [];
+            if (cfg.currentUserEmail) list.push({ address: cfg.currentUserEmail, label: cfg.currentUserEmail + ' (me)', self: true });
+            ((grantsObj && grantsObj.received) || []).forEach(function (g) {
+                if (g.scope === 'read_send' && g.owner_email) {
+                    list.push({ address: g.owner_email, label: g.owner_email + ' (delegated)', self: false });
+                }
+            });
+            setAvailableFroms(list);
+        }
+        function refreshGrants() {
+            restGet('grants')
+                .then(function (d) { applyGrantsToFroms(d); })
+                .catch(function () { /* non-fatal */ });
+        }
         var focusedThreadState = useState(null);  var focusedThreadId = focusedThreadState[0], setFocusedThreadId = focusedThreadState[1];
         // searchInputRef so '/' can focus the search bar.
         var searchInputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
@@ -685,7 +691,9 @@
         function reloadLabels() {
             restGet('labels').then(function (rows) { setLabels(rows || []); });
         }
-        useEffect(function () { reloadLabels(); }, [tick]);
+        // Slice 2yy: labels are seeded by /bootstrap. Reload is now
+        // explicit — called from ManageLabels.onChanged when a label
+        // is created or renamed.
 
         // ── slice 2x: keyboard shortcuts ──────────────────────────
         // Slice 2jj: tiny state machine for "g + letter" two-key
@@ -755,14 +763,34 @@
         }, [openThreadId, focusedThreadId, composerProps, showHelp, showManageLabels, showSharing, showFilters, selected, tick]);
 
         useEffect(function () {
+            // Slice 2yy: single-round-trip mount bootstrap. Replaces what
+            // used to be 5 sequential GETs (/inboxes, /labels, /vacation,
+            // /signature, /grants). On servers where the bootstrap
+            // endpoint isn't deployed yet we fall back to the per-feature
+            // endpoints for graceful degradation.
             setLoading(true);
-            restGet('inboxes').then(function (rows) {
-                setInboxes(rows || []);
-                if (rows && rows.length && !selected) setSelected(rows[0].inbox_address);
+            restGet('bootstrap').then(function (b) {
+                var rows = (b && Array.isArray(b.inboxes)) ? b.inboxes : [];
+                setInboxes(rows);
+                if (rows.length && !selected) setSelected(rows[0].inbox_address);
+                if (b && Array.isArray(b.labels)) setLabels(b.labels);
+                if (b && b.vacation !== undefined) setVacationCfg(b.vacation);
+                if (b && b.grants) applyGrantsToFroms(b.grants);
                 setLoading(false);
-            }).catch(function (e) {
-                setErr(e.message || 'Failed to load inboxes');
-                setLoading(false);
+            }).catch(function () {
+                // Legacy/parallel-degraded fallback. Fires only when
+                // /bootstrap 404s — keeps the SPA usable on older sites.
+                restGet('inboxes').then(function (rows) {
+                    setInboxes(rows || []);
+                    if (rows && rows.length && !selected) setSelected(rows[0].inbox_address);
+                    setLoading(false);
+                }).catch(function (e) {
+                    setErr(e.message || 'Failed to load inboxes');
+                    setLoading(false);
+                });
+                reloadLabels();
+                restGet('vacation').then(setVacationCfg).catch(function () {});
+                refreshGrants();
             });
         }, []);
 
@@ -994,7 +1022,7 @@
             ${showHelp && html`<${ShortcutHelpOverlay} onClose=${function () { setShowHelp(false); }} />`}
             ${showVacation && html`<${VacationModal} onClose=${function () { setShowVacation(false); }} onChanged=${setVacationCfg} />`}
             ${showFilters && html`<${FiltersModal} labels=${labels} onClose=${function () { setShowFilters(false); }} />`}
-            ${showSharing && html`<${SharingModal} onClose=${function () { setShowSharing(false); bumpTick(tick + 1); }} />`}
+            ${showSharing && html`<${SharingModal} onClose=${function () { setShowSharing(false); refreshGrants(); }} />`}
             ${showAddInbox && html`<${AddInboxModal} onClose=${function () { setShowAddInbox(false); }} onCreated=${function () { setShowAddInbox(false); bumpTick(tick + 1); }} />`}
           </div>
         `;
