@@ -352,12 +352,122 @@ smoke_assert('bptabs', em_inbox_user_has_inbox_access((int) $noaccess_uid), 'use
 wp_delete_user((int) $noaccess_uid);
 smoke_assert('bptabs', ! em_inbox_user_has_inbox_access(0), 'predicate returns false for uid=0');
 
+// ─── 14a-1. RECOVERY EMAIL (slice 2zz) ───────────────────────────────
+// Clean any prior state from a previous run.
+delete_user_meta($uid, 'em_inbox_recovery_email');
+delete_user_meta($uid, 'em_inbox_recovery_email_pending');
+delete_user_meta($uid, 'em_inbox_recovery_email_token');
+delete_user_meta($uid, 'em_inbox_recovery_email_token_exp');
+
+// GET: empty state
+$req = new WP_REST_Request('GET', '/em/v1/inbox/recovery-email');
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('recov', $res->get_status() === 200, '/recovery-email GET 200');
+smoke_assert('recov', $d['confirmed'] === '' && $d['pending'] === '', 'starts with no recovery set');
+
+// POST: set a candidate
+$rec_email = 'recovery-' . $run_tag . '@example.invalid';
+$res = post_json('/em/v1/inbox/recovery-email', array('recovery_email' => $rec_email));
+$d = $res->get_data();
+smoke_assert('recov', $res->get_status() === 200, 'POST set 200');
+smoke_assert('recov', $d['pending'] === strtolower($rec_email), 'pending field stores the candidate');
+smoke_assert('recov', $d['confirmed'] === '', 'confirmed is still empty (awaiting verification)');
+
+// Same as account email rejected
+$res = post_json('/em/v1/inbox/recovery-email', array('recovery_email' => $inbox));
+smoke_assert('recov', $res->get_status() === 400, 'reject recovery == primary account email');
+
+// Bad email
+$res = post_json('/em/v1/inbox/recovery-email', array('recovery_email' => 'not-an-email'));
+smoke_assert('recov', $res->get_status() === 400, 'reject bad email');
+
+// Walk the verification: read token meta + call /verify
+$hash = (string) get_user_meta($uid, EM_INBOX_REC_TOKEN_META, true);
+// Recreate the plaintext token: we need to also re-send so we know the
+// plaintext (the previous post stored only the hash). Use the helper.
+em_inbox_recovery_email_send_token($uid, $rec_email);
+// We can't easily extract the plaintext token without intercepting
+// the email — instead, write a known token + matching hash directly.
+$plain = bin2hex(random_bytes(16));
+update_user_meta($uid, EM_INBOX_REC_TOKEN_META, hash('sha256', $plain));
+update_user_meta($uid, EM_INBOX_REC_TOKEN_EXP, time() + 3600);
+update_user_meta($uid, EM_INBOX_REC_PENDING_META, $rec_email);
+
+$req = new WP_REST_Request('GET', '/em/v1/inbox/recovery-email/verify');
+$req->set_query_params(array('uid' => $uid, 'token' => $plain));
+$res = rest_do_request($req);
+smoke_assert('recov', $res->get_status() === 200, 'verify 200 with valid token');
+$d = $res->get_data();
+smoke_assert('recov', isset($d['verified_email']) && strtolower($d['verified_email']) === strtolower($rec_email), 'verify returns the email');
+
+// Confirm meta is promoted
+$req = new WP_REST_Request('GET', '/em/v1/inbox/recovery-email');
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('recov', strtolower($d['confirmed']) === strtolower($rec_email), 'state.confirmed is set after verify');
+smoke_assert('recov', $d['pending'] === '', 'state.pending is cleared after verify');
+
+// Bad token rejected
+update_user_meta($uid, EM_INBOX_REC_TOKEN_META, hash('sha256', 'good-token-here'));
+update_user_meta($uid, EM_INBOX_REC_TOKEN_EXP, time() + 3600);
+update_user_meta($uid, EM_INBOX_REC_PENDING_META, 'pending-' . $run_tag . '@example.invalid');
+$req = new WP_REST_Request('GET', '/em/v1/inbox/recovery-email/verify');
+$req->set_query_params(array('uid' => $uid, 'token' => 'wrong-token'));
+$res = rest_do_request($req);
+smoke_assert('recov', $res->get_status() === 403, 'verify 403 on wrong token');
+
+// Expired token
+update_user_meta($uid, EM_INBOX_REC_TOKEN_EXP, time() - 60);
+$req = new WP_REST_Request('GET', '/em/v1/inbox/recovery-email/verify');
+$req->set_query_params(array('uid' => $uid, 'token' => 'good-token-here'));
+$res = rest_do_request($req);
+smoke_assert('recov', $res->get_status() === 410, 'verify 410 on expired token');
+
+// Reset to a known good state for the routing test below
+delete_user_meta($uid, 'em_inbox_recovery_email_pending');
+delete_user_meta($uid, 'em_inbox_recovery_email_token');
+delete_user_meta($uid, 'em_inbox_recovery_email_token_exp');
+update_user_meta($uid, 'em_inbox_recovery_email', $rec_email);
+
+// Password-reset routing: retrieve_password_notification_email filter
+// rewrites the recipient. Simulate by calling the filter directly.
+$args = array('to' => $inbox, 'subject' => 'Password reset for ' . $inbox, 'message' => '...', 'headers' => '');
+$u = get_user_by('id', $uid);
+$rerouted = apply_filters('retrieve_password_notification_email', $args, 'fake-key', $u->user_login, $u);
+smoke_assert('recov', strtolower($rerouted['to']) === strtolower($rec_email), 'password-reset email re-routed to recovery address');
+smoke_assert('recov', strpos($rerouted['subject'], '[Recovery]') === 0, 'subject gets [Recovery] prefix');
+
+// wp_mail fallback: any subject mentioning "password" / "reset" /
+// "verify" to the inbox owner's primary email gets rerouted.
+$rerouted2 = apply_filters('wp_mail', array(
+    'to' => $inbox,
+    'subject' => 'Please verify your email change',
+    'message' => 'x',
+    'headers' => array(),
+    'attachments' => array(),
+));
+$to = is_array($rerouted2['to']) ? $rerouted2['to'][0] : $rerouted2['to'];
+smoke_assert('recov', strtolower($to) === strtolower($rec_email), 'wp_mail fallback re-routes credential-y subjects');
+
+// Delete: clears confirmed
+$req = new WP_REST_Request('DELETE', '/em/v1/inbox/recovery-email');
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('recov', $res->get_status() === 200 && $d['confirmed'] === '', 'DELETE clears confirmed');
+
+// Cleanup
+delete_user_meta($uid, 'em_inbox_recovery_email');
+delete_user_meta($uid, 'em_inbox_recovery_email_pending');
+delete_user_meta($uid, 'em_inbox_recovery_email_token');
+delete_user_meta($uid, 'em_inbox_recovery_email_token_exp');
+
 // ─── 14a-2. BOOTSTRAP (slice 2yy) ────────────────────────────────────
 $req = new WP_REST_Request('GET', '/em/v1/inbox/bootstrap');
 $res = rest_do_request($req);
 $d = $res->get_data();
 smoke_assert('boot', $res->get_status() === 200, '/bootstrap 200');
-foreach (array('inboxes', 'labels', 'vacation', 'signature', 'grants') as $key) {
+foreach (array('inboxes', 'labels', 'vacation', 'signature', 'grants', 'recovery_email') as $key) {
     smoke_assert('boot', array_key_exists($key, $d), 'bootstrap returns key: ' . $key);
 }
 smoke_assert('boot', is_array($d['inboxes']),  'bootstrap.inboxes is array');

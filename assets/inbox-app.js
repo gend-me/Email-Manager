@@ -262,6 +262,91 @@
     }
 
     // ── Admin: add new inbox modal (slice 2ss) ────────────────────────
+    // Slice 2zz: Recovery Email modal. Lets the member register a
+    // separate email address (e.g. personal Gmail) where WP system
+    // emails — password reset, account changes — get redirected so
+    // they're not locked out if they can't read their inbox address.
+    function RecoveryEmailModal(props) {
+        var initial = props.initial || {};
+        var emailState = useState('');                            var email   = emailState[0],   setEmail   = emailState[1];
+        var busyState  = useState(false);                         var busy    = busyState[0],    setBusy    = busyState[1];
+        var msgState   = useState(null);                          var msg     = msgState[0],     setMsg     = msgState[1];
+        var stateState = useState(initial);                       var data    = stateState[0],   setData    = stateState[1];
+
+        function refresh() {
+            return restGet('recovery-email').then(function (d) { setData(d); props.onChanged && props.onChanged(d); return d; });
+        }
+
+        function submit() {
+            if (! email) { setMsg({ status: 'error', text: 'Enter the address you want to use for recovery.' }); return; }
+            setBusy(true); setMsg(null);
+            apiFetch({ url: cfg.restRoot + 'recovery-email', method: 'POST', data: { recovery_email: email } })
+                .then(function (d) {
+                    setBusy(false);
+                    setEmail('');
+                    setData(d);
+                    props.onChanged && props.onChanged(d);
+                    setMsg({ status: 'success', text: 'Verification email sent. Click the link in that inbox within 24 hours to activate.' });
+                })
+                .catch(function (e) { setBusy(false); setMsg({ status: 'error', text: (e && e.message) || 'Could not save recovery email' }); });
+        }
+
+        function resend() {
+            setBusy(true); setMsg(null);
+            apiFetch({ url: cfg.restRoot + 'recovery-email/resend', method: 'POST', data: {} })
+                .then(function (d) { setBusy(false); setData(d); props.onChanged && props.onChanged(d); setMsg({ status: 'success', text: 'Verification email re-sent.' }); })
+                .catch(function (e) { setBusy(false); setMsg({ status: 'error', text: (e && e.message) || 'Resend failed' }); });
+        }
+
+        function discard() {
+            if (! window.confirm('Remove your recovery email? Password-reset mail will go back to your primary address.')) return;
+            setBusy(true); setMsg(null);
+            apiFetch({ url: cfg.restRoot + 'recovery-email', method: 'DELETE' })
+                .then(function (d) { setBusy(false); setData(d); props.onChanged && props.onChanged(d); setMsg({ status: 'success', text: 'Recovery email cleared.' }); })
+                .catch(function (e) { setBusy(false); setMsg({ status: 'error', text: (e && e.message) || 'Delete failed' }); });
+        }
+
+        return html`
+          <${Modal} title="Recovery email" onRequestClose=${props.onClose} className="em-inbox-addinbox-modal">
+            <p class="em-inbox-addinbox-help">
+              If you ever forget your password, WordPress sends the reset link to your
+              account email — which for an inbox owner IS the address you can't read
+              without logging in. Set a verified <strong>recovery email</strong> here
+              (a personal Gmail / Outlook / etc.) and any password-reset or
+              account-system mail will go there instead, with a <code>[Recovery]</code>
+              subject prefix so you can spot it.
+            </p>
+
+            ${data && data.confirmed && html`<${Notice} status="success" isDismissible=${false}>
+              <strong>Active recovery email:</strong> ${data.confirmed}
+            <//>`}
+            ${data && data.pending && html`<${Notice} status="warning" isDismissible=${false}>
+              <strong>Pending verification:</strong> ${data.pending}<br/>
+              Click the link sent to that inbox to activate. ${data.pending_expires_at && html`<small>Expires ${formatDate(new Date(data.pending_expires_at * 1000).toISOString())}</small>`}
+              <br/>
+              <button type="button" class="em-inbox-link-btn" onClick=${resend} disabled=${busy}>Resend verification email</button>
+            <//>`}
+
+            <${TextControl}
+              label="Set / replace recovery email"
+              help="Must be different from your account email and inbox address."
+              type="email"
+              value=${email}
+              onChange=${setEmail}
+              __nextHasNoMarginBottom=${true} />
+            ${msg && html`<${Notice} status=${msg.status} isDismissible=${false}>${msg.text}<//>`}
+
+            <div class="em-inbox-composer-actions">
+              ${data && data.confirmed && html`<${Button} variant="tertiary" onClick=${discard} disabled=${busy}>Remove<//>`}
+              <${Button} variant="tertiary" onClick=${props.onClose} disabled=${busy}>Close<//>
+              <${Button} variant="primary"  onClick=${submit}        disabled=${busy || ! email}>
+                ${busy ? html`<${Spinner} />` : 'Send verification'}
+              <//>
+            </div>
+          <//>
+        `;
+    }
+
     function AddInboxModal(props) {
         var formState = useState({ email: '', display_name: '', mode: 'new_user', role: 'subscriber', send_invite: true });
         var form = formState[0], setForm = formState[1];
@@ -651,6 +736,8 @@
         var filtersState = useState(false);       var showFilters = filtersState[0], setShowFilters = filtersState[1];
         var sharingState = useState(false);       var showSharing = sharingState[0], setShowSharing = sharingState[1];
         var addInboxState = useState(false);      var showAddInbox = addInboxState[0], setShowAddInbox = addInboxState[1];
+        var recoveryState = useState(false);      var showRecovery = recoveryState[0], setShowRecovery = recoveryState[1];
+        var recoveryStateData = useState(null);   var recoveryData = recoveryStateData[0], setRecoveryData = recoveryStateData[1];
         // Slice 2uu: lift filter + counts + other-party email so the
         // left rail (filters or customer card) and the feed view share
         // them. Other-party email is derived by ThreadView from the
@@ -776,6 +863,7 @@
                 if (b && Array.isArray(b.labels)) setLabels(b.labels);
                 if (b && b.vacation !== undefined) setVacationCfg(b.vacation);
                 if (b && b.grants) applyGrantsToFroms(b.grants);
+                if (b && b.recovery_email !== undefined) setRecoveryData(b.recovery_email);
                 setLoading(false);
             }).catch(function () {
                 // Legacy/parallel-degraded fallback. Fires only when
@@ -859,6 +947,12 @@
                 title="Add a new inbox (admin only)"
                 onClick=${function () { setShowAddInbox(true); }}
               >+ Inbox</button>`}
+              <button
+                type="button"
+                class="em-inbox-filters-btn em-inbox-recovery-btn ${recoveryData && recoveryData.confirmed ? '' : 'is-unset'}"
+                title="Recovery email — where password-reset and account emails are sent if you can't access your inbox"
+                onClick=${function () { setShowRecovery(true); }}
+              >🔑 ${recoveryData && recoveryData.confirmed ? 'Recovery set' : 'Recovery'}</button>
               ${selected && html`<${NotificationBell}
                 inbox=${selected}
                 onClick=${function () { /* clicking the bell switches to unread view */
@@ -1024,6 +1118,7 @@
             ${showFilters && html`<${FiltersModal} labels=${labels} onClose=${function () { setShowFilters(false); }} />`}
             ${showSharing && html`<${SharingModal} onClose=${function () { setShowSharing(false); refreshGrants(); }} />`}
             ${showAddInbox && html`<${AddInboxModal} onClose=${function () { setShowAddInbox(false); }} onCreated=${function () { setShowAddInbox(false); bumpTick(tick + 1); }} />`}
+            ${showRecovery && html`<${RecoveryEmailModal} initial=${recoveryData} onClose=${function () { setShowRecovery(false); }} onChanged=${setRecoveryData} />`}
           </div>
         `;
     }

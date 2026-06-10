@@ -33,6 +33,7 @@ function em_inbox_bootstrap(WP_REST_Request $r) {
         'vacation'  => null,
         'signature' => null,
         'grants'    => array('given' => array(), 'received' => array()),
+        'recovery_email' => null,
     );
 
     // /inboxes
@@ -79,6 +80,16 @@ function em_inbox_bootstrap(WP_REST_Request $r) {
                     'given'    => em_inbox_grants_given_by((int) $u->ID),
                     'received' => em_inbox_grants_received_by((int) $u->ID),
                 );
+            }
+        }
+    } catch (\Throwable $e) { /* skip */ }
+
+    // Slice 2zz: recovery email state
+    try {
+        if (function_exists('em_inbox_recovery_email_state')) {
+            $u = wp_get_current_user();
+            if ($u && $u->ID) {
+                $out['recovery_email'] = em_inbox_recovery_email_state((int) $u->ID);
             }
         }
     } catch (\Throwable $e) { /* skip */ }

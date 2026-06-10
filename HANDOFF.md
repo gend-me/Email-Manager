@@ -1,6 +1,6 @@
 # Member Inbox — Operator Handoff
 
-Slices 2a → 2yy shipped 2026-05 / 2026-06. This document is for the
+Slices 2a → 2zz shipped 2026-05 / 2026-06. This document is for the
 next operator (human or AI) picking up after a context reset. Read this
 top-to-bottom before touching anything in `inc/inbox-*.php`,
 `assets/inbox-app.*`, or `k8s/email-mta-image/`.
@@ -130,7 +130,10 @@ GET    /unread-count?inbox=             {unread, total, latest_at} — bell poll
 GET/POST/PUT/DELETE /drafts/{id?}      composer auto-saves here every ~1.5s on idle
 POST   /admin/inboxes                  admin-only: create new WP user or assign existing to inbox address
 GET    /customer-card?email=&refresh=    customer aggregate: user, forms, contracts, orders, wallet (each section null when its plugin is inactive). 60s transient cache; ?refresh=1 bypasses
-GET    /bootstrap                        single-round-trip mount payload: {inboxes, labels, vacation, signature, grants}. SPA falls back to per-feature endpoints on 404
+GET    /bootstrap                        single-round-trip mount payload: {inboxes, labels, vacation, signature, grants, recovery_email}. SPA falls back to per-feature endpoints on 404
+GET/POST/DELETE /recovery-email          per-user recovery email: pending → click verify link → confirmed. Routes password-reset + account mail to a verified secondary address so locked-out inbox owners can recover
+GET    /recovery-email/verify?uid=&token= public verify endpoint (clicked from emailed link)
+POST   /recovery-email/resend             re-send verification to the pending address
 GET    /grants                         {given: [...], received: [...]}
 POST   /grants                         body: {grantee_email, scope: read|read_send, expires_at?}
 DELETE /grants/{id}                    either party can revoke
@@ -233,7 +236,7 @@ kubectl exec -n <wp-ns> <wp-pod> -- wp --allow-root eval-file \
   /var/www/html/wp-content/plugins/email-manager/bin/inbox-smoke-test.php
 ```
 
-Expected output ends with `PASS: 124   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
+Expected output ends with `PASS: 142   FAIL: 0`. Exits non-zero on any fail. Run after any schema migration, any change to webhook/threading/participants/filters/outbound queue. Coverage spans:
 
 - schema versions (3 migrators)
 - inbound threading (insert + JWZ reply stitch)
@@ -290,4 +293,4 @@ Living context in `~/.claude/projects/.../memory/`:
 
 ---
 
-Last verified: 2026-06-10 (slice 2yy) **124/124 PASS** on hub (wp-hub/wordpress-75f654bd88-7j6mj). Customer pod (wp-676babb3-…) has been in CrashLoopBackOff for 2+ days from an unrelated bp-core-avatars / contracts-and-payments race — not caused by email-manager and not in scope for this slice. 2yy ships two perf wins: (a) new /em/v1/inbox/bootstrap endpoint combines the 5 sequential mount round-trips (/inboxes /labels /vacation /signature /grants) into 1, with graceful per-feature fallback when /bootstrap 404s; (b) 60s transient cache on /customer-card keyed by md5(email), busted on woocommerce_new_order + woocommerce_order_status_changed + mycred_add. Also removed `[tick]` deps from labels/vacation/grants useEffects so every star/snooze/send no longer triggers 3 background GETs. Smoke runs under `wp --allow-root --skip-plugins=blog-manager` because that plugin's BM_Author_Profile::register_rewrite calls add_rewrite_rule before WP rewrite init under wp-cli (also pre-existing, unrelated). Run `bin/inbox-smoke-test.php` after every change.
+Last verified: 2026-06-10 (slice 2zz) **142/142 PASS** on hub (wp-hub/wordpress-75f654bd88-7j6mj). Customer pod (wp-676babb3-…) still in CrashLoopBackOff (pre-existing bp-core-avatars race — out of scope). 2zz adds per-user recovery email (inbox-recovery-email.php): user_meta-backed pending → verified state machine, /recovery-email REST surface, retrieve_password_notification_email + wp_mail fallback filters that rewrite the To: address when a confirmed recovery email is set (with [Recovery] subject prefix). Solves the chicken-and-egg where an inbox owner whose user_email IS their inbox can't read the password-reset link they need. Bootstrap response gains a recovery_email key. Smoke runs under `wp --allow-root --skip-plugins=blog-manager` because that plugin's BM_Author_Profile::register_rewrite calls add_rewrite_rule before WP rewrite init under wp-cli. Run `bin/inbox-smoke-test.php` after every change.
