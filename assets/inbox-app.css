@@ -967,6 +967,24 @@ img.em-inbox-blocked-img {
 }
 .em-inbox-wrap input::placeholder { color: var(--gs-muted); }
 
+/* The platform-native <select> popup paints its <option> rows in
+ * browser-default styling. Without explicit color, our white !important
+ * text rule (above) bleeds through as white-on-white when the popup
+ * opens (Chromium falls back to inheriting from the parent on Windows
+ * when no `color` is set on the option). Pin option text to a dark
+ * value so the popup is legible. Selected/highlighted state uses the
+ * brand magenta. */
+.em-inbox-wrap select option,
+.em-inbox-wrap .components-select-control__input option {
+    background: #ffffff !important;
+    color: #1d2327 !important;
+}
+.em-inbox-wrap select option:checked,
+.em-inbox-wrap .components-select-control__input option:checked {
+    background: linear-gradient(135deg, var(--gs-magenta), var(--gs-blue)) #b608c9 !important;
+    color: #ffffff !important;
+}
+
 /* The custom icon buttons in the header (help, vacation, filters,
  * sharing, bell, add-inbox) — give them a uniform glass treatment. */
 .em-inbox-wrap .em-inbox-help-btn,
@@ -1082,13 +1100,30 @@ img.em-inbox-blocked-img {
 .em-inbox-filter:nth-child(9) { animation-delay: 0.65s; }
 .em-inbox-filter:nth-child(10){ animation-delay: 0.70s; }
 
-/* === LABEL BAR pills === */
+/* === LABEL BAR pills ===
+ * Don't force a color here — the JSX renders each label with an inline
+ * `color: l.color` style (the user's palette pick), and forcing
+ * var(--gs-text) made the name invisible inside white modals like
+ * ThreadLabelPicker / ManageLabels (slice 2zz fix). For the bare
+ * "All labels" pill (no inline color), the cascade falls through to
+ * the .is-muted / default rules at line 338, which use #50575e — that
+ * reads fine on both dark (LeftRail) and light (modal) contexts. */
 .em-inbox-wrap .em-inbox-label-pill {
     background: var(--gs-glass) !important;
     border-radius: 999px !important;
-    color: var(--gs-text) !important;
     padding: 4px 10px !important;
     font-size: 11px !important;
+}
+/* The "All labels" pill has no inline color. Keep it readable in any
+ * context. The active vs muted modifiers already handle the two
+ * states; explicit fallback color for the default-off branch. */
+.em-inbox-wrap .em-inbox-label-pill:not([style*="color"]) {
+    color: var(--gs-text);
+}
+/* In the LeftRail (dark glass), give user-colored label pills a
+ * slightly tinted background so their per-label color contrasts. */
+.em-inbox-wrap .em-inbox-leftrail .em-inbox-label-pill[style*="color"] {
+    background: rgba(255, 255, 255, 0.08) !important;
 }
 .em-inbox-wrap .em-inbox-label-manage {
     background: transparent !important;
