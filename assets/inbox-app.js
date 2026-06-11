@@ -2364,10 +2364,25 @@
                     // party, so the App can swap the card from a
                     // perpetual spinner to a "no participant" notice.
                     if (props.onOtherParty && data.thread) {
-                        var owner = (data.thread.inbox_address || '').toLowerCase();
-                        var other = null;
+                        // Extract just the bare email from raw header values like
+                        // `"Jane Doe" <jane@x.com>` so the customer-card endpoint
+                        // (which validates with is_email()) doesn't reject the
+                        // display-name wrapper. Slice 2zz.5 fix.
+                        function extractEmail(raw) {
+                            if (! raw) return '';
+                            var s = String(raw).trim();
+                            var m = s.match(/<([^>]+)>/);
+                            if (m) s = m[1];
+                            // tolerate stray quotes / surrounding whitespace
+                            s = s.replace(/^['"\s]+|['"\s]+$/g, '');
+                            // bail if it still doesn't look like an email
+                            return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(s) ? s.toLowerCase() : '';
+                        }
+                        var ownerAddr = (data.thread.inbox_address || '').toLowerCase();
+                        var other = '';
                         (data.messages || []).some(function (m) {
-                            if (m.sender && m.sender.toLowerCase() !== owner) { other = m.sender; return true; }
+                            var senderEmail = extractEmail(m.sender);
+                            if (senderEmail && senderEmail !== ownerAddr) { other = senderEmail; return true; }
                             return false;
                         });
                         if (! other) {
@@ -2377,15 +2392,14 @@
                                 for (var i = 0; i < hdrs.length; i++) {
                                     if (hdrs[i].name && hdrs[i].name.toLowerCase() === 'to') {
                                         var v = String(hdrs[i].value || '').split(/[,;]/)[0];
-                                        var mm = v.match(/<([^>]+)>/);
-                                        other = (mm ? mm[1] : v).trim();
-                                        return !!other;
+                                        other = extractEmail(v);
+                                        if (other) return true;
                                     }
                                 }
                                 return false;
                             });
                         }
-                        props.onOtherParty(other ? other.toLowerCase() : '');
+                        props.onOtherParty(other);
                     }
                 })
                 .catch(function (e) { setState({ loading: false, thread: null, messages: [], err: e.message || 'Failed to load thread' }); });

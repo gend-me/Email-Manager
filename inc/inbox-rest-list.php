@@ -491,10 +491,14 @@ function em_inbox_get_thread(WP_REST_Request $request) {
         }
     }
 
+    // Slice 2zz.5 perf: pull r.raw_headers in the main SELECT so we
+    // don't have to fire an N+1 sub-query (one JOIN per message) for
+    // the SPF/DKIM/DMARC badge synthesis.
     $messages = $wpdb->get_results($wpdb->prepare(
         "SELECT m.id, m.message_id, m.in_reply_to, m.sender, m.recipient, m.subject,
                 m.body_plain, m.body_html, m.received_at,
                 r.attachments_json,
+                r.raw_headers,
                 r.kind                  AS kind,
                 r.delivery_status       AS delivery_status,
                 r.delivery_attempts     AS delivery_attempts,
@@ -524,16 +528,10 @@ function em_inbox_get_thread(WP_REST_Request $request) {
     // unless the user has allowlisted this sender.
     $current_user = wp_get_current_user();
     $current_uid  = $current_user ? (int) $current_user->ID : 0;
-    // Helper closure: pull X-EM-Auth-* synthetic headers out of the
-    // raw_headers blob (set by webhook_forwarder, slice 2w).
-    $auth_from_raw = function ($msg_id) use ($wpdb) {
-        $raw = $wpdb->get_var($wpdb->prepare(
-            "SELECT r.raw_headers FROM {$wpdb->prefix}gdc_inbox_raw r
-             JOIN {$wpdb->prefix}gdc_inbox_messages m ON m.raw_id = r.id
-             WHERE m.id = %d", $msg_id
-        ));
-        if (! $raw) return null;
-        $headers = json_decode((string) $raw, true);
+    // Slice 2zz.5: read headers from the row we already loaded instead
+    // of re-querying per message. Helper synthesizes the auth badge
+    // from the X-EM-Auth-* headers webhook_forwarder appended.
+    $auth_from_headers = function ($headers) {
         if (! is_array($headers)) return null;
         $out = array('summary' => null, 'spf' => null, 'dkim' => null, 'dmarc' => null);
         foreach ($headers as $h) {
@@ -550,9 +548,21 @@ function em_inbox_get_thread(WP_REST_Request $request) {
     foreach ($messages as &$msg) {
         // Slice 2s — decorate outbound messages with open_count, etc.
         $msg = apply_filters('em_inbox_thread_message_view', $msg);
+        // Decode raw_headers ONCE per message so subsequent uses (auth
+        // badge synthesis + the JS-side reply-all parser) read from the
+        // same array.
+        $parsed_headers = null;
+        if (! empty($msg['raw_headers'])) {
+            $parsed_headers = json_decode((string) $msg['raw_headers'], true);
+            if (! is_array($parsed_headers)) $parsed_headers = null;
+        }
+        // Slice 2jj reply-all needs To/Cc headers client-side.
+        $msg['headers'] = $parsed_headers ?: array();
+        // Don't ship the raw JSON blob to the client (already parsed).
+        unset($msg['raw_headers']);
         // Slice 2w — surface SPF/DKIM/DMARC verdict on inbound.
         if (($msg['kind'] ?? 'inbound') === 'inbound') {
-            $msg['auth'] = $auth_from_raw((int) $msg['id']);
+            $msg['auth'] = $auth_from_headers($parsed_headers);
         }
         if (! empty($msg['body_html'])) {
             if (function_exists('em_inbox_sanitize_html')) {

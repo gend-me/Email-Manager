@@ -40,6 +40,12 @@ add_action('rest_api_init', function () {
 function em_inbox_customer_card(WP_REST_Request $r) {
     global $wpdb;
     $email = strtolower(trim((string) $r->get_param('email')));
+    // Slice 2zz.5: tolerate "Display Name <email@addr>" wrappers — the
+    // ThreadView fix below strips them client-side, but server-side
+    // defense is cheap and avoids a 400 on any legacy caller.
+    if (preg_match('/<([^>]+)>/', $email, $m)) {
+        $email = strtolower(trim($m[1]));
+    }
     if (! is_email($email)) {
         return new WP_Error('em_card_bad_email', 'A valid email is required', array('status' => 400));
     }

@@ -496,6 +496,14 @@ $req->set_query_params(array('email' => 'not-an-email'));
 $res = rest_do_request($req);
 smoke_assert('card', $res->get_status() === 400, '/customer-card 400 for invalid email');
 
+// Slice 2zz.5: tolerate display-name wrappers
+$req = new WP_REST_Request('GET', '/em/v1/inbox/customer-card');
+$req->set_query_params(array('email' => 'Display Name <' . $inbox . '>'));
+$res = rest_do_request($req);
+$d = $res->get_data();
+smoke_assert('card', $res->get_status() === 200, '/customer-card 200 with display-name wrapper');
+smoke_assert('card', is_array($d['user']) && ! empty($d['user']['exists']), 'wrapped email resolves to the same user');
+
 // Slice 2yy: cache returns _cached_at on 2nd hit (proves the transient
 // is being used). Clear first to ensure a clean baseline.
 delete_transient('em_inbox_card_' . md5($inbox));
