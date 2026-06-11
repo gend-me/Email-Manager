@@ -715,6 +715,124 @@
         `;
     }
 
+    // Slice 2zz.3: stylized member-card switcher. Sits ABOVE the dark
+    // glass shell as the page header. Click → opens InboxPickerPopover.
+    function InboxOwnerCard(props) {
+        var openState = useState(false);
+        var open = openState[0], setOpen = openState[1];
+        var sel = props.selectedRow || {};
+        var isAll = sel.inbox_address === '*';
+        var unread = sel.unread_count != null ? Number(sel.unread_count) : null;
+        // Close on outside click + Esc.
+        var rootRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        useEffect(function () {
+            if (! open) return;
+            function onDoc(e) { if (rootRef.current && ! rootRef.current.contains(e.target)) setOpen(false); }
+            function onKey(e) { if (e.key === 'Escape') setOpen(false); }
+            document.addEventListener('mousedown', onDoc);
+            document.addEventListener('keydown', onKey);
+            return function () { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+        }, [open]);
+        return html`
+          <div class="em-inbox-owner-card-wrap" ref=${function (n) { rootRef.current = n; }}>
+            <button
+              type="button"
+              class="em-inbox-owner-card ${open ? 'is-open' : ''} ${isAll ? 'is-all' : ''}"
+              onClick=${function () { setOpen(!open); }}
+              aria-haspopup="dialog"
+              aria-expanded=${open ? 'true' : 'false'}
+              title=${isAll ? 'All inboxes — click to switch' : (sel.inbox_address + ' — click to switch')}>
+              <span class="em-inbox-owner-card-avatar" aria-hidden="true">
+                ${isAll
+                  ? html`<span class="em-inbox-owner-card-all-glyph">⌘</span>`
+                  : sel.owner_avatar_url
+                    ? html`<img src=${sel.owner_avatar_url} alt="" />`
+                    : html`<span class="em-inbox-owner-card-fallback">${(sel.inbox_address || '?').slice(0,1).toUpperCase()}</span>`}
+              </span>
+              <span class="em-inbox-owner-card-id">
+                <span class="em-inbox-owner-card-name">${isAll ? 'All inboxes' : (sel.owner_display_name || sel.inbox_address || '(no inbox)')}</span>
+                <span class="em-inbox-owner-card-email">${isAll ? 'Merged view across every inbox you can read' : (sel.inbox_address || '')}</span>
+              </span>
+              <span class="em-inbox-owner-card-meta">
+                ${sel.shared && html`<span class="em-inbox-owner-card-chip">delegated</span>`}
+                ${unread != null && unread > 0 && html`<span class="em-inbox-owner-card-unread">${unread} unread</span>`}
+                <span class="em-inbox-owner-card-caret" aria-hidden="true">▾</span>
+              </span>
+            </button>
+            ${open && html`<${InboxPickerPopover}
+              inboxes=${props.inboxes}
+              supportsAll=${props.supportsAll}
+              selected=${sel.inbox_address}
+              onChoose=${function (addr) { setOpen(false); props.onChoose && props.onChoose(addr); }} />`}
+          </div>
+        `;
+    }
+
+    function InboxPickerPopover(props) {
+        var qState = useState(''); var q = qState[0], setQ = qState[1];
+        var inputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        useEffect(function () { if (inputRef.current) try { inputRef.current.focus(); } catch (e) {} }, []);
+        var qLower = q.trim().toLowerCase();
+        var items = (props.inboxes || []).filter(function (r) {
+            if (! qLower) return true;
+            var hay = (r.inbox_address || '') + ' ' + (r.owner_display_name || '');
+            return hay.toLowerCase().indexOf(qLower) >= 0;
+        });
+        return html`
+          <div class="em-inbox-picker" role="dialog" aria-label="Switch inbox">
+            <div class="em-inbox-picker-search">
+              <input
+                ref=${function (n) { inputRef.current = n; }}
+                type="search"
+                placeholder="Filter inboxes by address or name…"
+                value=${q}
+                onChange=${function (e) { setQ(e.target.value); }}
+                onKeyDown=${function (e) {
+                    if (e.key === 'Enter' && items.length > 0) {
+                        e.preventDefault();
+                        props.onChoose && props.onChoose(items[0].inbox_address);
+                    }
+                }} />
+            </div>
+            <ul class="em-inbox-picker-list">
+              ${props.supportsAll && (! qLower || 'all inboxes merged'.indexOf(qLower) >= 0) && html`
+                <li>
+                  <button type="button" class="em-inbox-picker-row em-inbox-picker-all ${props.selected === '*' ? 'is-current' : ''}" onClick=${function () { props.onChoose && props.onChoose('*'); }}>
+                    <span class="em-inbox-owner-card-avatar"><span class="em-inbox-owner-card-all-glyph">⌘</span></span>
+                    <span class="em-inbox-picker-id">
+                      <span class="em-inbox-picker-name">All inboxes</span>
+                      <span class="em-inbox-picker-email">merged view</span>
+                    </span>
+                  </button>
+                </li>
+              `}
+              ${items.map(function (r) {
+                  var unread = r.unread_count != null ? Number(r.unread_count) : null;
+                  return html`
+                    <li key=${r.inbox_address}>
+                      <button type="button" class="em-inbox-picker-row ${props.selected === r.inbox_address ? 'is-current' : ''}" onClick=${function () { props.onChoose && props.onChoose(r.inbox_address); }}>
+                        <span class="em-inbox-owner-card-avatar">
+                          ${r.owner_avatar_url
+                            ? html`<img src=${r.owner_avatar_url} alt="" />`
+                            : html`<span class="em-inbox-owner-card-fallback">${(r.inbox_address || '?').slice(0,1).toUpperCase()}</span>`}
+                        </span>
+                        <span class="em-inbox-picker-id">
+                          <span class="em-inbox-picker-name">${r.owner_display_name || r.inbox_address}</span>
+                          <span class="em-inbox-picker-email">${r.inbox_address}${r.shared ? ' · delegated' : ''}</span>
+                        </span>
+                        <span class="em-inbox-picker-meta">
+                          ${unread != null && unread > 0 ? html`<span class="em-inbox-picker-unread">${unread}</span>` : null}
+                        </span>
+                      </button>
+                    </li>
+                  `;
+              })}
+              ${items.length === 0 && html`<li class="em-inbox-picker-empty">No inboxes match "${q}"</li>`}
+            </ul>
+          </div>
+        `;
+    }
+
     function App() {
         var inboxState = useState([]);            var inboxes = inboxState[0], setInboxes = inboxState[1];
         var selectedState = useState('');         var selected = selectedState[0], setSelected = selectedState[1];
@@ -904,15 +1022,34 @@
             inboxOptions = [{ value: '*', label: '— All inboxes —' }].concat(inboxOptions);
         }
 
+        // Slice 2zz.3: the inbox switcher lives OUTSIDE the dark glass
+        // wrap as a stylized member card. The card itself shows the
+        // currently-selected owner; clicking opens a searchable picker.
+        var selectedRow = inboxes.find(function (r) { return r.inbox_address === selected; });
+        // Synthesize a row for the "All inboxes" virtual option.
+        if (! selectedRow && selected === '*') {
+            selectedRow = {
+                inbox_address: '*',
+                owner_display_name: 'All inboxes',
+                owner_avatar_url: null,
+                shared: false,
+            };
+        }
+        function chooseInbox(addr) {
+            setSelected(addr);
+            setOpenThreadId(null);
+            setSearchQ('');
+            setOtherPartyEmail(null);
+        }
+        var supportsAll = inboxes.length > 1;
         return html`
+          <${InboxOwnerCard}
+            selectedRow=${selectedRow}
+            inboxes=${inboxes}
+            supportsAll=${supportsAll}
+            onChoose=${chooseInbox} />
           <div class="em-inbox">
             <div class="em-inbox-toolbar">
-              <${SelectControl}
-                label="Inbox"
-                value=${selected}
-                options=${inboxOptions}
-                onChange=${function (v) { setSelected(v); setOpenThreadId(null); setSearchQ(''); setOtherPartyEmail(null); }}
-              />
               <${Button}
                 variant="primary"
                 onClick=${function () { setComposerProps({ from: selected, mode: 'new' }); }}

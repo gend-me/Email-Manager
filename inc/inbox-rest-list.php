@@ -161,6 +161,26 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
             }
         }
     }
+
+    // Slice 2zz.3: decorate each inbox row with the owner's display name
+    // and avatar URL so the React member-card UI doesn't have to do a
+    // round-trip per inbox.
+    if (! empty($rows)) {
+        foreach ($rows as &$decor_row) {
+            $owner = get_user_by('email', strtolower((string) $decor_row['inbox_address']));
+            if ($owner) {
+                $decor_row['owner_display_name'] = $owner->display_name ?: $owner->user_login;
+                $decor_row['owner_avatar_url']   = get_avatar_url($owner->ID, array('size' => 80));
+                $decor_row['owner_id']           = (int) $owner->ID;
+            } else {
+                $decor_row['owner_display_name'] = null;
+                $decor_row['owner_avatar_url']   = get_avatar_url($decor_row['inbox_address'], array('size' => 80));
+                $decor_row['owner_id']           = 0;
+            }
+        }
+        unset($decor_row);
+    }
+
     return rest_ensure_response($rows ?: array());
 }
 
