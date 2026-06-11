@@ -136,12 +136,13 @@ function em_render_email_manager_page()
     $gdc_email_wrap_class = '';
     $gdc_email_embed_panel = '';
 
-    // Define tabs. Slice 2tt: Inbox moves in here as the 2nd tab (was
-    // its own admin submenu page). Diagnostics is then a sub-tab below
-    // Inbox, not a peer in the global admin nav.
+    // Define tabs. Slice 2zz.4: the Inbox top-level tab was retired and
+    // the App view was moved INTO the Email tab as its first sub-tab
+    // (see the "Email Tab" section below). The Diagnostics sub-tab was
+    // also dropped — em_inbox_diag_render() still exists for direct
+    // wp-cli/programmatic use, but no UI surfaces it here.
     $tabs = array(
         'email'        => __('Email', 'email-manager'),
-        'inbox'        => __('Inbox', 'email-manager'),
         'forms'        => __('Forms', 'email-manager'),
         'chatflows'    => __('Chatflows', 'email-manager'),
         'applications' => __('Applications', 'email-manager'),
@@ -320,7 +321,6 @@ function em_render_email_manager_page()
                     // Define icons for tabs
                     $tab_icons = array(
                         'email'        => 'dashicons-email',
-                        'inbox'        => 'dashicons-email-alt2',
                         'forms'        => 'dashicons-feedback',
                         'chatflows'    => 'dashicons-format-chat',
                         'applications' => 'dashicons-id-alt',
@@ -348,7 +348,10 @@ function em_render_email_manager_page()
                     <!-- Email Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="email" <?php echo $gdc_email_embed_single ? 'hidden' : ''; ?>>
                         <div class="gdc-subtabs">
-                            <button type="button" class="gdc-subtab active" data-subtab="lists">
+                            <button type="button" class="gdc-subtab active" data-subtab="email-inbox">
+                                <?php esc_html_e('Inbox', 'email-manager'); ?>
+                            </button>
+                            <button type="button" class="gdc-subtab" data-subtab="lists">
                                 <?php esc_html_e('Lists', 'email-manager'); ?>
                             </button>
                             <button type="button" class="gdc-subtab" data-subtab="onboarding">
@@ -371,8 +374,13 @@ function em_render_email_manager_page()
                             </button>
                         </div>
 
+                        <!-- Inbox Subtab Content (slice 2zz.4 — moved from top-level Inbox tab) -->
+                        <div class="gdc-subtab-panel" data-subpanel="email-inbox">
+                            <div class="em-inbox-wrap"><div id="em-inbox-root" data-loading="1"><?php esc_html_e('Loading inbox…', 'email-manager'); ?></div></div>
+                        </div>
+
                         <!-- Lists Subtab Content -->
-                        <div class="gdc-subtab-panel" data-subpanel="lists">
+                        <div class="gdc-subtab-panel" data-subpanel="lists" hidden>
                             <div class="gdc-email-panel">
                                 <div class="gdc-email-panel__header">
                                     <div class="gdc-email-search">
@@ -702,11 +710,13 @@ function em_render_email_manager_page()
 
                                     // Reset all buttons in this panel
                                     $parent.find('.gdc-subtab').removeClass('active');
-                                    $parent.find('.gdc-subtab-panel').hide();
+                                    // Slice 2zz.4: ALSO drop the hidden attribute so the JS
+                                    // visibility toggle isn't fighting the HTML attribute.
+                                    $parent.find('.gdc-subtab-panel').attr('hidden', true).hide();
 
                                     // Activate clicked
                                     $(this).addClass('active');
-                                    $parent.find('.gdc-subtab-panel[data-subpanel="' + subtab + '"]').show();
+                                    $parent.find('.gdc-subtab-panel[data-subpanel="' + subtab + '"]').removeAttr('hidden').show();
                                 });
 
                                 // Quick Tab Switcher for Main Tabs (Pills)
@@ -722,48 +732,9 @@ function em_render_email_manager_page()
                         </script>
                     </section>
 
-                    <!-- Inbox Tab (slice 2tt — was a standalone admin submenu page) -->
-                    <section class="gdc-sub-tabpanel" data-panel="inbox" hidden>
-                        <div class="gdc-subtabs">
-                            <button type="button" class="gdc-subtab active" data-subtab="inbox-app">
-                                <?php esc_html_e('App', 'email-manager'); ?>
-                            </button>
-                            <?php if (current_user_can('manage_options')): ?>
-                            <button type="button" class="gdc-subtab" data-subtab="inbox-diagnostics">
-                                <?php esc_html_e('Diagnostics', 'email-manager'); ?>
-                            </button>
-                            <?php endif; ?>
-                        </div>
-
-                        <!-- Inbox App sub-tab — React SPA mount -->
-                        <div class="gdc-subtab-panel" data-subtab-panel="inbox-app">
-                            <div class="em-inbox-wrap"><div id="em-inbox-root" data-loading="1"><?php esc_html_e('Loading inbox…', 'email-manager'); ?></div></div>
-                        </div>
-
-                        <!-- Inbox Diagnostics sub-tab — server-rendered -->
-                        <?php if (current_user_can('manage_options')): ?>
-                        <div class="gdc-subtab-panel" data-subtab-panel="inbox-diagnostics" hidden>
-                            <?php if (function_exists('em_inbox_diag_render')) { em_inbox_diag_render(); } ?>
-                        </div>
-                        <?php endif; ?>
-
-                        <script>
-                            jQuery(function ($) {
-                                // Hook the standard subtab-switch behavior used by the rest
-                                // of the page: data-subtab attribute on the button toggles
-                                // the matching [data-subtab-panel] sibling.
-                                $('.gdc-sub-tabpanel[data-panel="inbox"] .gdc-subtab').on('click', function () {
-                                    var $btn = $(this);
-                                    var target = $btn.data('subtab');
-                                    var $panel = $btn.closest('.gdc-sub-tabpanel');
-                                    $panel.find('.gdc-subtab').removeClass('active');
-                                    $btn.addClass('active');
-                                    $panel.find('.gdc-subtab-panel').attr('hidden', true);
-                                    $panel.find('.gdc-subtab-panel[data-subtab-panel="' + target + '"]').removeAttr('hidden');
-                                });
-                            });
-                        </script>
-                    </section>
+                    <!-- Slice 2zz.4: top-level Inbox tab + its App/Diagnostics sub-tabs
+                         removed. The React SPA mount has been hoisted into the Email
+                         tab's first sub-tab (data-subpanel="email-inbox") above. -->
 
                     <!-- Forms Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="forms" hidden>
