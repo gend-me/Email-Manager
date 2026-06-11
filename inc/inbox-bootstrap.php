@@ -27,6 +27,9 @@ add_action('rest_api_init', function () {
 });
 
 function em_inbox_bootstrap(WP_REST_Request $r) {
+    // Stray-output absorption now happens namespace-wide in
+    // inc/inbox-rest-output-guard.php so we don't have to do it
+    // per-endpoint.
     $out = array(
         'inboxes'   => array(),
         'labels'    => array(),
