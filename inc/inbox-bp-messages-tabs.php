@@ -87,6 +87,12 @@ function em_inbox_add_bp_messages_email_subnav() {
         'user_has_access'  => true,
         'show_in_admin_bar'=> false,
     ));
+    // Slice 2zz.7: Email is registered as a subnav so /messages/email/
+    // routes correctly, but it should NOT appear in the BP subnav
+    // strip — it lives exclusively in our top-level Email/Chat tab
+    // strip. CSS in inbox-bp-tabs.css hides the rendered <li>; we
+    // also tag it with a data-em-subnav attribute via the nav-item
+    // filter below for a reliable selector against Youzify markup.
 }
 
 function em_inbox_bp_messages_email_screen() {
@@ -100,54 +106,72 @@ function em_inbox_bp_messages_email_title() {
 }
 
 function em_inbox_bp_messages_email_content() {
-    // Render Email/Chat tab strip + React SPA mount. Frontend wrapper
-    // gets the same .em-inbox-wrap container so the slice-2ss glass
-    // styles apply.
-    em_inbox_bp_messages_tab_strip('email');
+    // Render the React SPA mount only. The Email/Chat tab strip is
+    // injected at the top of the page via wp_footer + JS so it appears
+    // above the BP subnav on every messages screen (chat side too).
     echo '<div class="em-inbox-wrap em-inbox-wrap--frontend"><div id="em-inbox-root" data-loading="1">'
        . esc_html__('Loading inbox…', 'email-manager')
        . '</div></div>';
 }
 
 /* -------------------------------------------------------------------------
- * Inject the Email/Chat tab strip above the standard messages screens
- * (Inbox, Sentbox, Notices, Compose) so the user can flip back.
+ * Email/Chat tab strip — rendered at wp_footer and relocated client-
+ * side to the TOP of the messages container, ABOVE the BP subnav. On
+ * the Email screen the BP subnav is also CSS-hidden so the user only
+ * sees the top-level Email tab; when they switch to Chat the BP
+ * subnav (Inbox/Starred/Sent/Compose/Notices) reappears as Chat's
+ * sub-tabs.
  * ------------------------------------------------------------------------- */
 
-foreach (array(
-    'bp_before_member_messages_threads',
-    'bp_before_member_messages_loops',
-    'bp_before_member_messages_options',
-    'messages_box_loop_start',
-) as $hook) {
-    add_action($hook, 'em_inbox_bp_messages_tab_strip_inject', 1);
-}
+add_action('wp_footer', 'em_inbox_bp_messages_tab_strip_footer', 5);
 
-function em_inbox_bp_messages_tab_strip_inject() {
-    static $rendered = false;
-    if ($rendered) return;
+function em_inbox_bp_messages_tab_strip_footer() {
+    if (! function_exists('bp_is_messages_component') || ! bp_is_messages_component()) return;
     if (! function_exists('bp_displayed_user_id')) return;
     if (! em_inbox_user_has_inbox_access(bp_displayed_user_id())) return;
-    em_inbox_bp_messages_tab_strip('chat');
-    $rendered = true;
-}
-
-function em_inbox_bp_messages_tab_strip($active) {
     if (! function_exists('bp_displayed_user_domain') || ! function_exists('bp_get_messages_slug')) return;
+
     $messages_url = trailingslashit(bp_displayed_user_domain() . bp_get_messages_slug());
     $email_url    = $messages_url . 'email/';
-    $chat_url     = $messages_url;  // default messages root = inbox = chat
+    $chat_url     = $messages_url;
+    $active       = (function_exists('bp_current_action') && bp_current_action() === 'email') ? 'email' : 'chat';
+
     $email_active = $active === 'email' ? ' is-active' : '';
     $chat_active  = $active === 'chat'  ? ' is-active' : '';
+    $body_class   = $active === 'email' ? 'em-inbox-bp-mode-email' : 'em-inbox-bp-mode-chat';
     ?>
-    <nav class="em-inbox-messages-tabs" aria-label="<?php esc_attr_e('Messages section', 'email-manager'); ?>">
-      <a class="em-inbox-messages-tab<?php echo $email_active; ?>" href="<?php echo esc_url($email_url); ?>" aria-current="<?php echo $email_active ? 'page' : 'false'; ?>">
-        <span class="em-inbox-messages-tab-icon" aria-hidden="true">📧</span> <?php esc_html_e('Email', 'email-manager'); ?>
-      </a>
-      <a class="em-inbox-messages-tab<?php echo $chat_active; ?>" href="<?php echo esc_url($chat_url); ?>" aria-current="<?php echo $chat_active ? 'page' : 'false'; ?>">
-        <span class="em-inbox-messages-tab-icon" aria-hidden="true">💬</span> <?php esc_html_e('Chat', 'email-manager'); ?>
-      </a>
-    </nav>
+    <template id="em-inbox-messages-tabs-template">
+      <nav class="em-inbox-messages-tabs" aria-label="<?php esc_attr_e('Messages section', 'email-manager'); ?>">
+        <a class="em-inbox-messages-tab<?php echo $email_active; ?>" href="<?php echo esc_url($email_url); ?>" aria-current="<?php echo $email_active ? 'page' : 'false'; ?>">
+          <span class="em-inbox-messages-tab-icon" aria-hidden="true">📧</span> <?php esc_html_e('Email', 'email-manager'); ?>
+        </a>
+        <a class="em-inbox-messages-tab<?php echo $chat_active; ?>" href="<?php echo esc_url($chat_url); ?>" aria-current="<?php echo $chat_active ? 'page' : 'false'; ?>">
+          <span class="em-inbox-messages-tab-icon" aria-hidden="true">💬</span> <?php esc_html_e('Chat', 'email-manager'); ?>
+        </a>
+      </nav>
+    </template>
+    <script>
+    (function () {
+        function inject() {
+            document.body.classList.add('<?php echo esc_js($body_class); ?>');
+            var tpl = document.getElementById('em-inbox-messages-tabs-template');
+            if (! tpl || tpl.dataset.emInjected) return;
+            tpl.dataset.emInjected = '1';
+            // Find a sensible anchor — the messages container. Walks a
+            // few common selectors used by BP / Youzify themes; bails
+            // to <main> as a last resort.
+            var anchor = document.querySelector('.bp-messages, #messages, .youzify-bp-messages, .youzify-messages, .youzify-main-column, main, .site-main');
+            if (! anchor) return;
+            var frag = tpl.content.cloneNode(true);
+            anchor.insertBefore(frag, anchor.firstChild);
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', inject);
+        } else {
+            inject();
+        }
+    })();
+    </script>
     <?php
 }
 

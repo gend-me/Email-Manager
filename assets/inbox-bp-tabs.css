@@ -1,14 +1,18 @@
 /* ============================================================
- * Email + Chat tab strip on /members/me/messages/ (slice 2ww)
- * Uses the gend-society glass token palette so it sits well next
- * to the rest of the member profile.
+ * Email + Chat tab strip on /members/me/messages/
+ * (slice 2ww, refactored 2zz.7)
  * ============================================================ */
 
+/* === Top-level Email/Chat tab strip ===
+ * JS at wp_footer inserts this as the first child of the messages
+ * container so it visually sits ABOVE the BP subnav (which then
+ * becomes a Chat sub-tab). Glass pill styling matches gend-society
+ * design tokens. */
 .em-inbox-messages-tabs {
     display: flex;
-    gap: 6px;
-    padding: 8px 0 14px;
-    margin: 0 0 12px;
+    gap: 8px;
+    padding: 0 0 14px;
+    margin: 0 0 18px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -16,13 +20,13 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 18px;
+    padding: 10px 22px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.10);
     color: inherit;
     text-decoration: none;
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     line-height: 1.2;
     transition: background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
@@ -47,13 +51,85 @@
 }
 
 .em-inbox-messages-tab-icon {
-    font-size: 15px;
+    font-size: 16px;
     line-height: 1;
 }
 
-/* Frontend wrapper: the Email screen embeds the same SPA used in
+/* === Hide the Email entry inside the BP messages subnav strip ===
+ * It's registered there so the URL routes, but it lives only in our
+ * top-level tab strip visually. Slice 2zz.7 — matches across Youzify
+ * + BP's stock <li> structure. */
+body.em-inbox-bp-mode-email .item-list-tabs li#user-messages-email,
+body.em-inbox-bp-mode-chat  .item-list-tabs li#user-messages-email,
+.bp-subnavs li#user-messages-email,
+li.youzify-bp-nav-li[data-subnav-slug="email"],
+li.bp-messages-subnav-email,
+ul.subnav li.email-personal-li {
+    display: none !important;
+}
+
+/* === On the Email screen, hide the BP messages subnav entirely ===
+ * The user only sees the top-level Email/Chat tab and the SPA below.
+ * Inbox/Starred/Sent/Compose/Notices are Chat's sub-tabs only.
+ * Slice 2zz.7 — toggled by the em-inbox-bp-mode-email class JS adds
+ * to <body>. */
+body.em-inbox-bp-mode-email .bp-subnavs,
+body.em-inbox-bp-mode-email .item-list-tabs#subnav,
+body.em-inbox-bp-mode-email div#subnav,
+body.em-inbox-bp-mode-email .youzify-bp-nav,
+body.em-inbox-bp-mode-email .youzify-bp-message-nav,
+body.em-inbox-bp-mode-email .youzify-bp-content-nav {
+    display: none !important;
+}
+
+/* === Fix doubled icons in the Youzify messages subnav ===
+ * The theme stacks the default (outlined) and active (filled) icon
+ * states as two separate <i>/<svg> children inside each <a>. When
+ * both are visible we see them side-by-side. Hide the secondary
+ * (.youzify-icon-active or :nth-child(2)) so only one renders.
+ * Slice 2zz.7. */
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav a > i + i,
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav a > svg + svg,
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav a > .youzify-icon-active,
+body.em-inbox-bp-mode-chat .youzify-bp-nav a > .youzify-icon-active,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav a > i ~ i,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav a > svg ~ svg,
+.em-inbox-bp-mode-chat .youzify-tab-icon + .youzify-tab-icon,
+.em-inbox-bp-mode-chat .item-list-tabs li a > img + img {
+    display: none !important;
+}
+
+/* === Full-width messages page (collapse Youzify sidebar grid) ===
+ * Same pattern the Wallet tab uses (gend-society member-profile-pages
+ * gs_wallet_profile_screen_content style). Slice 2zz.7. */
+body.bp-user.messages .youzify-right-sidebar-layout,
+body.bp-user.messages .youzify-left-sidebar-layout,
+body.em-inbox-bp-mode-email .youzify-right-sidebar-layout,
+body.em-inbox-bp-mode-email .youzify-left-sidebar-layout,
+body.em-inbox-bp-mode-chat  .youzify-right-sidebar-layout,
+body.em-inbox-bp-mode-chat  .youzify-left-sidebar-layout {
+    display: block !important;
+    grid-template-columns: 1fr !important;
+    grid-gap: 0 !important;
+}
+body.bp-user.messages .youzify-main-column,
+body.em-inbox-bp-mode-email .youzify-main-column,
+body.em-inbox-bp-mode-chat  .youzify-main-column {
+    width: 100% !important;
+    max-width: none !important;
+}
+body.em-inbox-bp-mode-email .youzify-right-sidebar,
+body.em-inbox-bp-mode-email .youzify-left-sidebar,
+body.em-inbox-bp-mode-email aside.sidebar,
+body.em-inbox-bp-mode-chat  .youzify-right-sidebar,
+body.em-inbox-bp-mode-chat  .youzify-left-sidebar,
+body.em-inbox-bp-mode-chat  aside.sidebar {
+    display: none !important;
+}
+
+/* === Frontend wrapper: the Email screen embeds the same SPA used in
  * wp-admin but reuses the slice-2ss .em-inbox-wrap design tokens.
- * Slight overrides for the frontend context. */
+ * Slight overrides for the frontend context. === */
 .em-inbox-wrap--frontend {
     margin: 0 !important;
     max-width: none !important;
