@@ -87,13 +87,30 @@ body.em-inbox-bp-mode-email .youzify-bp-content > .item-list-tabs {
     display: none !important;
 }
 
-/* Heading "Email" / "Messages" — also redundant on the email screen
- * since our tab strip clearly labels the section. Keep on chat for
- * stock BP layout. */
+/* Heading "Email" / "Messages" — redundant on the email screen since
+ * our tab strip clearly labels the section. Slice 2zz.7.5 — wide net
+ * across Youzify variants, including inline page titles and bp-title
+ * wrappers that sit between our strip and the SPA mount. The JS in
+ * inbox-bp-messages-tabs.php also drops any leftover heading whose
+ * text content matches "Email" / "Messages" — CSS first, JS as safety
+ * net. */
 body.em-inbox-bp-mode-email .youzify-bp-messages > h1,
 body.em-inbox-bp-mode-email .youzify-bp-messages > h2,
+body.em-inbox-bp-mode-email .youzify-bp-content > h1,
+body.em-inbox-bp-mode-email .youzify-bp-content > h2,
+body.em-inbox-bp-mode-email .youzify-bp-messages > header,
+body.em-inbox-bp-mode-email .youzify-bp-content > header,
 body.em-inbox-bp-mode-email #buddypress > h1.entry-title,
-body.em-inbox-bp-mode-email #buddypress > h2.entry-title {
+body.em-inbox-bp-mode-email #buddypress > h2.entry-title,
+body.em-inbox-bp-mode-email .youzify-page-title,
+body.em-inbox-bp-mode-email .youzify-section-title,
+body.em-inbox-bp-mode-email .youzify-bp-title,
+body.em-inbox-bp-mode-email .bp-messages > h1,
+body.em-inbox-bp-mode-email .bp-messages > h2,
+body.em-inbox-bp-mode-email .em-inbox-wrap--frontend ~ h1,
+body.em-inbox-bp-mode-email .em-inbox-wrap--frontend ~ h2,
+body.em-inbox-bp-mode-email .em-inbox-messages-tabs ~ h1,
+body.em-inbox-bp-mode-email .em-inbox-messages-tabs ~ h2 {
     display: none !important;
 }
 

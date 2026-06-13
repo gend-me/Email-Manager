@@ -210,6 +210,28 @@ function em_inbox_bp_messages_tab_strip_footer() {
             tpl.dataset.emInjected = '1';
             return true;
         }
+        // Slice 2zz.7.5: hide stray page-title headings on the Email
+        // screen — Youzify renders them via different selectors than
+        // our CSS catches in some themes. Walk siblings of our tab
+        // strip + the messages container, nuke any h1/h2 whose text
+        // is exactly "Email" / "Messages" (or empty).
+        function hideEmailHeading() {
+            if (! document.body.classList.contains('em-inbox-bp-mode-email')) return;
+            var strip = document.querySelector('.em-inbox-messages-tabs');
+            var roots = [strip ? strip.parentNode : null, findContainer(), document.querySelector('.em-inbox-wrap--frontend')];
+            var seen = new Set();
+            roots.forEach(function (root) {
+                if (! root || seen.has(root)) return;
+                seen.add(root);
+                root.querySelectorAll('h1, h2').forEach(function (h) {
+                    var txt = (h.textContent || '').trim().toLowerCase();
+                    if (txt === 'email' || txt === 'messages' || txt === '') {
+                        h.style.display = 'none';
+                    }
+                });
+            });
+        }
+
         // Slice 2zz.7.2: remove the "Email" entry from the BP subnav
         // strip by href-matching (most reliable across Youzify variants).
         // The route stays registered server-side so /messages/email/
@@ -239,11 +261,13 @@ function em_inbox_bp_messages_tab_strip_footer() {
         function run() {
             inject();
             removeEmailItem();
+            hideEmailHeading();
             // Youzify can render the subnav after DOMContentLoaded —
             // watch the body for ~3s and re-apply as nodes arrive.
             var obs = new MutationObserver(function () {
                 inject();
                 removeEmailItem();
+                hideEmailHeading();
             });
             obs.observe(document.body, { childList: true, subtree: true });
             setTimeout(function () { obs.disconnect(); }, 3000);
@@ -296,6 +320,7 @@ function em_inbox_bp_messages_tab_strip_footer() {
                     if (tpl) tpl.dataset.emInjected = '';
                     inject();
                     removeEmailItem();
+                    hideEmailHeading();
                     // Re-mount the SPA if the email screen is now active.
                     if (targetTab === 'email' && typeof window.emInboxMount === 'function') {
                         // Give React's createRoot a tick — also lets any
@@ -322,10 +347,28 @@ function em_inbox_bp_messages_tab_strip_footer() {
         }
         function classifyLink(a) {
             var href = a.getAttribute('href') || '';
-            if (/\/messages\/email\/?$/.test(href))                                          return 'email';
-            if (/\/messages\/$/.test(href))                                                  return 'chat-root';
-            if (/\/messages\/(inbox|starred|sentbox|compose|notices|view)\/?/.test(href))    return 'chat-sub';
-            return null;
+            if (! href || href.charAt(0) === '#') return null;
+            if (a.hasAttribute('data-em-no-ajax')) return null;
+            // Skip download / mailto / tel / javascript:
+            if (/^(mailto:|tel:|javascript:|data:)/i.test(href)) return null;
+            // Same-origin check via URL parser.
+            var url;
+            try { url = new URL(href, location.href); } catch (e) { return null; }
+            if (url.origin !== location.origin) return null;
+            // Must be under the SAME user's /messages/ path. Any link
+            // outside that section (going to wallet, app projects, etc.)
+            // navigates normally.
+            if (url.pathname.indexOf('/messages/') === -1
+                && ! /\/messages\/?$/.test(url.pathname)) {
+                return null;
+            }
+            // The Email tab.
+            if (/\/messages\/email\/?$/.test(url.pathname)) return 'email';
+            // Everything else under /messages/ — Chat root, sub-tabs
+            // (Inbox / Starred / Sent / Compose / Notices / Search),
+            // thread-view (/view/{id}/), pagination, etc. — falls under
+            // Chat.
+            return 'chat';
         }
         document.addEventListener('click', function (e) {
             // Plain left-click only.
