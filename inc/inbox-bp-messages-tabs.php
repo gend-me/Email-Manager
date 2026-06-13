@@ -262,12 +262,17 @@ function em_inbox_bp_messages_tab_strip_footer() {
             inject();
             removeEmailItem();
             hideEmailHeading();
+            injectChatSearch();
+            // Slice 3a — clicks on a /messages/view/{id}/ link open the
+            // floating widget chat box instead of navigating.
+            document.addEventListener('click', interceptChatThreadClicks, true);
             // Youzify can render the subnav after DOMContentLoaded —
             // watch the body for ~3s and re-apply as nodes arrive.
             var obs = new MutationObserver(function () {
                 inject();
                 removeEmailItem();
                 hideEmailHeading();
+                injectChatSearch();
             });
             obs.observe(document.body, { childList: true, subtree: true });
             setTimeout(function () { obs.disconnect(); }, 3000);
@@ -321,6 +326,7 @@ function em_inbox_bp_messages_tab_strip_footer() {
                     inject();
                     removeEmailItem();
                     hideEmailHeading();
+                    injectChatSearch();
                     // Re-mount the SPA if the email screen is now active.
                     if (targetTab === 'email' && typeof window.emInboxMount === 'function') {
                         // Give React's createRoot a tick — also lets any
@@ -345,6 +351,82 @@ function em_inbox_bp_messages_tab_strip_footer() {
                     container.classList.remove('em-inbox-ajax-loading');
                 });
         }
+        // Slice 3a — on the Chat inbox screen, inject an inline
+        // user-search bar at the top of the messages list AND
+        // intercept thread row clicks so they open in the floating
+        // chat widget instead of navigating to the full single-thread
+        // view (better UX, no full page reload).
+        function injectChatSearch() {
+            if (! document.body.classList.contains('em-inbox-bp-mode-chat')) return;
+            // Only on /messages/ or /messages/inbox/ (root chat screens).
+            var path = location.pathname;
+            var onInbox = /\/messages\/(inbox\/?)?(?:page\/\d+\/?)?$/.test(path);
+            if (! onInbox) return;
+            if (document.querySelector('.em-chat-inbox-search')) return;
+            var container = findContainer();
+            if (! container) return;
+            var threadsTable = container.querySelector('#message-threads, .messages-notices');
+            var anchorEl = threadsTable && threadsTable.parentNode ? threadsTable : container.firstChild;
+            if (! anchorEl || ! anchorEl.parentNode) return;
+            var wrap = document.createElement('div');
+            wrap.className = 'em-chat-inbox-search';
+            wrap.innerHTML = '<input type="search" placeholder="Search members to start a new conversation…" />';
+            var results = document.createElement('div');
+            results.className = 'em-chat-inbox-search-results';
+            anchorEl.parentNode.insertBefore(wrap, anchorEl);
+            anchorEl.parentNode.insertBefore(results, anchorEl);
+            var input = wrap.querySelector('input');
+            var debounce;
+            input.addEventListener('input', function () {
+                var q = input.value.trim();
+                clearTimeout(debounce);
+                if (! q) { results.innerHTML = ''; return; }
+                debounce = setTimeout(function () {
+                    fetch('<?php echo esc_js(rest_url('em/v1/chat/users/search')); ?>?q=' + encodeURIComponent(q), {
+                        credentials: 'same-origin',
+                        headers: { 'X-WP-Nonce': '<?php echo esc_js(wp_create_nonce('wp_rest')); ?>' }
+                    })
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        results.innerHTML = '';
+                        (d.items || []).forEach(function (u) {
+                            var btn = document.createElement('button');
+                            btn.type = 'button';
+                            btn.className = 'em-chat-row em-chat-row--user';
+                            btn.innerHTML = '<img class="em-chat-row-avatar" src="' + u.avatar_url + '" alt="" />'
+                                + '<span class="em-chat-row-id"><span class="em-chat-row-name">' + (u.display_name || '') + '</span>'
+                                + '<span class="em-chat-row-sub">@' + (u.username || '') + '</span></span>'
+                                + '<span class="em-chat-row-action">→</span>';
+                            btn.addEventListener('click', function () {
+                                if (typeof window.emChatOpenUser === 'function') {
+                                    window.emChatOpenUser({
+                                        user_id: u.user_id,
+                                        display_name: u.display_name,
+                                        avatar_url: u.avatar_url
+                                    });
+                                }
+                                input.value = '';
+                                results.innerHTML = '';
+                            });
+                            results.appendChild(btn);
+                        });
+                    });
+                }, 220);
+            });
+        }
+        function interceptChatThreadClicks(e) {
+            if (e.defaultPrevented) return;
+            if (! document.body.classList.contains('em-inbox-bp-mode-chat')) return;
+            var a = e.target && e.target.closest ? e.target.closest('a') : null;
+            if (! a) return;
+            // /messages/view/{id}/ — the BP single-thread view
+            var m = (a.getAttribute('href') || '').match(/\/messages\/view\/(\d+)\/?/);
+            if (! m) return;
+            if (typeof window.emChatOpenThread !== 'function') return;  // widget not loaded
+            e.preventDefault();
+            window.emChatOpenThread({ id: parseInt(m[1], 10), others: [] });
+        }
+
         function classifyLink(a) {
             var href = a.getAttribute('href') || '';
             if (! href || href.charAt(0) === '#') return null;

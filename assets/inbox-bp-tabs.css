@@ -180,6 +180,153 @@ body.em-inbox-bp-mode-chat  aside.sidebar {
     pointer-events: none;
 }
 
+/* ============================================================
+ * Slice 3a — Restyle BP /messages/inbox/ (Chat tab) to match the
+ * Email shell. Glass card surface, glass pill subnav, gradient
+ * primary buttons, member-card-style thread rows.
+ * Toggled by body.em-inbox-bp-mode-chat (set by the tab-strip JS).
+ * ============================================================ */
+body.em-inbox-bp-mode-chat .youzify-bp-messages,
+body.em-inbox-bp-mode-chat .youzify-bp-content,
+body.em-inbox-bp-mode-chat #message-threads,
+body.em-inbox-bp-mode-chat .bp-messages {
+    background:
+        radial-gradient(circle at 15% 0%, rgba(182, 8, 201, 0.18) 0%, transparent 50%),
+        radial-gradient(circle at 85% 100%, rgba(110, 193, 228, 0.16) 0%, transparent 55%),
+        linear-gradient(180deg, #0b0e14 0%, #11161f 100%) !important;
+    border-radius: 14px !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45) !important;
+    color: #e8edf5 !important;
+    padding: 22px !important;
+}
+
+/* The thread table itself — flatten WP/Youzify defaults */
+body.em-inbox-bp-mode-chat table.messages-notices,
+body.em-inbox-bp-mode-chat #message-threads {
+    width: 100%;
+    background: transparent !important;
+    border-collapse: collapse;
+    color: inherit;
+}
+body.em-inbox-bp-mode-chat #message-threads thead,
+body.em-inbox-bp-mode-chat .messages-notices thead {
+    background: rgba(11, 14, 20, 0.55) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+body.em-inbox-bp-mode-chat #message-threads th,
+body.em-inbox-bp-mode-chat .messages-notices th {
+    color: #8b98b0 !important;
+    font-size: 11px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    padding: 12px 14px !important;
+    border: 0 !important;
+    background: transparent !important;
+}
+body.em-inbox-bp-mode-chat #message-threads td,
+body.em-inbox-bp-mode-chat .messages-notices td {
+    padding: 12px 14px !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: #e8edf5 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    vertical-align: middle !important;
+}
+body.em-inbox-bp-mode-chat #message-threads tr:hover {
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+body.em-inbox-bp-mode-chat #message-threads tr.unread,
+body.em-inbox-bp-mode-chat #message-threads tr.unread td {
+    background: rgba(182, 8, 201, 0.08) !important;
+    font-weight: 600 !important;
+}
+body.em-inbox-bp-mode-chat #message-threads img.avatar {
+    border-radius: 50% !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    width: 36px !important;
+    height: 36px !important;
+}
+body.em-inbox-bp-mode-chat #message-threads a {
+    color: #e8edf5 !important;
+}
+body.em-inbox-bp-mode-chat #message-threads a:hover {
+    color: #6ec1e4 !important;
+}
+
+/* Compose / standard messages forms */
+body.em-inbox-bp-mode-chat #compose-personal-li ~ form,
+body.em-inbox-bp-mode-chat #send_message_form,
+body.em-inbox-bp-mode-chat .standard-form {
+    background: rgba(11, 14, 20, 0.55) !important;
+    border-radius: 14px !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    padding: 18px !important;
+    color: #e8edf5 !important;
+}
+body.em-inbox-bp-mode-chat input[type="text"],
+body.em-inbox-bp-mode-chat input[type="search"],
+body.em-inbox-bp-mode-chat input[type="email"],
+body.em-inbox-bp-mode-chat textarea,
+body.em-inbox-bp-mode-chat select {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    color: #e8edf5 !important;
+    border-radius: 10px !important;
+    padding: 10px 12px !important;
+}
+body.em-inbox-bp-mode-chat input[type="text"]::placeholder,
+body.em-inbox-bp-mode-chat textarea::placeholder { color: #8b98b0 !important; }
+body.em-inbox-bp-mode-chat input[type="submit"],
+body.em-inbox-bp-mode-chat button[type="submit"],
+body.em-inbox-bp-mode-chat .submit input {
+    background: linear-gradient(135deg, #b608c9 0%, #6ec1e4 100%) !important;
+    color: #fff !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    padding: 10px 22px !important;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(182, 8, 201, 0.35);
+    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+body.em-inbox-bp-mode-chat input[type="submit"]:hover,
+body.em-inbox-bp-mode-chat button[type="submit"]:hover {
+    transform: translateY(-1px);
+}
+
+/* Search by user — surfaced inline via JS into the messages header */
+.em-chat-inbox-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    background: rgba(11, 14, 20, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 12px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+.em-chat-inbox-search input {
+    flex: 1;
+    background: transparent !important;
+    border: 0 !important;
+    color: #e8edf5 !important;
+    font-size: 13px !important;
+    padding: 8px !important;
+    box-shadow: none !important;
+}
+.em-chat-inbox-search-results {
+    position: relative;
+}
+.em-chat-inbox-search-results .em-chat-row {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    margin: 4px 0;
+}
+
 /* === Slice 2zz.7.2 — Chat sub-tab styling ===
  * JS tags every <a> inside the BP messages subnav (after removing
  * the Email entry) with .em-chat-subnav-item so we can give the
