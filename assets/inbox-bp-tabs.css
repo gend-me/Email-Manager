@@ -155,3 +155,143 @@ body.em-inbox-bp-mode-chat  aside.sidebar {
     margin: 0 !important;
     max-width: none !important;
 }
+
+/* Slice 2zz.7.3 — soft fade while AJAX tab swap is in flight */
+.em-inbox-ajax-loading {
+    opacity: 0.55;
+    transition: opacity 0.18s ease;
+    pointer-events: none;
+}
+
+/* === Slice 2zz.7.2 — Chat sub-tab styling ===
+ * JS tags every <a> inside the BP messages subnav (after removing
+ * the Email entry) with .em-chat-subnav-item so we can give the
+ * row a consistent glass-pill look that matches the top-level
+ * Email/Chat strip. */
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav,
+body.em-inbox-bp-mode-chat #subnav.item-list-tabs,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav,
+body.em-inbox-bp-mode-chat .bp-subnavs {
+    background: transparent !important;
+    border: 0 !important;
+    padding: 6px 0 18px !important;
+    margin: 0 0 18px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav ul,
+body.em-inbox-bp-mode-chat #subnav ul,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav ul,
+body.em-inbox-bp-mode-chat .bp-subnavs ul {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    list-style: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+}
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li,
+body.em-inbox-bp-mode-chat #subnav li,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li,
+body.em-inbox-bp-mode-chat .bp-subnavs li {
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    list-style: none !important;
+    float: none !important;
+    display: inline-flex !important;
+}
+.em-chat-subnav-item,
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    padding: 10px 18px !important;
+    border-radius: 999px !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    color: inherit !important;
+    text-decoration: none !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.em-chat-subnav-item:hover,
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a:hover,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    transform: translateY(-1px);
+    color: inherit !important;
+}
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li.selected > a,
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li.current > a,
+body.em-inbox-bp-mode-chat #subnav li.selected > a,
+body.em-inbox-bp-mode-chat #subnav li.current > a,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li.selected > a,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li.current > a {
+    background: linear-gradient(135deg, #b608c9 0%, #6ec1e4 100%) !important;
+    border-color: transparent !important;
+    color: #fff !important;
+    box-shadow: 0 4px 14px rgba(182, 8, 201, 0.32) !important;
+}
+
+/* Inside-anchor children (icons + counts) — keep them tidy + sized */
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a > *:not(:last-child) {
+    flex-shrink: 0;
+}
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a i,
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a svg,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a i,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a svg {
+    font-size: 14px !important;
+    width: 14px !important;
+    height: 14px !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+/* Youzify wraps icons in big colored circles via ::before — kill
+ * them so the row stays single-line and aligned. */
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a::before,
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a::after,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a::before,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a::after,
+body.em-inbox-bp-mode-chat .youzify-bp-nav.item-list-tabs li > a::before,
+body.em-inbox-bp-mode-chat .youzify-bp-nav.item-list-tabs li > a::after {
+    display: none !important;
+    content: none !important;
+    background: none !important;
+}
+/* The colored-circle wrapper Youzify sometimes inserts as a child
+ * <span>/<div> with its own background. Flatten it. */
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a .youzify-nav-icon,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a .youzify-nav-icon,
+body.em-inbox-bp-mode-chat .youzify-bp-nav.item-list-tabs li > a .youzify-nav-icon {
+    background: transparent !important;
+    border-radius: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    line-height: 1 !important;
+}
+body.em-inbox-bp-mode-chat .item-list-tabs#subnav li > a .count,
+body.em-inbox-bp-mode-chat .youzify-bp-message-nav li > a .count,
+body.em-inbox-bp-mode-chat .youzify-bp-nav.item-list-tabs li > a .count {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: #fff !important;
+    border-radius: 999px !important;
+    padding: 1px 8px !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    margin-left: 4px !important;
+}

@@ -3046,6 +3046,11 @@
             console.error('em-inbox: neither wp.element.createRoot nor wp.element.render available');
         }
     }
+    // Slice 2zz.7.3: expose the mount function so an AJAX tab switch
+    // (Chat → Email on the frontend BP messages page) can re-mount
+    // the SPA after swapping content into the page without a full
+    // browser reload.
+    window.emInboxMount = mount;
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', mount);
     } else {

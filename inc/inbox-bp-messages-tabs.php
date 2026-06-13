@@ -210,12 +210,40 @@ function em_inbox_bp_messages_tab_strip_footer() {
             tpl.dataset.emInjected = '1';
             return true;
         }
+        // Slice 2zz.7.2: remove the "Email" entry from the BP subnav
+        // strip by href-matching (most reliable across Youzify variants).
+        // The route stays registered server-side so /messages/email/
+        // still works; we just nuke the <li> from the strip.
+        function removeEmailItem() {
+            var subnav = findSubnav();
+            if (! subnav) return false;
+            // Match any anchor pointing at our email subnav, then remove
+            // the closest list-item container.
+            var anchors = subnav.querySelectorAll('a[href$="/messages/email/"], a[href$="/messages/email"], a[href*="/messages/email/"]');
+            var removed = 0;
+            anchors.forEach(function (a) {
+                var li = a.closest('li');
+                if (li && li.parentNode) {
+                    li.parentNode.removeChild(li);
+                    removed++;
+                }
+            });
+            // Style every remaining anchor so the Chat sub-tabs match
+            // the design language. Adds .em-chat-subnav-item to each
+            // so the CSS has a single hook.
+            subnav.querySelectorAll('li > a').forEach(function (a) {
+                a.classList.add('em-chat-subnav-item');
+            });
+            return removed > 0;
+        }
         function run() {
-            if (inject()) return;
+            inject();
+            removeEmailItem();
             // Youzify can render the subnav after DOMContentLoaded —
-            // watch the body for ~3s and try again as nodes arrive.
+            // watch the body for ~3s and re-apply as nodes arrive.
             var obs = new MutationObserver(function () {
-                if (inject()) obs.disconnect();
+                inject();
+                removeEmailItem();
             });
             obs.observe(document.body, { childList: true, subtree: true });
             setTimeout(function () { obs.disconnect(); }, 3000);
@@ -225,6 +253,97 @@ function em_inbox_bp_messages_tab_strip_footer() {
         } else {
             run();
         }
+
+        // Slice 2zz.7.3 — AJAX tab switching. Intercept clicks on the
+        // Email/Chat strip + the BP subnav, fetch the target URL, swap
+        // the content container, re-run our injectors, re-mount the SPA
+        // if needed. Falls through to a normal navigation on any error
+        // (so users never get stranded if the fetch fails).
+        function findContainer(doc) {
+            doc = doc || document;
+            var sels = ['.youzify-bp-messages', '.youzify-bp-content', '.bp-messages', '#buddypress', '.youzify-main-column'];
+            for (var i = 0; i < sels.length; i++) {
+                var el = doc.querySelector(sels[i]);
+                if (el) return el;
+            }
+            return null;
+        }
+        function swapBodyClass(targetTab) {
+            document.body.classList.remove('em-inbox-bp-mode-email', 'em-inbox-bp-mode-chat');
+            document.body.classList.add('em-inbox-bp-mode-' + targetTab);
+        }
+        function ajaxNavigate(url, targetTab, push) {
+            var container = findContainer(document);
+            if (! container) { window.location.href = url; return; }
+            container.classList.add('em-inbox-ajax-loading');
+            fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'em-inbox-ajax' } })
+                .then(function (r) { if (! r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                .then(function (html) {
+                    var parser = new DOMParser();
+                    var doc = parser.parseFromString(html, 'text/html');
+                    var newContainer = findContainer(doc);
+                    if (! newContainer) throw new Error('no container in response');
+                    container.innerHTML = newContainer.innerHTML;
+                    // Push URL into the address bar (only when this was
+                    // a fresh click — popstate replays already match).
+                    if (push !== false) {
+                        try { history.pushState({ emTab: targetTab }, '', url); } catch (e) {}
+                    }
+                    swapBodyClass(targetTab);
+                    // Re-render our top strip — it was nuked when we
+                    // overwrote container.innerHTML.
+                    var tpl = document.getElementById('em-inbox-messages-tabs-template');
+                    if (tpl) tpl.dataset.emInjected = '';
+                    inject();
+                    removeEmailItem();
+                    // Re-mount the SPA if the email screen is now active.
+                    if (targetTab === 'email' && typeof window.emInboxMount === 'function') {
+                        // Give React's createRoot a tick — also lets any
+                        // BP/Youzify initializers settle first.
+                        setTimeout(window.emInboxMount, 0);
+                    }
+                    // Make sure the strip's active state reflects the
+                    // new tab regardless of which Active was rendered
+                    // server-side.
+                    document.querySelectorAll('.em-inbox-messages-tab').forEach(function (a) {
+                        var isEmail = /\/messages\/email\/?$/.test(a.getAttribute('href') || '');
+                        a.classList.toggle('is-active', (targetTab === 'email') === isEmail);
+                        a.setAttribute('aria-current', a.classList.contains('is-active') ? 'page' : 'false');
+                    });
+                    window.scrollTo(0, 0);
+                })
+                .catch(function () {
+                    // Bail to a full reload — never strand the user.
+                    window.location.href = url;
+                })
+                .finally(function () {
+                    container.classList.remove('em-inbox-ajax-loading');
+                });
+        }
+        function classifyLink(a) {
+            var href = a.getAttribute('href') || '';
+            if (/\/messages\/email\/?$/.test(href))                                          return 'email';
+            if (/\/messages\/$/.test(href))                                                  return 'chat-root';
+            if (/\/messages\/(inbox|starred|sentbox|compose|notices|view)\/?/.test(href))    return 'chat-sub';
+            return null;
+        }
+        document.addEventListener('click', function (e) {
+            // Plain left-click only.
+            if (e.defaultPrevented || e.button !== 0) return;
+            if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+            var a = e.target && e.target.closest ? e.target.closest('a') : null;
+            if (! a || a.target === '_blank') return;
+            var kind = classifyLink(a);
+            if (! kind) return;
+            var targetTab = (kind === 'email') ? 'email' : 'chat';
+            e.preventDefault();
+            ajaxNavigate(a.href, targetTab, true);
+        });
+        window.addEventListener('popstate', function (e) {
+            var path = location.pathname;
+            var targetTab = /\/messages\/email\/?$/.test(path) ? 'email' : 'chat';
+            ajaxNavigate(location.href, targetTab, false);
+        });
     })();
     </script>
     <?php
@@ -237,19 +356,20 @@ function em_inbox_bp_messages_tab_strip_footer() {
 add_action('wp_enqueue_scripts', 'em_inbox_bp_messages_email_enqueue', 20);
 function em_inbox_bp_messages_email_enqueue() {
     if (! function_exists('bp_is_messages_component') || ! function_exists('bp_current_action')) return;
-    // Always enqueue the tab-strip CSS on any messages screen so the
-    // tab strip looks right on the Chat side too.
-    if (function_exists('bp_is_messages_component') && bp_is_messages_component()) {
-        wp_enqueue_style(
-            'em-inbox-bp-tabs',
-            EMAIL_MANAGER_URL . 'assets/inbox-bp-tabs.css',
-            array(),
-            EMAIL_MANAGER_VERSION
-        );
-    }
-    // SPA only on the Email screen.
-    if (! bp_is_messages_component() || bp_current_action() !== 'email') return;
+    if (! bp_is_messages_component()) return;
+    if (! em_inbox_user_has_inbox_access(bp_displayed_user_id())) return;
 
+    // Slice 2zz.7.3: enqueue tab-strip CSS + SPA on EVERY messages
+    // screen (was Email-only) so AJAX switching between Email and
+    // Chat works without a full page reload — the SPA's
+    // window.emInboxMount() global lets the tab-strip JS re-mount
+    // the React tree after swapping content into the page.
+    wp_enqueue_style(
+        'em-inbox-bp-tabs',
+        EMAIL_MANAGER_URL . 'assets/inbox-bp-tabs.css',
+        array(),
+        EMAIL_MANAGER_VERSION
+    );
     wp_enqueue_style(
         'em-inbox-app',
         EMAIL_MANAGER_URL . 'assets/inbox-app.css',
