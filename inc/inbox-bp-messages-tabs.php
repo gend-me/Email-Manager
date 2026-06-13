@@ -210,26 +210,42 @@ function em_inbox_bp_messages_tab_strip_footer() {
             tpl.dataset.emInjected = '1';
             return true;
         }
-        // Slice 2zz.7.5: hide stray page-title headings on the Email
-        // screen — Youzify renders them via different selectors than
-        // our CSS catches in some themes. Walk siblings of our tab
-        // strip + the messages container, nuke any h1/h2 whose text
-        // is exactly "Email" / "Messages" (or empty).
+        // Slice 2zz.7.6: hide stray page-title headings on the Email
+        // screen — Youzify renders the "Email" heading outside any
+        // container we previously walked. New approach: scan every
+        // h1/h2/h3 + page-title / entry-title element on the page,
+        // skip anything inside nav / header / menu, and hide any
+        // whose text is exactly "Email" / "Messages" (or empty).
         function hideEmailHeading() {
             if (! document.body.classList.contains('em-inbox-bp-mode-email')) return;
-            var strip = document.querySelector('.em-inbox-messages-tabs');
-            var roots = [strip ? strip.parentNode : null, findContainer(), document.querySelector('.em-inbox-wrap--frontend')];
-            var seen = new Set();
-            roots.forEach(function (root) {
-                if (! root || seen.has(root)) return;
-                seen.add(root);
-                root.querySelectorAll('h1, h2').forEach(function (h) {
-                    var txt = (h.textContent || '').trim().toLowerCase();
-                    if (txt === 'email' || txt === 'messages' || txt === '') {
-                        h.style.display = 'none';
+            // Selector net: classic <h1>/<h2>/<h3> plus the common
+            // page-title classes Youzify / BP / theme wrappers use.
+            var candidates = document.querySelectorAll(
+                'h1, h2, h3, .page-title, .entry-title, .youzify-page-title, ' +
+                '.youzify-section-title, .youzify-bp-title, .bp-messages-title, ' +
+                '.youzify-page-header h1, .youzify-page-header h2, ' +
+                'header.page-header h1, header.entry-header h1'
+            );
+            for (var i = 0; i < candidates.length; i++) {
+                var h = candidates[i];
+                // Skip anything that's inside our own tab strip OR a
+                // nav element — we never want to nuke navigation.
+                if (h.closest && (h.closest('.em-inbox-messages-tabs') || h.closest('nav') || h.closest('header.site-header') || h.closest('.site-branding') || h.closest('#wpadminbar'))) {
+                    continue;
+                }
+                var txt = (h.textContent || '').trim().toLowerCase();
+                if (txt === 'email' || txt === 'messages' || txt === 'email & forms' || txt === 'conversations') {
+                    h.style.setProperty('display', 'none', 'important');
+                    // Also hide the immediate wrapper if it's only the
+                    // heading + nothing else (page-header type).
+                    var parent = h.parentNode;
+                    if (parent && parent.children.length === 1 && /header|h1|h2|h3|div|section/i.test(parent.tagName)) {
+                        if (! parent.matches('body, html, main, #buddypress')) {
+                            parent.style.setProperty('display', 'none', 'important');
+                        }
                     }
-                });
-            });
+                }
+            }
         }
 
         // Slice 2zz.7.2: remove the "Email" entry from the BP subnav
