@@ -152,23 +152,78 @@ function em_inbox_bp_messages_tab_strip_footer() {
     </template>
     <script>
     (function () {
+        var BODY_CLASS = '<?php echo esc_js($body_class); ?>';
+        // Find the BP messages subnav and insert our tab strip JUST BEFORE
+        // it so Email/Chat sits on TOP. Falls back to a messages-content
+        // container if no subnav found. MutationObserver covers Youzify
+        // themes that render the subnav after this script.
+        var SUBNAV_SELECTORS = [
+            '.item-list-tabs#subnav',
+            '#subnav.item-list-tabs',
+            '.bp-subnavs',
+            'div#subnav',
+            '.youzify-bp-message-nav',
+            '.youzify-bp-message-options',
+            '.youzify-bp-content-nav',
+            '.youzify-bp-content .item-list-tabs',
+            '.youzify-bp-nav.item-list-tabs',
+            'ul#subnav',
+            '.subnav.item-list-tabs'
+        ];
+        var FALLBACK_SELECTORS = [
+            '.youzify-bp-messages',
+            '.youzify-bp-content',
+            '.bp-messages',
+            '#buddypress',
+            '.youzify-main-column'
+        ];
+        function findSubnav() {
+            for (var i = 0; i < SUBNAV_SELECTORS.length; i++) {
+                var el = document.querySelector(SUBNAV_SELECTORS[i]);
+                if (el) return el;
+            }
+            return null;
+        }
         function inject() {
-            document.body.classList.add('<?php echo esc_js($body_class); ?>');
+            document.body.classList.add(BODY_CLASS);
             var tpl = document.getElementById('em-inbox-messages-tabs-template');
-            if (! tpl || tpl.dataset.emInjected) return;
+            if (! tpl || tpl.dataset.emInjected) return true;
+            var subnav = findSubnav();
+            var frag, anchor, where;
+            if (subnav && subnav.parentNode) {
+                anchor = subnav;
+                where = 'before';
+            } else {
+                for (var j = 0; j < FALLBACK_SELECTORS.length; j++) {
+                    anchor = document.querySelector(FALLBACK_SELECTORS[j]);
+                    if (anchor) break;
+                }
+                where = 'prepend';
+            }
+            if (! anchor) return false;
+            frag = tpl.content.cloneNode(true);
+            if (where === 'before') {
+                anchor.parentNode.insertBefore(frag, anchor);
+            } else {
+                anchor.insertBefore(frag, anchor.firstChild);
+            }
             tpl.dataset.emInjected = '1';
-            // Find a sensible anchor — the messages container. Walks a
-            // few common selectors used by BP / Youzify themes; bails
-            // to <main> as a last resort.
-            var anchor = document.querySelector('.bp-messages, #messages, .youzify-bp-messages, .youzify-messages, .youzify-main-column, main, .site-main');
-            if (! anchor) return;
-            var frag = tpl.content.cloneNode(true);
-            anchor.insertBefore(frag, anchor.firstChild);
+            return true;
+        }
+        function run() {
+            if (inject()) return;
+            // Youzify can render the subnav after DOMContentLoaded —
+            // watch the body for ~3s and try again as nodes arrive.
+            var obs = new MutationObserver(function () {
+                if (inject()) obs.disconnect();
+            });
+            obs.observe(document.body, { childList: true, subtree: true });
+            setTimeout(function () { obs.disconnect(); }, 3000);
         }
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', inject);
+            document.addEventListener('DOMContentLoaded', run);
         } else {
-            inject();
+            run();
         }
     })();
     </script>

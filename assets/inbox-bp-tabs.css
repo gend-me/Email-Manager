@@ -72,30 +72,51 @@ ul.subnav li.email-personal-li {
  * The user only sees the top-level Email/Chat tab and the SPA below.
  * Inbox/Starred/Sent/Compose/Notices are Chat's sub-tabs only.
  * Slice 2zz.7 — toggled by the em-inbox-bp-mode-email class JS adds
- * to <body>. */
+ * to <body>. Wide selector net to cover Youzify variants. */
 body.em-inbox-bp-mode-email .bp-subnavs,
 body.em-inbox-bp-mode-email .item-list-tabs#subnav,
+body.em-inbox-bp-mode-email #subnav.item-list-tabs,
 body.em-inbox-bp-mode-email div#subnav,
-body.em-inbox-bp-mode-email .youzify-bp-nav,
+body.em-inbox-bp-mode-email ul#subnav,
+body.em-inbox-bp-mode-email .subnav.item-list-tabs,
+body.em-inbox-bp-mode-email .youzify-bp-nav.item-list-tabs,
 body.em-inbox-bp-mode-email .youzify-bp-message-nav,
-body.em-inbox-bp-mode-email .youzify-bp-content-nav {
+body.em-inbox-bp-mode-email .youzify-bp-message-options,
+body.em-inbox-bp-mode-email .youzify-bp-content-nav,
+body.em-inbox-bp-mode-email .youzify-bp-content > .item-list-tabs {
+    display: none !important;
+}
+
+/* Heading "Email" / "Messages" — also redundant on the email screen
+ * since our tab strip clearly labels the section. Keep on chat for
+ * stock BP layout. */
+body.em-inbox-bp-mode-email .youzify-bp-messages > h1,
+body.em-inbox-bp-mode-email .youzify-bp-messages > h2,
+body.em-inbox-bp-mode-email #buddypress > h1.entry-title,
+body.em-inbox-bp-mode-email #buddypress > h2.entry-title {
     display: none !important;
 }
 
 /* === Fix doubled icons in the Youzify messages subnav ===
- * The theme stacks the default (outlined) and active (filled) icon
- * states as two separate <i>/<svg> children inside each <a>. When
- * both are visible we see them side-by-side. Hide the secondary
- * (.youzify-icon-active or :nth-child(2)) so only one renders.
- * Slice 2zz.7. */
-body.em-inbox-bp-mode-chat .item-list-tabs#subnav a > i + i,
-body.em-inbox-bp-mode-chat .item-list-tabs#subnav a > svg + svg,
-body.em-inbox-bp-mode-chat .item-list-tabs#subnav a > .youzify-icon-active,
-body.em-inbox-bp-mode-chat .youzify-bp-nav a > .youzify-icon-active,
-body.em-inbox-bp-mode-chat .youzify-bp-message-nav a > i ~ i,
-body.em-inbox-bp-mode-chat .youzify-bp-message-nav a > svg ~ svg,
-.em-inbox-bp-mode-chat .youzify-tab-icon + .youzify-tab-icon,
-.em-inbox-bp-mode-chat .item-list-tabs li a > img + img {
+ * Looking at the live theme: each nav item shows a SMALL outlined
+ * icon followed by a LARGE colored-circle icon. Both are styled the
+ * same way (no .youzify-icon-active class differentiation). The
+ * larger colored one is the design choice — kill the first sibling.
+ * Selectors target everything that could be a second icon sibling
+ * inside a subnav anchor.
+ * Slice 2zz.7 — broadened in 2zz.7.1. */
+body.bp-user.messages .item-list-tabs#subnav a > i:first-of-type:not(:only-of-type),
+body.bp-user.messages .item-list-tabs#subnav a > svg:first-of-type:not(:only-of-type),
+body.bp-user.messages .item-list-tabs#subnav a > img:first-of-type:not(:only-of-type),
+body.bp-user.messages .youzify-bp-message-nav a > i:first-of-type:not(:only-of-type),
+body.bp-user.messages .youzify-bp-message-nav a > svg:first-of-type:not(:only-of-type),
+body.bp-user.messages .youzify-bp-message-nav a > .youzify-icon-default,
+body.bp-user.messages .youzify-bp-message-nav a > .youzify-nav-icon:first-of-type:not(:only-of-type),
+body.bp-user.messages .youzify-bp-nav a > .youzify-icon-default,
+body.bp-user.messages .item-list-tabs#subnav a > .youzify-icon-default,
+body.bp-user.messages .item-list-tabs li a > .em-icon-outline,
+body.bp-user.messages #subnav a > i:nth-child(2),
+body.bp-user.messages #subnav a > svg:nth-child(2) {
     display: none !important;
 }
 
