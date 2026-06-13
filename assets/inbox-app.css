@@ -1695,3 +1695,250 @@ img.em-inbox-blocked-img {
     color: #50575e;
     margin-bottom: 12px;
 }
+
+/* ============================================================
+ * SLICE 2zz.8 — Cursor-following border glow, 3D tilt, spotlight,
+ * + universal staggered entrance. JS (inbox-app.js) keeps the
+ * --em-mx / --em-my CSS vars updated on whichever element the
+ * pointer is over; everything else is pure CSS so the GPU does
+ * all the work.
+ * ============================================================ */
+
+:root {
+    --em-glow-magenta: rgba(182, 8, 201, 0.55);
+    --em-glow-blue:    rgba(110, 193, 228, 0.55);
+    --em-glow-accent:  rgba(151, 228, 110, 0.45);
+}
+
+/* ── Base hook ───────────────────────────────────────────────────
+ * Every selector in the JS SELECTORS list. These rules don't bind
+ * to the JS class; they're plain CSS additions to existing styles.
+ * The pseudo-elements are inherited via `:is()` so we don't have
+ * to duplicate them on every selector. */
+.em-inbox-wrap .em-inbox-filter,
+.em-inbox-wrap .em-inbox-thread-row,
+.em-inbox-wrap .em-inbox-filters-btn,
+.em-inbox-wrap .em-inbox-bell,
+.em-inbox-wrap .em-inbox-help-btn,
+.em-inbox-wrap .em-inbox-vac-btn,
+.em-inbox-wrap .em-inbox-recovery-btn,
+.em-inbox-wrap .em-inbox-addinbox-btn,
+.em-inbox-wrap .em-inbox-message,
+.em-inbox-wrap .em-inbox-card-section,
+.em-inbox-wrap .em-inbox-scheduled-row,
+.em-inbox-wrap .em-inbox-att-add,
+.em-inbox-wrap .em-inbox-thread-actions .components-button,
+.em-inbox-owner-card,
+.em-inbox-picker-row,
+.em-inbox-messages-tab,
+.em-chat-subnav-item {
+    position: relative;
+    isolation: isolate;
+    transform-style: preserve-3d;
+    will-change: transform;
+}
+
+/* ── Spotlight background ───────────────────────────────────────
+ * A soft radial highlight that fades to nothing, painted under
+ * the existing background. Visible only when the pointer is over
+ * the element (--em-mx is unset otherwise). */
+.em-inbox-wrap .em-inbox-filter::before,
+.em-inbox-wrap .em-inbox-thread-row::before,
+.em-inbox-wrap .em-inbox-filters-btn::before,
+.em-inbox-wrap .em-inbox-bell::before,
+.em-inbox-wrap .em-inbox-help-btn::before,
+.em-inbox-wrap .em-inbox-vac-btn::before,
+.em-inbox-wrap .em-inbox-recovery-btn::before,
+.em-inbox-wrap .em-inbox-addinbox-btn::before,
+.em-inbox-wrap .em-inbox-message::before,
+.em-inbox-wrap .em-inbox-card-section::before,
+.em-inbox-wrap .em-inbox-scheduled-row::before,
+.em-inbox-wrap .em-inbox-att-add::before,
+.em-inbox-owner-card::before,
+.em-inbox-picker-row::before,
+.em-inbox-messages-tab::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+        circle 240px at calc(var(--em-mx, 0.5) * 100%) calc(var(--em-my, 0.5) * 100%),
+        rgba(110, 193, 228, 0.20) 0%,
+        rgba(182, 8, 201, 0.10) 35%,
+        transparent 60%
+    );
+    opacity: 0;
+    transition: opacity 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ── Border glow ─────────────────────────────────────────────────
+ * Magenta→blue diagonal gradient masked to a 1px ring around the
+ * element. The radial-gradient inside the linear-gradient creates
+ * a "spot" that brightens where the cursor is. */
+.em-inbox-wrap .em-inbox-filter::after,
+.em-inbox-wrap .em-inbox-thread-row::after,
+.em-inbox-wrap .em-inbox-filters-btn::after,
+.em-inbox-wrap .em-inbox-bell::after,
+.em-inbox-wrap .em-inbox-help-btn::after,
+.em-inbox-wrap .em-inbox-vac-btn::after,
+.em-inbox-wrap .em-inbox-recovery-btn::after,
+.em-inbox-wrap .em-inbox-addinbox-btn::after,
+.em-inbox-wrap .em-inbox-message::after,
+.em-inbox-wrap .em-inbox-card-section::after,
+.em-inbox-wrap .em-inbox-scheduled-row::after,
+.em-inbox-wrap .em-inbox-att-add::after,
+.em-inbox-owner-card::after,
+.em-inbox-picker-row::after,
+.em-inbox-messages-tab::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: radial-gradient(
+        circle 180px at calc(var(--em-mx, 0.5) * 100%) calc(var(--em-my, 0.5) * 100%),
+        var(--em-glow-magenta) 0%,
+        var(--em-glow-blue) 40%,
+        rgba(255, 255, 255, 0.08) 70%,
+        transparent 90%
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Reveal both layers on hover (or when the JS adds .em-glow-active). */
+.em-inbox-wrap .em-inbox-filter:hover::before,
+.em-inbox-wrap .em-inbox-filter.em-glow-active::before,
+.em-inbox-wrap .em-inbox-thread-row:hover::before,
+.em-inbox-wrap .em-inbox-thread-row.em-glow-active::before,
+.em-inbox-wrap .em-inbox-filters-btn:hover::before,
+.em-inbox-wrap .em-inbox-bell:hover::before,
+.em-inbox-wrap .em-inbox-help-btn:hover::before,
+.em-inbox-wrap .em-inbox-vac-btn:hover::before,
+.em-inbox-wrap .em-inbox-recovery-btn:hover::before,
+.em-inbox-wrap .em-inbox-addinbox-btn:hover::before,
+.em-inbox-wrap .em-inbox-message:hover::before,
+.em-inbox-wrap .em-inbox-card-section:hover::before,
+.em-inbox-wrap .em-inbox-scheduled-row:hover::before,
+.em-inbox-wrap .em-inbox-att-add:hover::before,
+.em-inbox-owner-card:hover::before,
+.em-inbox-owner-card.em-glow-active::before,
+.em-inbox-picker-row:hover::before,
+.em-inbox-messages-tab:hover::before,
+.em-inbox-wrap .em-inbox-filter:hover::after,
+.em-inbox-wrap .em-inbox-filter.em-glow-active::after,
+.em-inbox-wrap .em-inbox-thread-row:hover::after,
+.em-inbox-wrap .em-inbox-thread-row.em-glow-active::after,
+.em-inbox-wrap .em-inbox-filters-btn:hover::after,
+.em-inbox-wrap .em-inbox-bell:hover::after,
+.em-inbox-wrap .em-inbox-help-btn:hover::after,
+.em-inbox-wrap .em-inbox-vac-btn:hover::after,
+.em-inbox-wrap .em-inbox-recovery-btn:hover::after,
+.em-inbox-wrap .em-inbox-addinbox-btn:hover::after,
+.em-inbox-wrap .em-inbox-message:hover::after,
+.em-inbox-wrap .em-inbox-card-section:hover::after,
+.em-inbox-wrap .em-inbox-scheduled-row:hover::after,
+.em-inbox-wrap .em-inbox-att-add:hover::after,
+.em-inbox-owner-card:hover::after,
+.em-inbox-owner-card.em-glow-active::after,
+.em-inbox-picker-row:hover::after,
+.em-inbox-messages-tab:hover::after {
+    opacity: 1;
+}
+
+/* ── 3D tilt — perspective-based rotation that lets the surface
+ *    "lean toward" the cursor. Combined with the existing
+ *    translateY(-1px) hover lift via a CSS var. Subtle (4deg max). */
+.em-inbox-wrap .em-inbox-thread-row.em-glow-active,
+.em-inbox-wrap .em-inbox-message.em-glow-active,
+.em-inbox-wrap .em-inbox-card-section.em-glow-active,
+.em-inbox-wrap .em-inbox-scheduled-row.em-glow-active,
+.em-inbox-owner-card.em-glow-active {
+    transform:
+        perspective(900px)
+        translateY(-2px)
+        rotateX(calc((0.5 - var(--em-my, 0.5)) * 4deg))
+        rotateY(calc((var(--em-mx, 0.5) - 0.5) * 6deg));
+}
+
+/* The smaller pill / button items only lift, no rotate (rotation
+ * on a 28px-tall pill looks jittery). */
+.em-inbox-wrap .em-inbox-filter.em-glow-active,
+.em-inbox-wrap .em-inbox-filters-btn.em-glow-active,
+.em-inbox-wrap .em-inbox-bell.em-glow-active,
+.em-inbox-wrap .em-inbox-help-btn.em-glow-active,
+.em-inbox-wrap .em-inbox-vac-btn.em-glow-active,
+.em-inbox-wrap .em-inbox-recovery-btn.em-glow-active,
+.em-inbox-wrap .em-inbox-addinbox-btn.em-glow-active,
+.em-inbox-messages-tab.em-glow-active {
+    transform: translateY(-1px);
+}
+
+/* Keep the existing text/avatar above the glow layers. */
+.em-inbox-wrap .em-inbox-thread-row > *,
+.em-inbox-wrap .em-inbox-message > *,
+.em-inbox-wrap .em-inbox-card-section > *,
+.em-inbox-wrap .em-inbox-scheduled-row > *,
+.em-inbox-wrap .em-inbox-filter > *,
+.em-inbox-owner-card > *,
+.em-inbox-picker-row > * {
+    position: relative;
+    z-index: 2;
+}
+
+/* ── Universal staggered entrance ──
+ * --em-i is set by the JS stagger initializer in inbox-app.js.
+ * Each child uses its index to compute its own delay. The keyframe
+ * itself was defined back in slice 2ss; we just extend the parents
+ * that get auto-staggered.
+ */
+.em-inbox-wrap [data-em-i] {
+    animation: em-inbox-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: calc(var(--em-i, 0) * 45ms + 80ms);
+}
+
+/* Thread-list items animation override (the slice-2ss nth-child rules
+ * only covered the first 15; --em-i scales arbitrarily). */
+.em-inbox-wrap .em-inbox-thread-list > li.em-inbox-thread-row[data-em-i] {
+    animation-name: em-inbox-rise;
+    animation-delay: calc(var(--em-i, 0) * 45ms + 250ms);
+}
+
+/* Filter pills already use em-inbox-pop — keep them on it but drive
+ * delay from --em-i for arbitrary length. */
+.em-inbox-wrap .em-inbox-filters > .em-inbox-filter[data-em-i] {
+    animation-name: em-inbox-pop;
+    animation-delay: calc(var(--em-i, 0) * 35ms + 220ms);
+}
+
+/* ── Reduced-motion: kill the entrance + tilt, keep a flat fade. ── */
+@media (prefers-reduced-motion: reduce) {
+    .em-inbox-wrap [data-em-i] {
+        animation: none !important;
+    }
+    .em-inbox-wrap .em-inbox-thread-row.em-glow-active,
+    .em-inbox-wrap .em-inbox-message.em-glow-active,
+    .em-inbox-wrap .em-inbox-card-section.em-glow-active,
+    .em-inbox-wrap .em-inbox-scheduled-row.em-glow-active,
+    .em-inbox-owner-card.em-glow-active {
+        transform: none !important;
+    }
+    .em-inbox-wrap *::before,
+    .em-inbox-wrap *::after,
+    .em-inbox-owner-card::before,
+    .em-inbox-owner-card::after,
+    .em-inbox-picker-row::before,
+    .em-inbox-picker-row::after,
+    .em-inbox-messages-tab::before,
+    .em-inbox-messages-tab::after {
+        transition: none !important;
+    }
+}

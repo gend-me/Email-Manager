@@ -3056,4 +3056,112 @@
     } else {
         mount();
     }
+
+    // ── Slice 2zz.8 — Cursor-following glow, 3D tilt, and stagger
+    //    init. Pointermove is RAF-throttled and only touches CSS vars
+    //    on the element the pointer is over so we never reflow / layout
+    //    the page. The hover effect is opt-in via .em-glow (or any
+    //    element matching the selector list below) so we don't melt
+    //    the GPU on every <button> on the page.
+    //
+    //    `prefers-reduced-motion: reduce` short-circuits the listener
+    //    so users who opted out get a flat hover.
+    (function setupCursorGlow() {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        if (window.__emGlowInstalled) return;
+        window.__emGlowInstalled = true;
+
+        var SELECTORS = '.em-glow, .em-inbox-wrap .em-inbox-filter, .em-inbox-wrap .em-inbox-thread-row, .em-inbox-wrap .em-inbox-filters-btn, .em-inbox-wrap .em-inbox-bell, .em-inbox-wrap .em-inbox-help-btn, .em-inbox-wrap .em-inbox-vac-btn, .em-inbox-wrap .em-inbox-recovery-btn, .em-inbox-wrap .em-inbox-addinbox-btn, .em-inbox-wrap .em-inbox-message, .em-inbox-wrap .em-inbox-card-section, .em-inbox-wrap .em-inbox-scheduled-row, .em-inbox-wrap .em-inbox-att-add, .em-inbox-wrap .em-inbox-thread-actions .components-button, .em-inbox-owner-card, .em-inbox-picker-row, .em-inbox-messages-tab, .em-chat-subnav-item';
+
+        var pending = null;
+        var lastEl = null;
+        function tick() {
+            pending = null;
+            if (! lastEl) return;
+            var rect = lastEl.getBoundingClientRect();
+            var mx = (lastPos.x - rect.left) / Math.max(1, rect.width);
+            var my = (lastPos.y - rect.top) / Math.max(1, rect.height);
+            // Clamp 0..1 so a fast mouse-out frame doesn't briefly show
+            // a stale extreme value.
+            mx = Math.min(1, Math.max(0, mx));
+            my = Math.min(1, Math.max(0, my));
+            lastEl.style.setProperty('--em-mx', mx);
+            lastEl.style.setProperty('--em-my', my);
+        }
+        var lastPos = { x: 0, y: 0 };
+        function onMove(e) {
+            lastPos.x = e.clientX;
+            lastPos.y = e.clientY;
+            var t = e.target && e.target.closest ? e.target.closest(SELECTORS) : null;
+            if (t !== lastEl) {
+                if (lastEl) {
+                    lastEl.style.removeProperty('--em-mx');
+                    lastEl.style.removeProperty('--em-my');
+                    lastEl.classList.remove('em-glow-active');
+                }
+                lastEl = t;
+                if (lastEl) lastEl.classList.add('em-glow-active');
+            }
+            if (! lastEl) return;
+            if (pending == null) pending = requestAnimationFrame(tick);
+        }
+        document.addEventListener('pointermove', onMove, { passive: true });
+        document.addEventListener('mouseout', function () {
+            if (lastEl) {
+                lastEl.style.removeProperty('--em-mx');
+                lastEl.style.removeProperty('--em-my');
+                lastEl.classList.remove('em-glow-active');
+                lastEl = null;
+            }
+        }, { passive: true });
+    })();
+
+    // Slice 2zz.8 — stagger init. Assigns --em-i to direct children of
+    // certain containers so CSS animation-delay can be derived from
+    // index without hardcoded nth-child rules. Re-runs on every SPA
+    // re-mount (window.emInboxMount path) by observing inbox-root for
+    // child additions.
+    (function setupStaggerInit() {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        var STAGGER_PARENT_SELECTORS = [
+            { sel: '.em-inbox-wrap .em-inbox-toolbar', child: ':scope > *' },
+            { sel: '.em-inbox-wrap .em-inbox-filters', child: ':scope > .em-inbox-filter' },
+            { sel: '.em-inbox-wrap .em-inbox-thread-list', child: ':scope > .em-inbox-thread-row' },
+            { sel: '.em-inbox-wrap .em-inbox-scheduled-list', child: ':scope > .em-inbox-scheduled-row' },
+            { sel: '.em-inbox-wrap .em-inbox-card', child: ':scope > .em-inbox-card-section' },
+            { sel: '.em-inbox-wrap .em-inbox-message-list', child: ':scope > *' },
+            { sel: '.em-inbox-picker-list', child: ':scope > li' },
+        ];
+        function applyStagger() {
+            STAGGER_PARENT_SELECTORS.forEach(function (cfg) {
+                document.querySelectorAll(cfg.sel).forEach(function (parent) {
+                    var i = 0;
+                    parent.querySelectorAll(cfg.child).forEach(function (el) {
+                        if (! el.hasAttribute('data-em-i')) {
+                            el.setAttribute('data-em-i', i);
+                            el.style.setProperty('--em-i', i);
+                        }
+                        i++;
+                    });
+                });
+            });
+        }
+        // Throttle apply via RAF so a burst of mutations doesn't fire
+        // a hundred selectors-all in a single frame.
+        var pending = false;
+        function schedule() {
+            if (pending) return;
+            pending = true;
+            requestAnimationFrame(function () { pending = false; applyStagger(); });
+        }
+        // Initial pass after mount.
+        schedule();
+        // Re-apply as React renders / sub-trees change.
+        var root = document.getElementById('em-inbox-root');
+        if (! root) return;
+        var obs = new MutationObserver(schedule);
+        obs.observe(root, { childList: true, subtree: true });
+        // Expose for external triggers (e.g. tab AJAX swap).
+        window.emInboxApplyStagger = schedule;
+    })();
 })();
