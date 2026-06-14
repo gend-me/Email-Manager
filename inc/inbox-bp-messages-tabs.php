@@ -134,11 +134,14 @@ function em_inbox_bp_messages_tab_strip_footer() {
     $messages_url = trailingslashit(bp_displayed_user_domain() . bp_get_messages_slug());
     $email_url    = $messages_url . 'email/';
     $chat_url     = $messages_url;
-    $active       = (function_exists('bp_current_action') && bp_current_action() === 'email') ? 'email' : 'chat';
+    $dm_url       = $messages_url . 'dm/';
+    $cur_action   = function_exists('bp_current_action') ? bp_current_action() : '';
+    $active       = $cur_action === 'email' ? 'email' : ($cur_action === 'dm' ? 'dm' : 'chat');
 
     $email_active = $active === 'email' ? ' is-active' : '';
     $chat_active  = $active === 'chat'  ? ' is-active' : '';
-    $body_class   = $active === 'email' ? 'em-inbox-bp-mode-email' : 'em-inbox-bp-mode-chat';
+    $dm_active    = $active === 'dm'    ? ' is-active' : '';
+    $body_class   = 'em-inbox-bp-mode-' . $active;
     ?>
     <template id="em-inbox-messages-tabs-template">
       <nav class="em-inbox-messages-tabs" aria-label="<?php esc_attr_e('Messages section', 'email-manager'); ?>">
@@ -147,6 +150,9 @@ function em_inbox_bp_messages_tab_strip_footer() {
         </a>
         <a class="em-inbox-messages-tab<?php echo $chat_active; ?>" href="<?php echo esc_url($chat_url); ?>" aria-current="<?php echo $chat_active ? 'page' : 'false'; ?>">
           <span class="em-inbox-messages-tab-icon" aria-hidden="true">💬</span> <?php esc_html_e('Chat', 'email-manager'); ?>
+        </a>
+        <a class="em-inbox-messages-tab<?php echo $dm_active; ?>" href="<?php echo esc_url($dm_url); ?>" aria-current="<?php echo $dm_active ? 'page' : 'false'; ?>">
+          <span class="em-inbox-messages-tab-icon" aria-hidden="true">📨</span> <?php esc_html_e('Direct Messages', 'email-manager'); ?>
         </a>
       </nav>
     </template>
@@ -217,7 +223,10 @@ function em_inbox_bp_messages_tab_strip_footer() {
         // skip anything inside nav / header / menu, and hide any
         // whose text is exactly "Email" / "Messages" (or empty).
         function hideEmailHeading() {
-            if (! document.body.classList.contains('em-inbox-bp-mode-email')) return;
+            // Slice 3c: extended to also fire on the Direct Messages
+            // screen — our React panel renders its own title.
+            if (! document.body.classList.contains('em-inbox-bp-mode-email')
+                && ! document.body.classList.contains('em-inbox-bp-mode-dm')) return;
             // Selector net: classic <h1>/<h2>/<h3> plus the common
             // page-title classes Youzify / BP / theme wrappers use.
             var candidates = document.querySelectorAll(
@@ -234,7 +243,7 @@ function em_inbox_bp_messages_tab_strip_footer() {
                     continue;
                 }
                 var txt = (h.textContent || '').trim().toLowerCase();
-                if (txt === 'email' || txt === 'messages' || txt === 'email & forms' || txt === 'conversations') {
+                if (txt === 'email' || txt === 'messages' || txt === 'email & forms' || txt === 'conversations' || txt === 'direct messages') {
                     h.style.setProperty('display', 'none', 'important');
                     // Also hide the immediate wrapper if it's only the
                     // heading + nothing else (page-header type).
@@ -255,9 +264,14 @@ function em_inbox_bp_messages_tab_strip_footer() {
         function removeEmailItem() {
             var subnav = findSubnav();
             if (! subnav) return false;
-            // Match any anchor pointing at our email subnav, then remove
-            // the closest list-item container.
-            var anchors = subnav.querySelectorAll('a[href$="/messages/email/"], a[href$="/messages/email"], a[href*="/messages/email/"]');
+            // Match any anchor pointing at our email OR dm subnav, then
+            // remove the closest list-item container. Both live in our
+            // top-level Email/Chat/DM strip; the BP subnav strip should
+            // only show Inbox / Starred / Sent / Compose / Notices.
+            var anchors = subnav.querySelectorAll(
+                'a[href$="/messages/email/"], a[href$="/messages/email"], a[href*="/messages/email/"], ' +
+                'a[href$="/messages/dm/"],    a[href$="/messages/dm"],    a[href*="/messages/dm/"]'
+            );
             var removed = 0;
             anchors.forEach(function (a) {
                 var li = a.closest('li');
@@ -314,7 +328,7 @@ function em_inbox_bp_messages_tab_strip_footer() {
             return null;
         }
         function swapBodyClass(targetTab) {
-            document.body.classList.remove('em-inbox-bp-mode-email', 'em-inbox-bp-mode-chat');
+            document.body.classList.remove('em-inbox-bp-mode-email', 'em-inbox-bp-mode-chat', 'em-inbox-bp-mode-dm');
             document.body.classList.add('em-inbox-bp-mode-' + targetTab);
         }
         function ajaxNavigate(url, targetTab, push) {
@@ -343,11 +357,14 @@ function em_inbox_bp_messages_tab_strip_footer() {
                     removeEmailItem();
                     hideEmailHeading();
                     injectChatSearch();
-                    // Re-mount the SPA if the email screen is now active.
+                    // Re-mount the matching SPA when the new screen
+                    // expects one. Give React's createRoot a tick — also
+                    // lets any BP/Youzify initializers settle first.
                     if (targetTab === 'email' && typeof window.emInboxMount === 'function') {
-                        // Give React's createRoot a tick — also lets any
-                        // BP/Youzify initializers settle first.
                         setTimeout(window.emInboxMount, 0);
+                    }
+                    if (targetTab === 'dm' && typeof window.emDMMount === 'function') {
+                        setTimeout(window.emDMMount, 0);
                     }
                     // Make sure the strip's active state reflects the
                     // new tab regardless of which Active was rendered
@@ -462,6 +479,8 @@ function em_inbox_bp_messages_tab_strip_footer() {
             }
             // The Email tab.
             if (/\/messages\/email\/?$/.test(url.pathname)) return 'email';
+            // The Direct Messages tab.
+            if (/\/messages\/dm\/?$/.test(url.pathname))    return 'dm';
             // Everything else under /messages/ — Chat root, sub-tabs
             // (Inbox / Starred / Sent / Compose / Notices / Search),
             // thread-view (/view/{id}/), pagination, etc. — falls under
@@ -476,13 +495,15 @@ function em_inbox_bp_messages_tab_strip_footer() {
             if (! a || a.target === '_blank') return;
             var kind = classifyLink(a);
             if (! kind) return;
-            var targetTab = (kind === 'email') ? 'email' : 'chat';
+            var targetTab = kind;  // 'email' | 'dm' | 'chat'
             e.preventDefault();
             ajaxNavigate(a.href, targetTab, true);
         });
         window.addEventListener('popstate', function (e) {
             var path = location.pathname;
-            var targetTab = /\/messages\/email\/?$/.test(path) ? 'email' : 'chat';
+            var targetTab = /\/messages\/email\/?$/.test(path) ? 'email'
+                          : /\/messages\/dm\/?$/.test(path)    ? 'dm'
+                          : 'chat';
             ajaxNavigate(location.href, targetTab, false);
         });
     })();

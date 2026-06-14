@@ -2399,6 +2399,14 @@
                                 return false;
                             });
                         }
+                        // Slice 3c.1: last-resort fallback — if no party
+                        // could be identified (orphan thread with 0
+                        // messages), use the inbox_address itself so the
+                        // customer card still surfaces the owner / contact
+                        // card rather than a "no participant" placeholder.
+                        if (! other && ownerAddr) {
+                            other = ownerAddr;
+                        }
                         props.onOtherParty(other);
                     }
                 })

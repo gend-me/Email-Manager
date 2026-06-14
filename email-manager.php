@@ -63,6 +63,7 @@ require_once EMAIL_MANAGER_PATH . 'inc/inbox-bootstrap.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-recovery-email.php';
 require_once EMAIL_MANAGER_PATH . 'inc/chat-widget.php';
 require_once EMAIL_MANAGER_PATH . 'inc/video-player.php';
+require_once EMAIL_MANAGER_PATH . 'inc/inbox-dm.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-rest-output-guard.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
 require_once EMAIL_MANAGER_PATH . 'inc/wc-email-override.php';

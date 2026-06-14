@@ -1,0 +1,341 @@
+/* ============================================================
+ * Direct Messages Panel (slice 3c)
+ * Unified cross-platform DMs surface. Inherits the gend-society
+ * glass tokens + magenta/blue brand gradient from the email and
+ * chat shells so they all read as one design system.
+ * ============================================================ */
+
+.em-dm-wrap--frontend { margin: 0 !important; padding: 0 !important; }
+
+.em-dm {
+    --emd-magenta: #b608c9;
+    --emd-blue:    #6ec1e4;
+    --emd-bg:      rgba(15, 20, 32, 0.92);
+    --emd-glass:   rgba(255, 255, 255, 0.05);
+    --emd-glass-strong: rgba(255, 255, 255, 0.10);
+    --emd-border:  rgba(255, 255, 255, 0.10);
+    --emd-text:    #e8edf5;
+    --emd-muted:   #8b98b0;
+    --emd-radius:  14px;
+    --emd-ease:    cubic-bezier(0.22, 1, 0.36, 1);
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    color: var(--emd-text);
+    background:
+        radial-gradient(circle at 15% 0%, rgba(182, 8, 201, 0.16) 0%, transparent 50%),
+        radial-gradient(circle at 85% 100%, rgba(110, 193, 228, 0.14) 0%, transparent 55%),
+        linear-gradient(180deg, #0b0e14 0%, #11161f 100%);
+    border-radius: var(--emd-radius);
+    border: 1px solid var(--emd-border);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    padding: 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+    animation: emd-fade-in 0.4s var(--emd-ease) both;
+}
+@keyframes emd-fade-in {
+    from { opacity: 0; transform: translateY(8px); filter: blur(6px); }
+    to   { opacity: 1; transform: translateY(0);   filter: blur(0); }
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.em-dm-header { margin-bottom: 18px; }
+.em-dm-title {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--emd-text);
+}
+.em-dm-subtitle {
+    margin: 0;
+    font-size: 13px;
+    color: var(--emd-muted);
+}
+
+/* ── Provider row ───────────────────────────────────────────── */
+.em-dm-providers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 22px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--emd-border);
+}
+.em-dm-provider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: var(--emd-glass);
+    border: 1px solid var(--emd-border);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: background 0.2s var(--emd-ease), transform 0.2s var(--emd-ease);
+    animation: emd-pop 0.35s var(--emd-ease) both;
+    animation-delay: calc(var(--em-i, 0) * 50ms);
+}
+.em-dm-provider:hover {
+    background: var(--emd-glass-strong);
+    transform: translateY(-1px);
+}
+.em-dm-provider.is-connected {
+    border-color: var(--prov-color, var(--emd-blue));
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+}
+.em-dm-provider-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+.em-dm-provider-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--emd-text);
+}
+.em-dm-provider-status {
+    font-size: 11px;
+    color: var(--prov-color, var(--emd-blue));
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+}
+.em-dm-provider-connect {
+    font-size: 12px;
+    color: #6ec1e4;
+    text-decoration: none;
+    font-weight: 600;
+}
+.em-dm-provider-connect:hover { color: var(--emd-text); }
+@keyframes emd-pop {
+    from { opacity: 0; transform: scale(0.92); filter: blur(4px); }
+    to   { opacity: 1; transform: scale(1);    filter: blur(0); }
+}
+
+/* ── Feed ───────────────────────────────────────────────────── */
+.em-dm-feed-title {
+    margin: 0 0 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--emd-muted);
+}
+.em-dm-thread-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.em-dm-thread-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--emd-glass);
+    border: 1px solid var(--emd-border);
+    border-radius: 12px;
+    color: var(--emd-text);
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.2s var(--emd-ease), border-color 0.2s var(--emd-ease), transform 0.2s var(--emd-ease);
+    animation: emd-row-in 0.4s var(--emd-ease) both;
+    animation-delay: calc(var(--em-i, 0) * 45ms + 120ms);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+.em-dm-thread-row:hover {
+    background: var(--emd-glass-strong);
+    border-color: rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px);
+}
+@keyframes emd-row-in {
+    from { opacity: 0; transform: translateY(8px); filter: blur(4px); }
+    to   { opacity: 1; transform: translateY(0);   filter: blur(0); }
+}
+.em-dm-thread-platform {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: #fff;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.em-dm-thread-avatar {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--emd-border);
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.06);
+}
+.em-dm-thread-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.em-dm-thread-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--emd-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.em-dm-thread-sub {
+    font-size: 12px;
+    color: var(--emd-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.em-dm-thread-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.em-dm-thread-time { font-size: 11px; color: var(--emd-muted); }
+.em-dm-thread-unread {
+    background: linear-gradient(135deg, var(--emd-magenta), var(--emd-blue));
+    color: #fff;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ── Empty state ────────────────────────────────────────────── */
+.em-dm-empty {
+    text-align: center;
+    color: var(--emd-muted);
+    font-size: 13px;
+    padding: 24px;
+    background: var(--emd-glass);
+    border-radius: 12px;
+    border: 1px dashed var(--emd-border);
+}
+.em-dm-err { color: #ffb8bd; border-color: #b32d2e; }
+
+/* ── Thread view ────────────────────────────────────────────── */
+.em-dm-thread {
+    display: flex;
+    flex-direction: column;
+    background: rgba(11, 14, 20, 0.55);
+    border: 1px solid var(--emd-border);
+    border-radius: 12px;
+    overflow: hidden;
+    min-height: 520px;
+    animation: emd-fade-in 0.35s var(--emd-ease) both;
+}
+.em-dm-thread-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--emd-border);
+    background: rgba(11, 14, 20, 0.65);
+}
+.em-dm-back {
+    border: 1px solid var(--emd-border);
+    background: var(--emd-glass);
+    color: var(--emd-text);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+}
+.em-dm-back:hover { background: var(--emd-glass-strong); }
+
+.em-dm-thread-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 480px;
+}
+.em-dm-bubble {
+    display: flex;
+    max-width: 78%;
+    animation: emd-row-in 0.32s var(--emd-ease) both;
+    animation-delay: calc(var(--em-i, 0) * 30ms);
+}
+.em-dm-bubble.is-self { align-self: flex-end; }
+.em-dm-bubble-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 14px;
+    border-radius: 18px;
+    background: var(--emd-glass);
+    border: 1px solid var(--emd-border);
+}
+.em-dm-bubble.is-self .em-dm-bubble-body {
+    background: linear-gradient(135deg, var(--emd-magenta), var(--emd-blue));
+    border-color: transparent;
+    color: #fff;
+}
+.em-dm-bubble-text { font-size: 13px; line-height: 1.45; word-wrap: break-word; color: inherit; }
+.em-dm-bubble-time { font-size: 10px; color: var(--emd-muted); align-self: flex-end; }
+.em-dm-bubble.is-self .em-dm-bubble-time { color: rgba(255, 255, 255, 0.75); }
+
+.em-dm-compose {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(11, 14, 20, 0.55);
+    border-top: 1px solid var(--emd-border);
+}
+.em-dm-compose input {
+    flex: 1;
+    background: var(--emd-glass) !important;
+    border: 1px solid var(--emd-border) !important;
+    border-radius: 999px !important;
+    padding: 10px 16px !important;
+    color: var(--emd-text) !important;
+    font-size: 13px !important;
+    font-family: inherit !important;
+}
+.em-dm-compose input::placeholder { color: var(--emd-muted); }
+.em-dm-compose input:focus {
+    outline: none;
+    border-color: rgba(182, 8, 201, 0.55) !important;
+    box-shadow: 0 0 0 3px rgba(182, 8, 201, 0.16) !important;
+}
+.em-dm-compose button {
+    background: linear-gradient(135deg, var(--emd-magenta), var(--emd-blue));
+    color: #fff;
+    border: 0;
+    border-radius: 999px;
+    padding: 10px 22px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    box-shadow: 0 4px 14px rgba(182, 8, 201, 0.35);
+    transition: transform 0.18s var(--emd-ease);
+}
+.em-dm-compose button:hover:not(:disabled) { transform: translateY(-1px); }
+.em-dm-compose button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .em-dm *,
+    .em-dm *::before,
+    .em-dm *::after {
+        animation-duration: 0.001s !important;
+        animation-delay: 0s !important;
+        transition: none !important;
+    }
+}

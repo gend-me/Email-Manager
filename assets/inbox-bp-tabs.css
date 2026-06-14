@@ -83,7 +83,18 @@ body.em-inbox-bp-mode-email .youzify-bp-nav.item-list-tabs,
 body.em-inbox-bp-mode-email .youzify-bp-message-nav,
 body.em-inbox-bp-mode-email .youzify-bp-message-options,
 body.em-inbox-bp-mode-email .youzify-bp-content-nav,
-body.em-inbox-bp-mode-email .youzify-bp-content > .item-list-tabs {
+body.em-inbox-bp-mode-email .youzify-bp-content > .item-list-tabs,
+body.em-inbox-bp-mode-dm .bp-subnavs,
+body.em-inbox-bp-mode-dm .item-list-tabs#subnav,
+body.em-inbox-bp-mode-dm #subnav.item-list-tabs,
+body.em-inbox-bp-mode-dm div#subnav,
+body.em-inbox-bp-mode-dm ul#subnav,
+body.em-inbox-bp-mode-dm .subnav.item-list-tabs,
+body.em-inbox-bp-mode-dm .youzify-bp-nav.item-list-tabs,
+body.em-inbox-bp-mode-dm .youzify-bp-message-nav,
+body.em-inbox-bp-mode-dm .youzify-bp-message-options,
+body.em-inbox-bp-mode-dm .youzify-bp-content-nav,
+body.em-inbox-bp-mode-dm .youzify-bp-content > .item-list-tabs {
     display: none !important;
 }
 
