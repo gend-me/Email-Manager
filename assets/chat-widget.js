@@ -74,12 +74,56 @@
         return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     }
 
+    // ── Live unread dock (slice 3e) ──────────────────────────────────
+    // A horizontal stack of avatars rendered LEFT of the launcher.
+    // Each chip represents a sender with unread messages; clicking it
+    // opens that specific thread. Entrance is staggered so the dock
+    // appears to "build itself" as senders come in. Each chip also
+    // carries an unread-count badge and a pulse halo while it lives.
+    function UnreadDock(props) {
+        var items = props.items || [];
+        if (! items.length) return null;
+        return html`
+          <div class="em-chat-dock" role="list" aria-label="Unread conversations">
+            ${items.map(function (it, i) {
+                var n = it.unread > 99 ? '99+' : String(it.unread);
+                var initials = String(it.display_name || '?')
+                    .split(/\s+/).map(function (s) { return s.charAt(0); }).join('').slice(0, 2).toUpperCase();
+                return html`
+                  <button
+                    type="button"
+                    role="listitem"
+                    key=${it.thread_id}
+                    class="em-chat-dock-chip"
+                    style=${{ '--em-i': i }}
+                    title=${it.display_name + (it.excerpt ? ' — ' + it.excerpt : '')}
+                    aria-label=${it.display_name + ' sent ' + n + ' new message' + (it.unread === 1 ? '' : 's')}
+                    onClick=${function () { props.onOpen(it); }}>
+                    <span class="em-chat-dock-halo" aria-hidden="true"></span>
+                    <span class="em-chat-dock-ring" aria-hidden="true"></span>
+                    <span class="em-chat-dock-avatar">
+                      ${it.avatar_url
+                        ? html`<img src=${it.avatar_url} alt="" loading="lazy" />`
+                        : html`<span class="em-chat-dock-initials">${initials}</span>`}
+                    </span>
+                    <span class="em-chat-dock-badge">${n}</span>
+                  </button>
+                `;
+            })}
+          </div>
+        `;
+    }
+
     // ── Launcher button + global widget ──────────────────────────────
     function Widget() {
         var openState     = useState(false);
         var open          = openState[0], setOpen = openState[1];
         var unreadState   = useState(0);
         var unread        = unreadState[0], setUnread = unreadState[1];
+        var dockState     = useState([]);   // per-sender unread items
+        var dock          = dockState[0], setDock = dockState[1];
+        var dockSeenRef   = useRef({});     // thread_id -> animation seq number
+        var dockSeqRef    = useRef(0);
         var openBoxesState= useState([]); // array of thread summaries
         var openBoxes     = openBoxesState[0], setOpenBoxes = openBoxesState[1];
         var isMobileState = useState(window.innerWidth < 720);
@@ -93,14 +137,37 @@
             return function () { window.removeEventListener('resize', onResize); };
         }, []);
 
-        // Poll unread count every 30s while visible.
+        // Poll unread count every 15s while visible. The endpoint now
+        // returns a per-sender items[] used by the live notification dock.
         useEffect(function () {
             function tick() {
                 if (document.visibilityState !== 'visible') return;
-                restGet('unread-count').then(function (d) { setUnread(Number(d.unread || 0)); }).catch(function () {});
+                restGet('unread-count').then(function (d) {
+                    setUnread(Number(d.unread || 0));
+                    var items = Array.isArray(d.items) ? d.items : [];
+                    // Stamp each item with a stable sequence number on
+                    // first appearance so its entrance animation only
+                    // fires once (and never re-fires across polls).
+                    var seen = dockSeenRef.current;
+                    items.forEach(function (it) {
+                        var k = String(it.thread_id);
+                        if (! (k in seen)) { seen[k] = dockSeqRef.current++; }
+                        it._seq = seen[k];
+                    });
+                    // Reap stale sequence numbers for threads that
+                    // dropped off the unread list (so a future re-arrival
+                    // gets a fresh entrance).
+                    var liveKeys = {};
+                    items.forEach(function (it) { liveKeys[String(it.thread_id)] = 1; });
+                    Object.keys(seen).forEach(function (k) { if (! liveKeys[k]) delete seen[k]; });
+                    // Sort: newest seq last (so it animates in at the
+                    // outer end of the stack), preserving display order.
+                    items.sort(function (a, b) { return a._seq - b._seq; });
+                    setDock(items);
+                }).catch(function () {});
             }
             tick();
-            var h = setInterval(tick, 30000);
+            var h = setInterval(tick, 15000);
             function onVis() { if (document.visibilityState === 'visible') tick(); }
             document.addEventListener('visibilitychange', onVis);
             return function () { clearInterval(h); document.removeEventListener('visibilitychange', onVis); };
@@ -145,8 +212,24 @@
             pushBox(thread);
         }
 
+        function openThreadById(item) {
+            pushBox({
+                id: item.thread_id,
+                others: [{
+                    user_id: item.user_id,
+                    display_name: item.display_name,
+                    avatar_url: item.avatar_url,
+                }],
+            });
+            // Optimistically drop this sender's dock chip — the next
+            // poll will reconcile if there are still unread messages.
+            setDock(dock.filter(function (d) { return d.thread_id !== item.thread_id; }));
+            delete dockSeenRef.current[String(item.thread_id)];
+        }
+
         return html`
           <div class=${'em-chat-widget ' + (isMobile ? 'is-mobile' : 'is-desktop')}>
+            <${UnreadDock} items=${dock} onOpen=${openThreadById} />
             <button
               type="button"
               class=${'em-chat-launcher ' + (open ? 'is-active' : '') + (unread > 0 ? ' has-unread' : '')}

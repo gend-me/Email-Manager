@@ -309,10 +309,45 @@ function em_chat_rest_search_users(WP_REST_Request $r) {
 function em_chat_rest_unread_count(WP_REST_Request $r) {
     $u = wp_get_current_user();
     if (! $u || ! $u->ID) return new WP_Error('em_chat_no_user', 'Login required', array('status' => 401));
+    $uid   = (int) $u->ID;
     $count = function_exists('messages_get_unread_count')
-        ? (int) messages_get_unread_count($u->ID)
+        ? (int) messages_get_unread_count($uid)
         : 0;
-    return rest_ensure_response(array('unread' => $count));
+
+    // Slice 3e: also return per-sender unread items so the chat widget
+    // can render a stack of "live notification" avatars left of the
+    // launcher. Each item drives one avatar with a badge + click-to-open.
+    $items = array();
+    if ($count > 0 && class_exists('BP_Messages_Thread') && method_exists('BP_Messages_Thread', 'get_current_threads_for_user')) {
+        $res = BP_Messages_Thread::get_current_threads_for_user(array(
+            'user_id' => $uid,
+            'box'     => 'inbox',
+            'type'    => 'unread',
+            'limit'   => 6,
+            'page'    => 1,
+        ));
+        $threads = isset($res['threads']) ? $res['threads'] : array();
+        foreach ($threads as $t) {
+            $summary = em_chat_thread_summary((int) $t->thread_id, $uid);
+            if (! $summary || empty($summary['unread'])) continue;
+            $other = isset($summary['others'][0]) ? $summary['others'][0] : null;
+            if (! $other) continue;
+            $items[] = array(
+                'thread_id'    => (int) $summary['id'],
+                'user_id'      => (int) $other['user_id'],
+                'display_name' => (string) $other['display_name'],
+                'avatar_url'   => (string) $other['avatar_url'],
+                'unread'       => (int) $summary['unread'],
+                'last_at'      => $summary['last_at'],
+                'excerpt'      => (string) $summary['last_message_excerpt'],
+            );
+        }
+    }
+
+    return rest_ensure_response(array(
+        'unread' => $count,
+        'items'  => $items,
+    ));
 }
 
 /* -------------------------------------------------------------------------
