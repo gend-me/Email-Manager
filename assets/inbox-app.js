@@ -36,7 +36,35 @@
     var apiFetch = wp.apiFetch;
     apiFetch.use(apiFetch.createNonceMiddleware(cfg.nonce));
 
-    var Spinner = wp.components.Spinner;
+    // Slice 3d: ditch the default top-left wp.components.Spinner for a
+    // centered, digital, multi-ring orbital loader that owns its stage.
+    // Every consumer just renders <${Spinner} />; pass a `label` prop or
+    // a `compact` boolean for tight slots (modals etc.).
+    function Spinner(props) {
+        var label = (props && props.label) || 'Loading';
+        var compact = !!(props && props.compact);
+        var chars = String(label).split('');
+        return html`
+          <div class=${'em-loader-stage' + (compact ? ' em-loader-stage--compact' : '')}
+               role="status" aria-live="polite" aria-busy="true">
+            <div class="em-loader-stack">
+              <div class="em-loader-grid" aria-hidden="true"></div>
+              <div class="em-loader" aria-hidden="true">
+                <div class="em-loader-core"></div>
+                <span class="em-loader-tick"></span>
+                <span class="em-loader-tick"></span>
+                <span class="em-loader-tick"></span>
+              </div>
+              <div class="em-loader-label" aria-hidden="true">
+                ${chars.map(function (c, i) {
+                    return html`<span key=${i}>${c === ' ' ? ' ' : c}</span>`;
+                })}
+              </div>
+              <span style=${{ position:'absolute', left:'-9999px', width:'1px', height:'1px', overflow:'hidden' }}>${label}…</span>
+            </div>
+          </div>
+        `;
+    }
     var Notice  = wp.components.Notice;
     var SelectControl = wp.components.SelectControl;
     var Button = wp.components.Button;

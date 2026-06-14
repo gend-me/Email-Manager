@@ -32,6 +32,29 @@
     function restGet(path)        { return apiFetch({ url: cfg.restRoot + path, method: 'GET' }); }
     function restPost(path, data) { return apiFetch({ url: cfg.restRoot + path, method: 'POST', data: data || {} }); }
 
+    // Centered digital orbital loader (slice 3d). Same visual language as
+    // inbox-app's Spinner; styles live in dm-panel.css under .em-dm scope.
+    function Spinner(props) {
+        var label = (props && props.label) || 'Loading';
+        var chars = String(label).split('');
+        return html`
+          <div class="em-loader-stage" role="status" aria-live="polite" aria-busy="true">
+            <div class="em-loader-stack">
+              <div class="em-loader-grid" aria-hidden="true"></div>
+              <div class="em-loader" aria-hidden="true">
+                <div class="em-loader-core"></div>
+                <span class="em-loader-tick"></span>
+                <span class="em-loader-tick"></span>
+                <span class="em-loader-tick"></span>
+              </div>
+              <div class="em-loader-label" aria-hidden="true">
+                ${chars.map(function (c, i) { return html`<span key=${i}>${c === ' ' ? ' ' : c}</span>`; })}
+              </div>
+            </div>
+          </div>
+        `;
+    }
+
     function formatTime(s) {
         if (!s) return '';
         var d = new Date(s);
@@ -89,7 +112,7 @@
               : html`
                 <section class="em-dm-feed">
                   <h3 class="em-dm-feed-title">Conversations</h3>
-                  ${state.loading && html`<p class="em-dm-empty">Loading…</p>`}
+                  ${state.loading && html`<${Spinner} label="Syncing DMs" />`}
                   ${state.err && html`<p class="em-dm-empty em-dm-err">${state.err}</p>`}
                   ${! state.loading && ! state.err && ! anyConnected && html`
                     <p class="em-dm-empty">
@@ -161,7 +184,7 @@
               </span>
             </header>
             <div class="em-dm-thread-body">
-              ${state.loading && html`<p class="em-dm-empty">Loading messages…</p>`}
+              ${state.loading && html`<${Spinner} label="Loading thread" />`}
               ${state.err && html`<p class="em-dm-empty em-dm-err">${state.err}</p>`}
               ${! state.loading && ! state.err && state.messages.length === 0 && html`<p class="em-dm-empty">No messages in this conversation yet.</p>`}
               ${state.messages.map(function (m, i) {
