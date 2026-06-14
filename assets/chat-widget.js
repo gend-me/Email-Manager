@@ -44,6 +44,13 @@
             return r.json();
         });
     };
+    // Slice 3e.1: ensure our X-WP-Nonce rides every wp.apiFetch call.
+    // Without this, wp.apiFetch ships requests with no nonce → cookie
+    // auth fails → wp-oauth-server's "block unauthenticated REST"
+    // filter denies with `rest_not_authorized: Authorization is required.`
+    if (wp.apiFetch && wp.apiFetch.createNonceMiddleware && cfg.nonce) {
+        try { wp.apiFetch.use(wp.apiFetch.createNonceMiddleware(cfg.nonce)); } catch (e) {}
+    }
 
     function restGet(path) {
         return apiFetch({ url: cfg.restRoot + path, method: 'GET' });

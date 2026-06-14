@@ -29,6 +29,10 @@
             body: opts.data ? JSON.stringify(opts.data) : undefined,
         }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
     };
+    // Slice 3e.1: nonce middleware (see chat-widget.js for the why).
+    if (wp.apiFetch && wp.apiFetch.createNonceMiddleware && cfg.nonce) {
+        try { wp.apiFetch.use(wp.apiFetch.createNonceMiddleware(cfg.nonce)); } catch (e) {}
+    }
     function restGet(path)        { return apiFetch({ url: cfg.restRoot + path, method: 'GET' }); }
     function restPost(path, data) { return apiFetch({ url: cfg.restRoot + path, method: 'POST', data: data || {} }); }
 
