@@ -52,6 +52,17 @@
         return apiFetch({ url: cfg.restRoot + path, method: 'POST', data: data || {} });
     }
 
+    // Some server errors (PHP fatals) come back as an HTML body. Strip
+    // tags so the chat panel never renders raw markup as the error
+    // message — show a clean human string instead.
+    function cleanError(e) {
+        var m = (e && e.message) ? String(e.message) : 'Something went wrong';
+        if (/<[a-z!\/][\s\S]*?>/i.test(m)) {
+            return 'Chat is temporarily unavailable. Please try again in a moment.';
+        }
+        return m;
+    }
+
     function formatTime(s) {
         if (!s) return '';
         var d = new Date(s);
@@ -177,7 +188,7 @@
             restGet('threads').then(function (d) {
                 setState({ loading: false, items: d.items || [], err: null });
             }).catch(function (e) {
-                setState({ loading: false, items: [], err: e.message || 'Failed to load chat' });
+                setState({ loading: false, items: [], err: cleanError(e) });
             });
         }
         useEffect(reload, []);
@@ -293,7 +304,7 @@
                 // Mark read on the server side; cheap fire-and-forget.
                 restPost('threads/' + props.thread.id + '/read', {}).catch(function () {});
             }).catch(function (e) {
-                setState({ loading: false, thread: props.thread, messages: [], err: e.message || 'Failed to load thread' });
+                setState({ loading: false, thread: props.thread, messages: [], err: cleanError(e) });
             });
         }
         useEffect(load, [props.thread.id]);

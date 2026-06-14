@@ -103,10 +103,8 @@ function em_chat_thread_summary($thread_id, $for_user_id) {
     }
 
     $last = end($thread->messages);
-    $unread = (int) BP_Messages_Thread::get_recipient_unread_count(array(
-        'user_id' => (int) $for_user_id,
-    ));
-    // The above is total unread; per-thread unread is on the recipient row.
+    // Per-thread unread count lives on the recipient row — read it
+    // there rather than calling a method that varies across BP versions.
     $thread_unread = 0;
     if (is_array($thread->recipients)) {
         foreach ($thread->recipients as $rcp) {
