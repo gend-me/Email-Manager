@@ -71,61 +71,39 @@ function em_inbox_admin_create_inbox(WP_REST_Request $r) {
         ));
     }
 
-    // mode === 'new_user'
-    if ($existing) {
-        // Idempotent: an admin re-running with the same email just gets
-        // the existing user back rather than an error — but we still
-        // ensure the inbox address meta is set.
-        update_user_meta($existing->ID, 'em_inbox_address', $email);
+    // mode === 'new_user' — delegate to the shared in-process provisioner
+    // (single source of truth, reused by trusted server-side callers).
+    $res = em_inbox_provision_user($email, $display_name, $role);
+    if (is_wp_error($res)) {
+        return $res;
+    }
+
+    // Idempotent: an admin re-running with the same email just gets the
+    // existing user back rather than an error — the provisioner already
+    // ensured the inbox address meta is set.
+    if (empty($res['created'])) {
         return rest_ensure_response(array(
-            'ok'           => true,
-            'user_id'      => (int) $existing->ID,
-            'email'        => $email,
-            'mode'         => 'new_user',
-            'created'      => false,
+            'ok'              => true,
+            'user_id'         => (int) $res['user_id'],
+            'email'           => $email,
+            'mode'            => 'new_user',
+            'created'         => false,
             'already_existed' => true,
         ));
     }
-
-    // Derive a unique username from the email local part.
-    $base = sanitize_user(strstr($email, '@', true), true);
-    if ($base === '') $base = 'inbox';
-    $login = $base;
-    $i = 1;
-    while (username_exists($login)) {
-        $login = $base . $i;
-        $i++;
-        if ($i > 999) {
-            return new WP_Error('em_addinbox_login_exhausted', 'Cannot generate a unique username', array('status' => 500));
-        }
-    }
-
-    $password = wp_generate_password(20, true, true);
-    $uid = wp_insert_user(array(
-        'user_login'   => $login,
-        'user_email'   => $email,
-        'user_pass'    => $password,
-        'display_name' => $display_name !== '' ? $display_name : $base,
-        'role'         => $role,
-    ));
-    if (is_wp_error($uid)) {
-        return new WP_Error('em_addinbox_create_failed', $uid->get_error_message(), array('status' => 500));
-    }
-
-    update_user_meta($uid, 'em_inbox_address', $email);
 
     if ($send_invite) {
         // Use the WP "new user notification" email which contains a
         // password-reset link. The 'user' kind sends only to the new
         // user (not the admin).
-        wp_new_user_notification($uid, null, 'user');
+        wp_new_user_notification($res['user_id'], null, 'user');
     }
 
     return rest_ensure_response(array(
         'ok'      => true,
-        'user_id' => (int) $uid,
+        'user_id' => (int) $res['user_id'],
         'email'   => $email,
-        'login'   => $login,
+        'login'   => $res['login'],
         'mode'    => 'new_user',
         'created' => true,
         'invite_sent' => (bool) $send_invite,

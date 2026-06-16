@@ -89,6 +89,99 @@ function em_inbox_user_by_address($address) {
 }
 
 /* -------------------------------------------------------------------------
+ * Shared in-process provisioning (slice 32.1)
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Create-or-find a WP user keyed on $email and stamp em_inbox_address.
+ *
+ * Reusable, cookie-free, in-process provisioning extracted from the admin
+ * "Add new inbox" REST callback (em_inbox_admin_create_inbox) so trusted
+ * server-side callers (e.g. a signature-verified hub→container provision
+ * route) can create an inbox-owning user WITHOUT an admin cookie.
+ *
+ * Behavior matches em_inbox_admin_create_inbox()'s new_user mode exactly:
+ * idempotent on existing email, unique login derived from the local-part,
+ * em_inbox_address stamped. Does NOT send invite emails — that stays an
+ * endpoint concern (caller decides whether to wp_new_user_notification).
+ *
+ * The role check accepts ANY registered role (get_role()), not just the
+ * standard WP set, so a custom role such as 'ai_agent' passes. IMPORTANT:
+ * the CALLER must have registered the target role earlier in the same
+ * request (e.g. add_role('ai_agent', …) on `init`) — this function does
+ * NOT register roles itself.
+ *
+ * @param string $email        Inbox/user email (also the user_email).
+ * @param string $display_name Optional display name (defaults to login base).
+ * @param string $role         Any registered role slug. Default 'subscriber'.
+ * @return array|WP_Error {
+ *     On success: array(user_id, email[, login], created[, already_existed]).
+ *     On failure: WP_Error with a 'status' data key.
+ * }
+ */
+function em_inbox_provision_user($email, $display_name = '', $role = 'subscriber') {
+    $email        = strtolower(trim((string) $email));
+    $display_name = trim((string) $display_name);
+    $role         = (string) ($role !== '' ? $role : 'subscriber');
+
+    if (! is_email($email)) {
+        return new WP_Error('em_provision_bad_email', 'A valid email is required', array('status' => 400));
+    }
+    // Accept any REGISTERED role (loosened from the standard-role allow-list
+    // so a caller-registered 'ai_agent' role passes). Caller must have
+    // registered the role earlier in the request.
+    if (! get_role($role)) {
+        return new WP_Error('em_provision_bad_role', 'role must be a registered WP role', array('status' => 400));
+    }
+
+    // Idempotent: an existing user with this email just gets the address
+    // meta ensured and is returned (mirrors the endpoint's new_user branch).
+    $existing = get_user_by('email', $email);
+    if ($existing) {
+        update_user_meta($existing->ID, 'em_inbox_address', $email);
+        return array(
+            'user_id'         => (int) $existing->ID,
+            'email'           => $email,
+            'created'         => false,
+            'already_existed' => true,
+        );
+    }
+
+    // Derive a unique username from the email local part.
+    $base = sanitize_user(strstr($email, '@', true), true);
+    if ($base === '') $base = 'inbox';
+    $login = $base;
+    $i = 1;
+    while (username_exists($login)) {
+        $login = $base . $i;
+        $i++;
+        if ($i > 999) {
+            return new WP_Error('em_provision_login_exhausted', 'Cannot generate a unique username', array('status' => 500));
+        }
+    }
+
+    $uid = wp_insert_user(array(
+        'user_login'   => $login,
+        'user_email'   => $email,
+        'user_pass'    => wp_generate_password(20, true, true),
+        'display_name' => $display_name !== '' ? $display_name : $base,
+        'role'         => $role,
+    ));
+    if (is_wp_error($uid)) {
+        return new WP_Error('em_provision_create_failed', $uid->get_error_message(), array('status' => 500));
+    }
+
+    update_user_meta($uid, 'em_inbox_address', $email);
+
+    return array(
+        'user_id' => (int) $uid,
+        'email'   => $email,
+        'login'   => $login,
+        'created' => true,
+    );
+}
+
+/* -------------------------------------------------------------------------
  * Auto-provisioning hook
  * ------------------------------------------------------------------------- */
 
