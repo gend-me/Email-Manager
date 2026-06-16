@@ -94,6 +94,28 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
              FROM $threads GROUP BY inbox_address ORDER BY last_received DESC",
             ARRAY_A
         );
+        // Also surface provisioned mailboxes that have no mail yet — every
+        // em_inbox_address in usermeta (e.g. a freshly-provisioned AI agent)
+        // so admins see the full address roster, not only inboxes with threads.
+        $have = array();
+        foreach ((array) $rows as $r) {
+            if (! empty($r['inbox_address'])) { $have[ strtolower($r['inbox_address']) ] = true; }
+        }
+        $provisioned = $wpdb->get_col(
+            "SELECT DISTINCT meta_value FROM {$wpdb->usermeta}
+             WHERE meta_key = 'em_inbox_address' AND meta_value <> ''"
+        );
+        foreach ((array) $provisioned as $addr) {
+            if ($addr && ! isset($have[ strtolower($addr) ])) {
+                $rows[]                       = array(
+                    'inbox_address' => $addr,
+                    'thread_count'  => 0,
+                    'last_received' => null,
+                    'unread_count'  => 0,
+                );
+                $have[ strtolower($addr) ] = true;
+            }
+        }
     } else {
         // Non-admin: union of inboxes by owner_user_id stamp (post-2e) and
         // the user's user_email + em_inbox_address (slice 2c fallback that
