@@ -38,45 +38,42 @@ add_action('rest_api_init', function () {
     ));
 });
 
-function em_inbox_send_handler(WP_REST_Request $request) {
+/**
+ * Cookie-free, from-explicit outbound send core (Phase 33 wave-0).
+ *
+ * This is the common spine shared by the logged-in member send endpoint
+ * (em_inbox_send_handler) and the hub→container signed agent-send route.
+ * It does NOT touch wp_get_current_user(), nonces, or the REST request —
+ * the CALLER asserts the sender's authority by passing an explicit $from.
+ *
+ * Twin of the deployed em_inbox_provision_user() extraction (Phase 32):
+ * same justification — a trusted in-process caller asserting authority.
+ *
+ * The relay (em_inbox_outq_submit_one) and the wp_gdc_inbox_raw outbound
+ * mirror INSERT (recipient=$from, sender=$from, kind='outbound') live
+ * TOGETHER here by design — they must never diverge (MAIL-02).
+ *
+ * @param string       $from    Explicit sender address (caller-asserted).
+ * @param array|string $to      Recipient(s); normalized internally.
+ * @param string       $subject Subject line.
+ * @param array        $bodies  array('body_plain'=>..., 'body_html'=>...).
+ * @param array        $opts    array('cc','bcc','attachments','extra_headers',
+ *                              'undo_seconds'=>0,'send_at_ts'=>0,'track_open'=>false).
+ * @return array|WP_Error array('ok','message_id','raw_id','delivery_status',
+ *                              'delivery_error','relay') or WP_Error on validation.
+ */
+function em_inbox_send_as($from, $to, $subject, array $bodies, array $opts = array()) {
     global $wpdb;
-    $payload = $request->get_json_params() ?: array();
 
-    // ── derive sender ────────────────────────────────────────────────
-    $user = wp_get_current_user();
-    $from = '';
-    if (! empty($payload['from_override'])) {
-        $candidate = strtolower(trim((string) $payload['from_override']));
-        // Admins can impersonate freely; non-admins need a read_send grant
-        // (slice 2ee). Self-address always allowed (it's a no-op override).
-        $can_send_as = function_exists('em_inbox_current_user_can_send_as')
-            ? em_inbox_current_user_can_send_as($candidate)
-            : current_user_can('manage_options');
-        if (! $can_send_as) {
-            return new WP_Error('em_inbox_send_no_grant',
-                'You do not have permission to send as ' . $candidate,
-                array('status' => 403));
-        }
-        $from = $candidate;
-    } else {
-        $from = strtolower(trim((string) get_user_meta($user->ID, 'em_inbox_address', true)));
-    }
+    // ── validate sender (caller asserts authority — we only sanity-check) ──
+    $from = strtolower(trim((string) $from));
     if ($from === '' || ! is_email($from)) {
         return new WP_Error('em_inbox_send_no_address',
             'You do not have a configured inbox address. The site admin must set em_inbox_default_domain and run `wp em-inbox backfill`.',
             array('status' => 400));
     }
-    // If acting on behalf of someone else (i.e. from != current user's own
-    // address), stamp an audit header so the recipient + the owner can see
-    // who actually pressed Send.
-    $acted_as_delegate = false;
-    $own_addr = strtolower(trim((string) get_user_meta($user->ID, 'em_inbox_address', true)));
-    if ($own_addr === '' && $user->user_email) $own_addr = strtolower($user->user_email);
-    if ($own_addr && $own_addr !== $from) {
-        $acted_as_delegate = true;
-    }
 
-    // ── normalize recipients ─────────────────────────────────────────
+    // ── normalize recipients (same logic as the member handler) ──────
     $normalize = function ($raw) {
         if (is_string($raw)) $raw = preg_split('/[,;\s]+/', $raw, -1, PREG_SPLIT_NO_EMPTY);
         if (! is_array($raw)) return array();
@@ -89,111 +86,30 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         }
         return $out;
     };
-    $to  = $normalize($payload['to']  ?? array());
-    $cc  = $normalize($payload['cc']  ?? array());
-    $bcc = $normalize($payload['bcc'] ?? array());
+    $to  = $normalize($to);
+    $cc  = $normalize($opts['cc']  ?? array());
+    $bcc = $normalize($opts['bcc'] ?? array());
     if (empty($to) && empty($cc) && empty($bcc)) {
         return new WP_Error('em_inbox_send_no_to', 'At least one recipient is required', array('status' => 400));
     }
 
-    $subject    = (string) ($payload['subject']    ?? '');
-    $body_plain = (string) ($payload['body_plain'] ?? '');
-    $body_html  = (string) ($payload['body_html']  ?? '');
+    $subject    = (string) $subject;
+    $body_plain = (string) ($bodies['body_plain'] ?? '');
+    $body_html  = (string) ($bodies['body_html']  ?? '');
     if ($body_plain === '' && $body_html === '') {
         return new WP_Error('em_inbox_send_empty', 'Message body is empty', array('status' => 400));
     }
-    $track_open = ! empty($payload['track_open']);
-    // Slice 2y: optional undo-send window. The send endpoint inserts
-    // the mirror with delivery_status='pending' + a deferred
-    // next_attempt_at so the cron worker doesn't deliver for N
-    // seconds. The React UI shows an Undo snackbar; if pressed within
-    // the window, /cancel deletes the mirror before relay.
-    $undo_seconds = isset($payload['undo_seconds']) ? (int) $payload['undo_seconds'] : 10;
-    if ($undo_seconds < 0)   $undo_seconds = 0;
-    if ($undo_seconds > 300) $undo_seconds = 300;
 
-    // Slice 2bb: scheduled send. If send_at is provided + parses to a
-    // future timestamp, override undo path and queue with status
-    // 'scheduled'. Mutually exclusive — scheduled wins.
-    $send_at_ts = 0;
-    if (! empty($payload['send_at'])) {
-        $send_at_ts = strtotime((string) $payload['send_at']);
-        if (! $send_at_ts || $send_at_ts <= time()) {
-            return new WP_Error('em_inbox_send_bad_send_at',
-                'send_at must be a future ISO 8601 timestamp', array('status' => 400));
-        }
-        // Cap at 1 year out to prevent abuse / accidental never-sent rows.
-        if ($send_at_ts > time() + 365 * 86400) {
-            return new WP_Error('em_inbox_send_send_at_too_far',
-                'send_at cannot be more than 1 year in the future', array('status' => 400));
-        }
-        $undo_seconds = 0;  // scheduled overrides undo path
-    }
-
-    // Attachments: client sends as base64. Cap total size to keep
-    // memory bounded; 25 MiB matches typical inbound limits.
-    $attachments_in = is_array($payload['attachments'] ?? null) ? $payload['attachments'] : array();
-    $total_bytes    = 0;
-    $attachments    = array();
-    foreach ($attachments_in as $att) {
-        if (empty($att['content_b64'])) continue;
-        $bin = base64_decode((string) $att['content_b64'], true);
-        if ($bin === false) {
-            return new WP_Error('em_inbox_send_bad_attachment', 'Attachment base64 decode failed', array('status' => 400));
-        }
-        $total_bytes += strlen($bin);
-        if ($total_bytes > 26214400) {
-            return new WP_Error('em_inbox_send_too_large', 'Attachments exceed 25 MiB', array('status' => 413));
-        }
-        $attachments[] = array(
-            'filename'     => isset($att['filename'])     ? (string) $att['filename']     : 'attachment',
-            'content_type' => isset($att['content_type']) ? (string) $att['content_type'] : 'application/octet-stream',
-            'content_b64'  => $att['content_b64'],   // pass through to submitter
-            'size'         => strlen($bin),
-        );
-    }
-
-    // ── threading headers (auto-derived for replies) ─────────────────
-    $extra_headers = array();
-    $thread_id     = isset($payload['thread_id']) ? (int) $payload['thread_id'] : 0;
-    if ($thread_id) {
-        $msg_table = $wpdb->prefix . 'gdc_inbox_messages';
-        $latest = $wpdb->get_row($wpdb->prepare(
-            "SELECT m.message_id, m.refs_json
-             FROM $msg_table m
-             WHERE m.thread_id = %d
-             ORDER BY m.received_at DESC, m.id DESC
-             LIMIT 1",
-            $thread_id
-        ), ARRAY_A);
-        if ($latest) {
-            $extra_headers[] = array('name' => 'In-Reply-To', 'value' => $latest['message_id']);
-            $refs = array();
-            if (! empty($latest['refs_json'])) {
-                $decoded = json_decode($latest['refs_json'], true);
-                if (is_array($decoded)) $refs = $decoded;
-            }
-            $refs[] = $latest['message_id'];
-            // Cap at 50 references to keep header sane.
-            $refs = array_slice(array_unique($refs), -50);
-            $extra_headers[] = array('name' => 'References', 'value' => implode(' ', $refs));
-            // Subject inherits "Re: …" if not explicitly overridden.
-            if ($subject === '') {
-                $thread = $wpdb->get_row($wpdb->prepare(
-                    "SELECT subject_first FROM {$wpdb->prefix}gdc_inbox_threads WHERE id = %d", $thread_id
-                ), ARRAY_A);
-                if ($thread && $thread['subject_first']) {
-                    $subject = 'Re: ' . preg_replace('/^\s*Re:\s*/i', '', $thread['subject_first']);
-                }
-            }
-        }
-    }
-
-    // Slice 2ee: when a delegate sends on behalf of an owner, leave an
-    // audit trail. The header survives onto the wire copy + the mirror
-    // row so the owner sees who acted in their name.
-    if ($acted_as_delegate) {
-        $extra_headers[] = array('name' => 'X-EM-Acted-By', 'value' => $own_addr);
+    $undo_seconds  = isset($opts['undo_seconds']) ? (int) $opts['undo_seconds'] : 0;
+    if ($undo_seconds < 0) $undo_seconds = 0;
+    $send_at_ts    = isset($opts['send_at_ts']) ? (int) $opts['send_at_ts'] : 0;
+    $track_open    = ! empty($opts['track_open']);
+    $extra_headers = is_array($opts['extra_headers'] ?? null) ? $opts['extra_headers'] : array();
+    $attachments   = is_array($opts['attachments'] ?? null) ? $opts['attachments'] : array();
+    // Total attachment bytes (for the mirror size_bytes column).
+    $total_bytes = 0;
+    foreach ($attachments as $a) {
+        $total_bytes += isset($a['size']) ? (int) $a['size'] : 0;
     }
 
     // Synthesize Message-ID before relay so the mirror + the wire copy share it.
@@ -324,6 +240,176 @@ function em_inbox_send_handler(WP_REST_Request $request) {
         em_inbox_thread_one($raw_id);
     }
 
+    return array(
+        'ok'              => ($undo_seconds > 0 || $send_at_ts > 0) ? true : $result['ok'],
+        'message_id'      => $message_id,
+        'raw_id'          => $raw_id,
+        'delivery_status' => $delivery_data['delivery_status'],
+        'delivery_error'  => $delivery_data['delivery_last_error'],
+        'undo_until'      => $delivery_data['delivery_next_attempt_at'],
+        'relay'           => $relay,
+    );
+}
+
+function em_inbox_send_handler(WP_REST_Request $request) {
+    global $wpdb;
+    $payload = $request->get_json_params() ?: array();
+
+    // ── derive sender ────────────────────────────────────────────────
+    $user = wp_get_current_user();
+    $from = '';
+    if (! empty($payload['from_override'])) {
+        $candidate = strtolower(trim((string) $payload['from_override']));
+        // Admins can impersonate freely; non-admins need a read_send grant
+        // (slice 2ee). Self-address always allowed (it's a no-op override).
+        $can_send_as = function_exists('em_inbox_current_user_can_send_as')
+            ? em_inbox_current_user_can_send_as($candidate)
+            : current_user_can('manage_options');
+        if (! $can_send_as) {
+            return new WP_Error('em_inbox_send_no_grant',
+                'You do not have permission to send as ' . $candidate,
+                array('status' => 403));
+        }
+        $from = $candidate;
+    } else {
+        $from = strtolower(trim((string) get_user_meta($user->ID, 'em_inbox_address', true)));
+    }
+    if ($from === '' || ! is_email($from)) {
+        return new WP_Error('em_inbox_send_no_address',
+            'You do not have a configured inbox address. The site admin must set em_inbox_default_domain and run `wp em-inbox backfill`.',
+            array('status' => 400));
+    }
+    // If acting on behalf of someone else (i.e. from != current user's own
+    // address), stamp an audit header so the recipient + the owner can see
+    // who actually pressed Send.
+    $acted_as_delegate = false;
+    $own_addr = strtolower(trim((string) get_user_meta($user->ID, 'em_inbox_address', true)));
+    if ($own_addr === '' && $user->user_email) $own_addr = strtolower($user->user_email);
+    if ($own_addr && $own_addr !== $from) {
+        $acted_as_delegate = true;
+    }
+
+    // Resolve the subject up-front; reply-threading below may rewrite it.
+    $subject = (string) ($payload['subject'] ?? '');
+
+    $track_open = ! empty($payload['track_open']);
+    // Slice 2y: optional undo-send window. The send endpoint inserts
+    // the mirror with delivery_status='pending' + a deferred
+    // next_attempt_at so the cron worker doesn't deliver for N
+    // seconds. The React UI shows an Undo snackbar; if pressed within
+    // the window, /cancel deletes the mirror before relay.
+    $undo_seconds = isset($payload['undo_seconds']) ? (int) $payload['undo_seconds'] : 10;
+    if ($undo_seconds < 0)   $undo_seconds = 0;
+    if ($undo_seconds > 300) $undo_seconds = 300;
+
+    // Slice 2bb: scheduled send. If send_at is provided + parses to a
+    // future timestamp, override undo path and queue with status
+    // 'scheduled'. Mutually exclusive — scheduled wins.
+    $send_at_ts = 0;
+    if (! empty($payload['send_at'])) {
+        $send_at_ts = strtotime((string) $payload['send_at']);
+        if (! $send_at_ts || $send_at_ts <= time()) {
+            return new WP_Error('em_inbox_send_bad_send_at',
+                'send_at must be a future ISO 8601 timestamp', array('status' => 400));
+        }
+        // Cap at 1 year out to prevent abuse / accidental never-sent rows.
+        if ($send_at_ts > time() + 365 * 86400) {
+            return new WP_Error('em_inbox_send_send_at_too_far',
+                'send_at cannot be more than 1 year in the future', array('status' => 400));
+        }
+        $undo_seconds = 0;  // scheduled overrides undo path
+    }
+
+    // Attachments: client sends as base64. Cap total size to keep
+    // memory bounded; 25 MiB matches typical inbound limits.
+    $attachments_in = is_array($payload['attachments'] ?? null) ? $payload['attachments'] : array();
+    $total_bytes    = 0;
+    $attachments    = array();
+    foreach ($attachments_in as $att) {
+        if (empty($att['content_b64'])) continue;
+        $bin = base64_decode((string) $att['content_b64'], true);
+        if ($bin === false) {
+            return new WP_Error('em_inbox_send_bad_attachment', 'Attachment base64 decode failed', array('status' => 400));
+        }
+        $total_bytes += strlen($bin);
+        if ($total_bytes > 26214400) {
+            return new WP_Error('em_inbox_send_too_large', 'Attachments exceed 25 MiB', array('status' => 413));
+        }
+        $attachments[] = array(
+            'filename'     => isset($att['filename'])     ? (string) $att['filename']     : 'attachment',
+            'content_type' => isset($att['content_type']) ? (string) $att['content_type'] : 'application/octet-stream',
+            'content_b64'  => $att['content_b64'],   // pass through to submitter
+            'size'         => strlen($bin),
+        );
+    }
+
+    // ── threading headers (auto-derived for replies) ─────────────────
+    $extra_headers = array();
+    $thread_id     = isset($payload['thread_id']) ? (int) $payload['thread_id'] : 0;
+    if ($thread_id) {
+        $msg_table = $wpdb->prefix . 'gdc_inbox_messages';
+        $latest = $wpdb->get_row($wpdb->prepare(
+            "SELECT m.message_id, m.refs_json
+             FROM $msg_table m
+             WHERE m.thread_id = %d
+             ORDER BY m.received_at DESC, m.id DESC
+             LIMIT 1",
+            $thread_id
+        ), ARRAY_A);
+        if ($latest) {
+            $extra_headers[] = array('name' => 'In-Reply-To', 'value' => $latest['message_id']);
+            $refs = array();
+            if (! empty($latest['refs_json'])) {
+                $decoded = json_decode($latest['refs_json'], true);
+                if (is_array($decoded)) $refs = $decoded;
+            }
+            $refs[] = $latest['message_id'];
+            // Cap at 50 references to keep header sane.
+            $refs = array_slice(array_unique($refs), -50);
+            $extra_headers[] = array('name' => 'References', 'value' => implode(' ', $refs));
+            // Subject inherits "Re: …" if not explicitly overridden.
+            if ($subject === '') {
+                $thread = $wpdb->get_row($wpdb->prepare(
+                    "SELECT subject_first FROM {$wpdb->prefix}gdc_inbox_threads WHERE id = %d", $thread_id
+                ), ARRAY_A);
+                if ($thread && $thread['subject_first']) {
+                    $subject = 'Re: ' . preg_replace('/^\s*Re:\s*/i', '', $thread['subject_first']);
+                }
+            }
+        }
+    }
+
+    // Slice 2ee: when a delegate sends on behalf of an owner, leave an
+    // audit trail. The header survives onto the wire copy + the mirror
+    // row so the owner sees who acted in their name.
+    if ($acted_as_delegate) {
+        $extra_headers[] = array('name' => 'X-EM-Acted-By', 'value' => $own_addr);
+    }
+
+    // ── delegate the validate → relay → mirror → thread spine to the
+    // cookie-free core. Advanced branches (from_override/delegate/
+    // scheduled/undo/track_open) are resolved here and passed via $opts;
+    // the core never touches the current user or the request.
+    $res = em_inbox_send_as(
+        $from,
+        $payload['to'] ?? array(),
+        $subject,
+        array(
+            'body_plain' => (string) ($payload['body_plain'] ?? ''),
+            'body_html'  => (string) ($payload['body_html'] ?? ''),
+        ),
+        array(
+            'cc'            => $payload['cc']  ?? array(),
+            'bcc'           => $payload['bcc'] ?? array(),
+            'attachments'   => $attachments,
+            'extra_headers' => $extra_headers,
+            'undo_seconds'  => $undo_seconds,
+            'send_at_ts'    => $send_at_ts,
+            'track_open'    => $track_open,
+        )
+    );
+    if (is_wp_error($res)) return $res;
+
     // If track_open was requested AND the first send succeeded, we have
     // a tradeoff: the version we already sent does NOT have the pixel
     // (because raw_id is generated only after the INSERT). For slice 2s
@@ -332,16 +418,16 @@ function em_inbox_send_handler(WP_REST_Request $request) {
     // (e.g. via UUID) or do a two-phase send.
 
     return rest_ensure_response(array(
-        'ok'              => ($undo_seconds > 0 || $send_at_ts > 0) ? true : $result['ok'],
-        'message_id'      => $message_id,
-        'raw_id'          => $raw_id,
-        'delivery_status' => $delivery_data['delivery_status'],
-        'delivery_error'  => $delivery_data['delivery_last_error'],
+        'ok'              => $res['ok'],
+        'message_id'      => $res['message_id'],
+        'raw_id'          => $res['raw_id'],
+        'delivery_status' => $res['delivery_status'],
+        'delivery_error'  => $res['delivery_error'],
         'undo_seconds'    => $undo_seconds,
-        'undo_until'      => $delivery_data['delivery_next_attempt_at'],
+        'undo_until'      => $res['undo_until'],
         'send_at'         => $send_at_ts > 0 ? gmdate('c', $send_at_ts) : null,
         'tracking'        => $track_open,
-        'relay'           => $relay,
+        'relay'           => $res['relay'],
     ));
 }
 
