@@ -470,3 +470,316 @@ body.em-inbox-bp-mode-chat .youzify-bp-nav.item-list-tabs li > a .count {
     font-weight: 700 !important;
     margin-left: 4px !important;
 }
+
+/* ============================================================
+ * Slice 3e.2 — Restyle the Chat inbox THREAD TABLE
+ * The user's Youzify "profile scheme color" (set to #cc0000)
+ * paints the message-thread bar + sender names + thread-count
+ * bright red via dynamic CSS like `body .messages-notices …`.
+ * We beat that specificity with `html body.em-inbox-bp-mode-chat`
+ * + !important, and re-style every row/header/control to match
+ * the glass surface the rest of the chat panel already uses.
+ * ============================================================ */
+
+/* The bulk-manage <form> wrapper is what looks like a white card
+ * around the table — flatten it. */
+html body.em-inbox-bp-mode-chat form#messages-bulk-management,
+html body.em-inbox-bp-mode-chat form.standard-form#messages-bulk-management {
+    background: transparent !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 0 18px !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+}
+
+/* Defeat the red "FROM SUBJECT ACTIONS" header bar. */
+html body.em-inbox-bp-mode-chat #message-threads,
+html body.em-inbox-bp-mode-chat table.messages-notices {
+    background: transparent !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads thead,
+html body.em-inbox-bp-mode-chat table.messages-notices thead {
+    background: rgba(11, 14, 20, 0.65) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.10) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads thead tr,
+html body.em-inbox-bp-mode-chat table.messages-notices thead tr {
+    background: transparent !important;
+    border: 0 !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads thead th,
+html body.em-inbox-bp-mode-chat table.messages-notices thead th {
+    background: transparent !important;
+    color: #8b98b0 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.10em !important;
+    text-transform: uppercase !important;
+    text-align: left !important;
+    padding: 14px 16px !important;
+    border: 0 !important;
+}
+/* The bulk-select checkbox column gets a tiny dedicated width. */
+html body.em-inbox-bp-mode-chat #message-threads thead th.thread-checkbox,
+html body.em-inbox-bp-mode-chat #message-threads td.bulk-select-check {
+    width: 36px !important;
+    text-align: center !important;
+    padding-left: 12px !important;
+    padding-right: 6px !important;
+}
+/* Hide the star column header — single star icon there only adds noise. */
+html body.em-inbox-bp-mode-chat #message-threads thead th.thread-star {
+    text-align: center !important;
+    width: 56px !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads thead th.thread-options {
+    text-align: center !important;
+    width: 140px !important;
+}
+
+/* Row defaults — kill default centering, flat backgrounds. */
+html body.em-inbox-bp-mode-chat #message-threads tbody tr,
+html body.em-inbox-bp-mode-chat table.messages-notices tbody tr {
+    background: transparent !important;
+    border: 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    text-align: left !important;
+    transition: background 0.18s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads tbody tr:last-child {
+    border-bottom: 0 !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads tbody tr:hover {
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads tbody tr.unread,
+html body.em-inbox-bp-mode-chat #message-threads tbody tr.unread td {
+    background: rgba(182, 8, 201, 0.07) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads tbody td,
+html body.em-inbox-bp-mode-chat table.messages-notices tbody td {
+    background: transparent !important;
+    padding: 14px 16px !important;
+    border: 0 !important;
+    color: #e8edf5 !important;
+    vertical-align: middle !important;
+    text-align: left !important;
+}
+
+/* Sender cell: avatar + name + activity timestamp. */
+html body.em-inbox-bp-mode-chat #message-threads .thread-sender {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-sender .thread-avatar {
+    flex-shrink: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-sender .thread-avatar img,
+html body.em-inbox-bp-mode-chat #message-threads img.avatar {
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 50% !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-sender .thread-from {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.3 !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-from .from,
+html body.em-inbox-bp-mode-chat #message-threads .thread-from .from a {
+    color: #e8edf5 !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    background: transparent !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads tr.unread .thread-from .from a {
+    color: #ffffff !important;
+}
+/* The (N) unread count next to the sender's name — drop the red,
+ * style as a pill. Defeats body .thread-sender .thread-from .from .thread-count. */
+html body.em-inbox-bp-mode-chat #message-threads .thread-from .from .thread-count {
+    color: #fff !important;
+    background: linear-gradient(135deg, #b608c9, #6ec1e4) !important;
+    border-radius: 999px !important;
+    padding: 1px 8px !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    margin-left: 6px !important;
+    box-shadow: 0 2px 8px rgba(182, 8, 201, 0.4) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-sender .activity {
+    color: #8b98b0 !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+}
+
+/* Subject column. */
+html body.em-inbox-bp-mode-chat #message-threads td.thread-info {
+    text-align: left !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-info p {
+    margin: 0 0 2px !important;
+    line-height: 1.35 !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-info a {
+    color: #e8edf5 !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    background: transparent !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads tr.unread .thread-info a {
+    color: #ffffff !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-info a:hover {
+    color: #6ec1e4 !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-info .thread-excerpt {
+    color: #8b98b0 !important;
+    font-size: 12px !important;
+    margin: 0 !important;
+    line-height: 1.35 !important;
+}
+
+/* Star column — small icon button, neutralize red. */
+html body.em-inbox-bp-mode-chat #message-threads td.thread-star {
+    text-align: center !important;
+    width: 56px !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-star a,
+html body.em-inbox-bp-mode-chat #message-threads .thread-star a span {
+    color: rgba(232, 237, 245, 0.5) !important;
+    background: transparent !important;
+    font-size: 16px !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-star a:hover,
+html body.em-inbox-bp-mode-chat #message-threads .thread-star a:hover span,
+html body.em-inbox-bp-mode-chat #message-threads .thread-star a.starred,
+html body.em-inbox-bp-mode-chat #message-threads .thread-star a.starred span {
+    color: #ffce4d !important;
+}
+
+/* Action buttons (mark read/unread/delete) — defeat the red bg. */
+html body.em-inbox-bp-mode-chat #message-threads td.thread-options {
+    text-align: center !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-options a {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    margin: 0 4px !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-options a span,
+html body.em-inbox-bp-mode-chat #message-threads .thread-options .read span,
+html body.em-inbox-bp-mode-chat #message-threads .thread-options .unread span,
+html body.em-inbox-bp-mode-chat #message-threads .thread-options .delete span {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 999px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    color: #e8edf5 !important;
+    font-size: 14px !important;
+    line-height: 30px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: background 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                color 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 0.18s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-options a:hover span {
+    background: rgba(255, 255, 255, 0.10) !important;
+    border-color: rgba(255, 255, 255, 0.20) !important;
+}
+html body.em-inbox-bp-mode-chat #message-threads .thread-options .delete:hover span {
+    background: rgba(229, 57, 53, 0.18) !important;
+    border-color: rgba(229, 57, 53, 0.45) !important;
+    color: #ff8a85 !important;
+}
+
+/* Custom checkboxes — Youzify's pseudo-styled inputs go invisible
+ * against our dark background. Make them visible + branded. */
+html body.em-inbox-bp-mode-chat .youzify-cs-checkbox-field .youzify_field_indication {
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+    border-radius: 4px !important;
+    width: 16px !important;
+    height: 16px !important;
+}
+html body.em-inbox-bp-mode-chat .youzify-cs-checkbox-field input[type="checkbox"]:checked + .youzify_field_indication {
+    background: linear-gradient(135deg, #b608c9, #6ec1e4) !important;
+    border-color: transparent !important;
+}
+
+/* Bulk-manage footer (the row with the dropdown + Apply button). */
+html body.em-inbox-bp-mode-chat .messages-options-nav {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    margin: 18px 0 !important;
+    padding: 12px 14px !important;
+    background: rgba(11, 14, 20, 0.55) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+}
+html body.em-inbox-bp-mode-chat .messages-options-nav select,
+html body.em-inbox-bp-mode-chat .messages-options-nav .nice-select {
+    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.10) !important;
+    color: #e8edf5 !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+}
+html body.em-inbox-bp-mode-chat .messages-options-nav select option {
+    background: #11161f !important;
+    color: #e8edf5 !important;
+}
+html body.em-inbox-bp-mode-chat .messages-options-nav #messages-bulk-manage,
+html body.em-inbox-bp-mode-chat .messages-options-nav input[type="submit"] {
+    background: linear-gradient(135deg, #b608c9 0%, #6ec1e4 100%) !important;
+    color: #fff !important;
+    border: 0 !important;
+    border-radius: 999px !important;
+    padding: 10px 22px !important;
+    font-weight: 600 !important;
+    font-size: 13px !important;
+    cursor: pointer !important;
+    box-shadow: 0 4px 14px rgba(182, 8, 201, 0.35) !important;
+    transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+html body.em-inbox-bp-mode-chat .messages-options-nav #messages-bulk-manage:hover,
+html body.em-inbox-bp-mode-chat .messages-options-nav input[type="submit"]:hover {
+    transform: translateY(-1px) !important;
+}
+
+/* Mobile: stack sender + subject vertically. */
+@media (max-width: 720px) {
+    html body.em-inbox-bp-mode-chat #message-threads thead th.thread-info,
+    html body.em-inbox-bp-mode-chat #message-threads td.thread-info {
+        display: none !important;
+    }
+    html body.em-inbox-bp-mode-chat #message-threads .thread-sender {
+        flex-wrap: wrap !important;
+    }
+    html body.em-inbox-bp-mode-chat #message-threads td.thread-star {
+        display: none !important;
+    }
+}
