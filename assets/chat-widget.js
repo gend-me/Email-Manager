@@ -59,6 +59,36 @@
         return apiFetch({ url: cfg.restRoot + path, method: 'POST', data: data || {} });
     }
 
+    // Slice 3e.5: thread-GET prefetch. The inbox row handler calls
+    // emChatPrefetchThread(id) on mousedown/touchstart so the network
+    // round-trip races the click — by the time ChatBox.load() runs,
+    // the response is either already here or close to it. We dedupe
+    // by id and expire entries after 10s so a stale prefetch can't
+    // out-vote a fresh refresh.
+    var __emPrefetch = {};
+    window.emChatPrefetchThread = function (id) {
+        id = parseInt(id, 10);
+        if (! id || __emPrefetch[id]) return;
+        var p = restGet('threads/' + id);
+        __emPrefetch[id] = { promise: p, at: Date.now() };
+        p.then(function (d) {
+            // Park the resolved value so a later consumer doesn't
+            // re-hit the network. takeCachedThread() pulls + expires it.
+            __emPrefetch[id] = { value: d, at: Date.now() };
+            setTimeout(function () {
+                var e = __emPrefetch[id];
+                if (e && (Date.now() - e.at) >= 10000) delete __emPrefetch[id];
+            }, 10000);
+        }, function () { delete __emPrefetch[id]; });
+    };
+    function takeCachedThread(id) {
+        var entry = __emPrefetch[id];
+        if (! entry) return null;
+        delete __emPrefetch[id];
+        if (entry.value) return Promise.resolve(entry.value);
+        return entry.promise || null;
+    }
+
     // Some server errors (PHP fatals) come back as an HTML body. Strip
     // tags so the chat panel never renders raw markup as the error
     // message — show a clean human string instead.
@@ -401,7 +431,10 @@
                     return { loading: true, thread: prev.thread || props.thread, messages: prev.messages, err: null };
                 });
             }
-            restGet('threads/' + props.thread.id).then(function (d) {
+            // Slice 3e.5: consume the row-mousedown prefetch if it's
+            // still live — saves the round-trip in the common case.
+            var p = takeCachedThread(props.thread.id) || restGet('threads/' + props.thread.id);
+            p.then(function (d) {
                 setState(function (prev) {
                     return {
                         loading: false,

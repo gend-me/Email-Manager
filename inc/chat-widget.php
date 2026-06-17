@@ -79,11 +79,16 @@ function em_chat_perm_logged_in() {
  * Helpers
  * ------------------------------------------------------------------------- */
 
-function em_chat_thread_summary($thread_id, $for_user_id) {
-    if (! class_exists('BP_Messages_Thread')) return null;
-    try {
-        $thread = new BP_Messages_Thread((int) $thread_id, 'ASC');
-    } catch (\Throwable $e) { return null; }
+// Slice 3e.5: accept a pre-loaded BP_Messages_Thread to skip a second
+// full DB read when the caller already has the object (e.g.
+// em_chat_rest_get_thread). Pass null and we'll instantiate it.
+function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
+    if (! $thread) {
+        if (! class_exists('BP_Messages_Thread')) return null;
+        try {
+            $thread = new BP_Messages_Thread((int) $thread_id, 'ASC');
+        } catch (\Throwable $e) { return null; }
+    }
     if (! $thread || empty($thread->messages)) return null;
 
     // Other recipients (not us).
@@ -195,7 +200,9 @@ function em_chat_rest_get_thread(WP_REST_Request $r) {
     foreach ((array) $thread->messages as $m) {
         $messages[] = em_chat_message_to_array($m, $uid);
     }
-    $summary = em_chat_thread_summary($id, $uid);
+    // Reuse the BP_Messages_Thread we just loaded — avoids a second
+    // full thread+recipients+messages query (slice 3e.5).
+    $summary = em_chat_thread_summary($id, $uid, $thread);
     return rest_ensure_response(array(
         'thread'   => $summary,
         'messages' => $messages,

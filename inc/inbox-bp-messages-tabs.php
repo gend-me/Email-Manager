@@ -296,6 +296,9 @@ function em_inbox_bp_messages_tab_strip_footer() {
             // Slice 3a — clicks on a /messages/view/{id}/ link open the
             // floating widget chat box instead of navigating.
             document.addEventListener('click', interceptChatThreadClicks, true);
+            // Slice 3e.5 — race the click with a prefetch.
+            document.addEventListener('mousedown',  prefetchOnHoverIntent, true);
+            document.addEventListener('touchstart', prefetchOnHoverIntent, { capture: true, passive: true });
             // Youzify can render the subnav after DOMContentLoaded —
             // watch the body for ~3s and re-apply as nodes arrive.
             var obs = new MutationObserver(function () {
@@ -447,6 +450,28 @@ function em_inbox_bp_messages_tab_strip_footer() {
                 }, 220);
             });
         }
+        // Slice 3e.5: prefetch the thread GET on mousedown / touchstart
+        // of a row so the network round-trip races the click event
+        // (~100-200ms head start). By the time the chat box mounts,
+        // the response is often already in the prefetch cache. Reads
+        // the same /messages/view/{id}/ anchor the click handler uses.
+        function prefetchOnHoverIntent(e) {
+            if (! document.body.classList.contains('em-inbox-bp-mode-chat')) return;
+            if (typeof window.emChatPrefetchThread !== 'function') return;
+            var t = e.target;
+            if (! t || ! t.closest) return;
+            // Skip prefetch when the user is interacting with a control;
+            // they may not actually want to open the thread.
+            if (t.closest('input, label, button, td.bulk-select-check, td.thread-star, td.thread-options')) return;
+            var tr = t.closest('tr');
+            if (! tr) return;
+            var a = tr.querySelector('a[href*="/messages/view/"]');
+            if (! a) return;
+            var m = (a.getAttribute('href') || '').match(/\/messages\/view\/(\d+)\/?/);
+            if (! m) return;
+            window.emChatPrefetchThread(parseInt(m[1], 10));
+        }
+
         function interceptChatThreadClicks(e) {
             if (e.defaultPrevented) return;
             if (! document.body.classList.contains('em-inbox-bp-mode-chat')) return;
