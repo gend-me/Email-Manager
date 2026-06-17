@@ -450,12 +450,31 @@ function em_inbox_bp_messages_tab_strip_footer() {
         function interceptChatThreadClicks(e) {
             if (e.defaultPrevented) return;
             if (! document.body.classList.contains('em-inbox-bp-mode-chat')) return;
-            var a = e.target && e.target.closest ? e.target.closest('a') : null;
+            if (typeof window.emChatOpenThread !== 'function') return;  // widget not loaded
+            var t = e.target;
+            if (! t || ! t.closest) return;
+
+            // Skip interactive controls inside the row — checkbox, star,
+            // mark-read, mark-unread, delete. Those should keep their
+            // own behavior.
+            if (t.closest(
+                'input, label, button, ' +
+                'td.bulk-select-check, td.thread-star, td.thread-options, ' +
+                '.youzify-cs-checkbox-field, .em-chat-inbox-search'
+            )) return;
+
+            // Slice 3e.4: the whole row is the click target — not just
+            // the subject <a>. Find the /messages/view/{id}/ anchor
+            // inside the clicked row and use that as the source of
+            // truth for the thread id + recipient prefill.
+            var a = t.closest('a');
+            var tr = t.closest('tr');
+            if (! a && tr) {
+                a = tr.querySelector('a[href*="/messages/view/"]');
+            }
             if (! a) return;
-            // /messages/view/{id}/ — the BP single-thread view
             var m = (a.getAttribute('href') || '').match(/\/messages\/view\/(\d+)\/?/);
             if (! m) return;
-            if (typeof window.emChatOpenThread !== 'function') return;  // widget not loaded
             e.preventDefault();
             // Slice 3e.3: pre-fill `others` from the clicked row so the
             // chat-box header doesn't flash "(no recipient)" + broken

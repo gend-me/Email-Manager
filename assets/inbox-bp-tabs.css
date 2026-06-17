@@ -547,7 +547,15 @@ html body.em-inbox-bp-mode-chat table.messages-notices tbody tr {
     border: 0 !important;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
     text-align: left !important;
+    cursor: pointer !important; /* slice 3e.4 — whole row opens chat */
     transition: background 0.18s cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+/* Interactive cells inside the row keep their default cursor so
+ * checkboxes / star / action buttons still feel like buttons. */
+html body.em-inbox-bp-mode-chat #message-threads tbody td.bulk-select-check,
+html body.em-inbox-bp-mode-chat #message-threads tbody td.thread-star,
+html body.em-inbox-bp-mode-chat #message-threads tbody td.thread-options {
+    cursor: default !important;
 }
 html body.em-inbox-bp-mode-chat #message-threads tbody tr:last-child {
     border-bottom: 0 !important;
