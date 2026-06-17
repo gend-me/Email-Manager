@@ -382,22 +382,50 @@
         var sendingState = useState(false); var sending = sendingState[0], setSending = sendingState[1];
         var scrollRef = useRef(null);
 
-        function load() {
+        // Slice 3e.3: `silent` skips the loading-flash AND preserves the
+        // already-resolved thread (with its recipient + avatar) instead
+        // of reverting to props.thread (which was only the click-payload
+        // — often {id, others: []}). Without this, every 15s tick
+        // wiped the recipient back to "(no recipient)" + broken image
+        // until the fetch resolved.
+        function load(silent) {
             if (!props.thread.id) {
                 // Virtual thread for a new conversation — nothing to fetch yet.
-                setState({ loading: false, thread: props.thread, messages: [], err: null });
+                setState(function (prev) {
+                    return { loading: false, thread: prev.thread || props.thread, messages: [], err: null };
+                });
                 return;
             }
-            setState({ loading: true, thread: props.thread, messages: state.messages, err: null });
+            if (!silent) {
+                setState(function (prev) {
+                    return { loading: true, thread: prev.thread || props.thread, messages: prev.messages, err: null };
+                });
+            }
             restGet('threads/' + props.thread.id).then(function (d) {
-                setState({ loading: false, thread: d.thread || props.thread, messages: d.messages || [], err: null });
-                // Mark read on the server side; cheap fire-and-forget.
+                setState(function (prev) {
+                    return {
+                        loading: false,
+                        // Prefer fresh server data, but fall back to whatever
+                        // recipient info we already had so a sparse response
+                        // never blanks the header.
+                        thread: d.thread || prev.thread || props.thread,
+                        messages: d.messages || [],
+                        err: null,
+                    };
+                });
                 restPost('threads/' + props.thread.id + '/read', {}).catch(function () {});
             }).catch(function (e) {
-                setState({ loading: false, thread: props.thread, messages: [], err: cleanError(e) });
+                setState(function (prev) {
+                    return {
+                        loading: false,
+                        thread: prev.thread || props.thread,
+                        messages: prev.messages,
+                        err: cleanError(e),
+                    };
+                });
             });
         }
-        useEffect(load, [props.thread.id]);
+        useEffect(function () { load(false); }, [props.thread.id]);
 
         // Auto-scroll to bottom when messages list changes.
         useEffect(function () {
@@ -406,13 +434,15 @@
             }
         }, [state.messages.length]);
 
-        // Refresh every 15s while open so incoming replies appear.
+        // Refresh every 15s while open so incoming replies appear. Silent
+        // mode so the box doesn't flash the spinner + "(no recipient)"
+        // header every tick.
         useEffect(function () {
             if (!props.thread.id) return;
             var h = setInterval(function () {
                 if (document.visibilityState !== 'visible') return;
                 if (collapsed) return;
-                load();
+                load(true);
             }, 15000);
             return function () { clearInterval(h); };
         }, [props.thread.id, collapsed]);

@@ -457,7 +457,24 @@ function em_inbox_bp_messages_tab_strip_footer() {
             if (! m) return;
             if (typeof window.emChatOpenThread !== 'function') return;  // widget not loaded
             e.preventDefault();
-            window.emChatOpenThread({ id: parseInt(m[1], 10), others: [] });
+            // Slice 3e.3: pre-fill `others` from the clicked row so the
+            // chat-box header doesn't flash "(no recipient)" + broken
+            // avatar while /em/v1/chat/threads/{id} is in flight.
+            var others = [];
+            var tr = a.closest('tr');
+            if (tr) {
+                var avatarImg = tr.querySelector('.thread-avatar img, td.thread-sender img.avatar, img.avatar');
+                var nameEl    = tr.querySelector('.thread-from .from a, .thread-from .from');
+                var name = nameEl ? (nameEl.textContent || '').trim().replace(/\s*\(\s*\d+\s*\)\s*$/, '') : '';
+                if (name || avatarImg) {
+                    others.push({
+                        user_id:      0,
+                        display_name: name,
+                        avatar_url:   avatarImg ? (avatarImg.getAttribute('src') || '') : '',
+                    });
+                }
+            }
+            window.emChatOpenThread({ id: parseInt(m[1], 10), others: others });
         }
 
         function classifyLink(a) {
