@@ -91,11 +91,33 @@ function em_inbox_outq_next_attempt_at($attempts) {
 
 function em_inbox_outq_submit_one($from, $to, $subject, $body_plain, $body_html,
                                   $headers, $message_id, $attachments, $extras = array()) {
-    $secret = get_option('em_inbox_hmac_secret');
-    if (! $secret) return array('ok' => false, 'http' => 500, 'error' => 'HMAC secret missing');
-
     $cc  = is_array($extras['cc']  ?? null) ? $extras['cc']  : array();
     $bcc = is_array($extras['bcc'] ?? null) ? $extras['bcc'] : array();
+
+    // ── Mailgun transport (MAIL-04) ──────────────────────────────────────
+    // Preferred outbound rail when the Mailgun connection (gend-mailgun.php
+    // mu-plugin) is configured on this pod. Replaces ONLY the relay leg; the
+    // wp_gdc_inbox_raw sent-mirror + threading live in the caller
+    // (em_inbox_send_as) and are untouched. Returns the SAME
+    // ['ok','http','error','relay'] contract as the email-mta branch below,
+    // so the caller's status logic and the cron retry worker work identically.
+    //
+    // The whole branch is gated on function_exists('gend_mailgun_enabled')
+    // && gend_mailgun_enabled() — Phase 32/35 lesson: php -l cannot catch an
+    // undefined gend_mailgun_* symbol, so every getter call is reached only
+    // after the function_exists gate confirms the mu-plugin is present.
+    // When Mailgun is NOT configured (empty Secret) the gate is false and we
+    // fall through to the existing email-mta path (graceful degrade).
+    if (function_exists('gend_mailgun_enabled') && gend_mailgun_enabled()) {
+        return em_inbox_outq_submit_via_mailgun(
+            $from, $to, $subject, $body_plain, $body_html,
+            $headers, $message_id, $attachments, $cc, $bcc
+        );
+    }
+
+    // ── email-mta relay (fallback when Mailgun is not configured) ─────────
+    $secret = get_option('em_inbox_hmac_secret');
+    if (! $secret) return array('ok' => false, 'http' => 500, 'error' => 'HMAC secret missing');
 
     $body_json = wp_json_encode(array(
         'from'        => $from,
@@ -132,6 +154,155 @@ function em_inbox_outq_submit_one($from, $to, $subject, $body_plain, $body_html,
         return array('ok' => true, 'http' => $code, 'error' => null, 'relay' => $relay);
     }
     $err = is_array($relay) && ! empty($relay['error']) ? $relay['error'] : ('HTTP ' . $code);
+    return array('ok' => false, 'http' => $code, 'error' => substr($err, 0, 500), 'relay' => $relay);
+}
+
+/* -------------------------------------------------------------------------
+ * Mailgun transport (MAIL-04)
+ *
+ * POSTs the inbox payload directly to Mailgun's /v3/<domain>/messages API
+ * using the existing gend-mailgun.php config getters. Reuses the same POST
+ * recipe gend-mailgun.php's wp_mail() override proved in production
+ * (Basic api:<key> auth, application/x-www-form-urlencoded, repeated
+ * to=/cc=/bcc= fields — Mailgun ignores foo[0]= scalar-array serialization)
+ * but builds the body from the inbox locals so the agent From, the
+ * synthesized Message-Id, and threading headers are preserved.
+ *
+ * Callers MUST gate on gend_mailgun_enabled() before invoking this (the
+ * getters are only safe to call once the mu-plugin is confirmed present).
+ *
+ * Returns the SAME ['ok','http','error','relay'] contract as the email-mta
+ * branch. 'relay' is the decoded Mailgun JSON ({id,message} on success) so
+ * the caller's mirror + UAT can read the Mailgun message id.
+ *
+ * DELIVERY NOTE: Mailgun only accepts a from= whose domain is a verified
+ * Mailgun sending domain. When the agent address domain (em_inbox_address,
+ * e.g. agent-<slug>@mail-test.gend.me) is NOT the configured MAILGUN_DOMAIN
+ * (or a subdomain of it), we send ON the Mailgun domain and set
+ * h:Reply-To:<agent address> so replies still reach the agent mailbox.
+ * True From=agent-address requires the agent domain be Mailgun-verified —
+ * an infra action (deferred); once verified, branch (i) auto-upgrades with
+ * zero code change.
+ * ------------------------------------------------------------------------- */
+
+function em_inbox_outq_submit_via_mailgun($from, $to, $subject, $body_plain, $body_html,
+                                          $headers, $message_id, $attachments, $cc, $bcc) {
+    $api_key  = gend_mailgun_api_key();
+    $endpoint = gend_mailgun_endpoint();
+    if ($api_key === '' || $endpoint === '') {
+        // gend_mailgun_enabled() should have prevented this, but never fatal.
+        return array('ok' => false, 'http' => 500, 'error' => 'Mailgun not configured', 'relay' => null);
+    }
+
+    // ── Conditional From (preserve agent identity as far as Mailgun allows) ─
+    $agent_addr   = (string) $from;                           // agent-<slug>@<agent domain>
+    $agent_domain = '';
+    $at = strrchr($agent_addr, '@');
+    if ($at !== false) $agent_domain = substr($at, 1);
+    $mg_domain = gend_mailgun_domain();
+
+    // Authorized when the From domain IS the Mailgun domain, or a subdomain of it.
+    $from_is_authorized = ($agent_domain !== '' && $mg_domain !== '' && (
+        strcasecmp($agent_domain, $mg_domain) === 0
+        || (bool) preg_match('/(^|\.)' . preg_quote($mg_domain, '/') . '$/i', $agent_domain)
+    ));
+    // Escape hatch: list additional verified domains via filter (e.g. once
+    // mail-test.gend.me is verified in Mailgun, return true here).
+    $from_is_authorized = (bool) apply_filters('em_inbox_mailgun_from_authorized', $from_is_authorized, $agent_addr, $mg_domain);
+
+    // Display name: best-effort from the agent's WP user (login = local part);
+    // avoid get_user_by('email') due to the vendor-app-manager fix_user_query gotcha.
+    $display_name = '';
+    $local        = ($at !== false) ? strstr($agent_addr, '@', true) : $agent_addr;
+    if ($local !== '' && function_exists('get_user_by')) {
+        $u = get_user_by('login', $local);
+        if ($u && ! empty($u->display_name)) $display_name = (string) $u->display_name;
+    }
+
+    if ($from_is_authorized) {
+        // (i) Best case — send AS the agent address (true identity, DKIM-aligned).
+        $mail_from = ($display_name !== '') ? sprintf('%s <%s>', $display_name, $agent_addr) : $agent_addr;
+        $reply_to  = $agent_addr;
+    } else {
+        // (ii) Send on the Mailgun domain; carry identity via display name +
+        //      Reply-To so replies land back in the agent's mailbox.
+        $name      = ($display_name !== '') ? $display_name : ($local !== '' ? $local : 'GenD');
+        $mail_from = sprintf('%s <no-reply@%s>', $name, $mg_domain);
+        $reply_to  = $agent_addr;
+    }
+
+    // ── Build the urlencoded form body (repeated to=/cc=/bcc= fields) ──────
+    $to  = is_array($to)  ? $to  : (array) $to;
+    $cc  = is_array($cc)  ? $cc  : array();
+    $bcc = is_array($bcc) ? $bcc : array();
+
+    $form = array();
+    $form[] = 'from=' . urlencode($mail_from);
+    foreach ($to  as $addr) { $addr = trim((string) $addr); if ($addr !== '') $form[] = 'to='  . urlencode($addr); }
+    foreach ($cc  as $addr) { $addr = trim((string) $addr); if ($addr !== '') $form[] = 'cc='  . urlencode($addr); }
+    foreach ($bcc as $addr) { $addr = trim((string) $addr); if ($addr !== '') $form[] = 'bcc=' . urlencode($addr); }
+    $form[] = 'subject=' . urlencode((string) $subject);
+
+    // Body: send html AND text when both exist (Mailgun accepts both); fall
+    // back to whichever is present.
+    if ((string) $body_html !== '')  $form[] = 'html=' . urlencode((string) $body_html);
+    if ((string) $body_plain !== '') $form[] = 'text=' . urlencode((string) $body_plain);
+    if ((string) $body_html === '' && (string) $body_plain === '') {
+        $form[] = 'text=' . urlencode('');
+    }
+
+    // Preserve the synthesized Message-Id + threading so the wire copy, the
+    // mirror, and the recipient's threading all agree (Mailgun overrides
+    // Message-Id unless h:Message-Id is passed).
+    if ((string) $message_id !== '') {
+        $form[] = 'h:Message-Id=' . urlencode((string) $message_id);
+    }
+    if ($reply_to !== '') {
+        $form[] = 'h:Reply-To=' . urlencode($reply_to);
+    }
+
+    // Re-emit threading / audit headers from the {name,value} header array.
+    // Skip envelope headers that become first-class Mailgun fields.
+    $skip = array('from', 'to', 'subject', 'cc', 'bcc', 'reply-to', 'message-id');
+    if (is_array($headers)) {
+        foreach ($headers as $h) {
+            if (! isset($h['name'], $h['value'])) continue;
+            $name = (string) $h['name'];
+            $key  = strtolower($name);
+            if (in_array($key, $skip, true)) continue;
+            // Pass threading + audit headers through (In-Reply-To, References,
+            // X-EM-Acted-By, etc.) as Mailgun custom headers.
+            $form[] = 'h:' . $name . '=' . urlencode((string) $h['value']);
+        }
+    }
+
+    // Attachments: v8.1 sends body only — match gend-mailgun.php's documented
+    // limitation (error_log + drop). Never fail the send because of them.
+    if (! empty($attachments) && is_array($attachments)) {
+        error_log('[em-inbox-mailgun] attachments not yet supported; dropped ' . count($attachments) . ' file(s).');
+    }
+
+    $resp = wp_remote_post($endpoint, array(
+        'timeout' => 30,
+        'headers' => array(
+            'Authorization' => 'Basic ' . base64_encode('api:' . $api_key),
+            'Content-Type'  => 'application/x-www-form-urlencoded',
+        ),
+        'body'    => implode('&', $form),
+    ));
+
+    if (is_wp_error($resp)) {
+        return array('ok' => false, 'http' => 0, 'error' => substr($resp->get_error_message(), 0, 500), 'relay' => null);
+    }
+    $code  = (int) wp_remote_retrieve_response_code($resp);
+    $rbody = (string) wp_remote_retrieve_body($resp);
+    $relay = json_decode($rbody, true);
+    if ($code >= 200 && $code < 300) {
+        return array('ok' => true, 'http' => $code, 'error' => null, 'relay' => $relay);
+    }
+    $err = is_array($relay) && ! empty($relay['message'])
+        ? $relay['message']
+        : ('Mailgun HTTP ' . $code . ($rbody !== '' ? ': ' . $rbody : ''));
     return array('ok' => false, 'http' => $code, 'error' => substr($err, 0, 500), 'relay' => $relay);
 }
 
