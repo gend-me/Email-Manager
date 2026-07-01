@@ -379,14 +379,12 @@ class EM_Applications
         ?>
         <div class="em-app-tab">
 
-            <?php self::render_kpi_strip(count($submissions), $by_stage, $stages, count($application_ids)); ?>
-
             <div class="gdc-subtabs">
-                <button type="button" class="gdc-subtab active" data-subtab="applicants" style="--em-i:0;">
-                    <?php esc_html_e('Applicants', 'email-manager'); ?>
+                <button type="button" class="gdc-subtab active" data-subtab="postings" style="--em-i:0;">
+                    <?php esc_html_e('Postings', 'email-manager'); ?>
                 </button>
-                <button type="button" class="gdc-subtab" data-subtab="application-forms" style="--em-i:1;">
-                    <?php esc_html_e('Forms', 'email-manager'); ?>
+                <button type="button" class="gdc-subtab" data-subtab="applicants" style="--em-i:1;">
+                    <?php esc_html_e('Applicants', 'email-manager'); ?>
                 </button>
                 <button type="button" class="gdc-subtab" data-subtab="application-stages" style="--em-i:2;">
                     <?php esc_html_e('Stages &amp; Roles', 'email-manager'); ?>
@@ -396,8 +394,12 @@ class EM_Applications
                 </button>
             </div>
 
-            <?php self::render_applicants_panel($submissions, $stages); ?>
-            <?php self::render_forms_panel($form_ids); ?>
+            <?php
+            if (class_exists('EM_Postings')) {
+                EM_Postings::render_panel();
+            }
+            ?>
+            <?php self::render_applicants_panel($submissions, $stages, $by_stage, count($application_ids)); ?>
             <?php self::render_stages_panel($stages); ?>
             <?php self::render_settings_panel($settings); ?>
         </div>
@@ -424,10 +426,11 @@ class EM_Applications
         <?php
     }
 
-    private static function render_applicants_panel($submissions, $stages)
+    private static function render_applicants_panel($submissions, $stages, $by_stage = [], $form_count = 0)
     {
         ?>
-        <div class="gdc-subtab-panel" data-subpanel="applicants">
+        <div class="gdc-subtab-panel" data-subpanel="applicants" hidden>
+            <?php self::render_kpi_strip(count($submissions), $by_stage, $stages, $form_count); ?>
             <div class="gdc-email-panel em-reveal" style="--em-i:0;">
                 <div class="gdc-email-panel__header">
                     <div>
