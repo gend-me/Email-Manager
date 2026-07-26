@@ -580,6 +580,1071 @@
 .em-chat-widget.is-mobile .em-chat-dock-chip { width: 38px; height: 38px; }
 .em-chat-widget.is-mobile .em-chat-dock-badge { min-width: 18px; height: 18px; line-height: 18px; font-size: 9px; }
 
+/* ── v8.2 Phase 45: Members / Agents / Projects tabs ─────────────── */
+.em-chat-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px 6px;
+    border-bottom: 1px solid var(--emc-border);
+}
+.em-chat-tab {
+    flex: 1;
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-muted);
+    font: 600 11px/1 "Inter", "Segoe UI", system-ui, sans-serif;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    padding: 7px 6px;
+    border-radius: 9px;
+    cursor: pointer;
+    position: relative;
+    transition: color 0.2s var(--emc-ease), background 0.2s var(--emc-ease), border-color 0.2s var(--emc-ease);
+}
+.em-chat-tab:hover { color: var(--emc-text); border-color: rgba(255, 255, 255, 0.22); }
+.em-chat-tab.is-active {
+    color: #fff;
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--emc-magenta) 0%, var(--emc-blue) 100%);
+    box-shadow: 0 4px 12px rgba(182, 8, 201, 0.3);
+}
+.em-chat-tab-dot {
+    display: inline-block;
+    margin-left: 5px;
+    min-width: 15px;
+    height: 15px;
+    line-height: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--emc-magenta);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    vertical-align: middle;
+}
+.em-chat-tab.is-active .em-chat-tab-dot { background: rgba(0, 0, 0, 0.28); }
+
+/* Inline type tag on a thread row. */
+.em-chat-row-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    background: rgba(110, 193, 228, 0.18);
+    color: var(--emc-blue);
+}
+.em-chat-row-tag.is-project { background: rgba(151, 228, 110, 0.16); color: var(--emc-accent); }
+
+/* Live-dock chip tint by sender type (agent / project). */
+.em-chat-dock-chip.is-agent   .em-chat-dock-ring { box-shadow: inset 0 0 0 2px var(--emc-blue); }
+.em-chat-dock-chip.is-project .em-chat-dock-ring { box-shadow: inset 0 0 0 2px var(--emc-accent); }
+
+/* ── v8.2: "Add new Agent" (Agents tab) button + create modal ───── */
+.em-chat-agent-addbar {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--emc-border);
+}
+.em-chat-agent-add {
+    width: 100%;
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 9px 14px;
+    background: linear-gradient(135deg, var(--emc-magenta) 0%, var(--emc-blue) 100%);
+    color: #fff;
+    font: 600 13px/1 "Inter", "Segoe UI", system-ui, sans-serif;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(182, 8, 201, 0.3);
+    transition: transform 0.18s var(--emc-ease), filter 0.18s var(--emc-ease);
+}
+.em-chat-agent-add:hover { transform: translateY(-1px); filter: brightness(1.06); }
+
+.em-chat-agent-modal {
+    /* Self-contained tokens: this modal is portaled to <body>, OUTSIDE the
+       .em-chat-widget subtree where these vars are normally scoped, so it must
+       carry its own copy or every var() would resolve empty. */
+    --emc-magenta: #b608c9;
+    --emc-blue:    #6ec1e4;
+    --emc-accent:  #97e46e;
+    --emc-bg:      rgba(15, 20, 32, 0.92);
+    --emc-glass:   rgba(255, 255, 255, 0.05);
+    --emc-glass-strong: rgba(255, 255, 255, 0.10);
+    --emc-border:  rgba(255, 255, 255, 0.10);
+    --emc-text:    #e8edf5;
+    --emc-muted:   #8b98b0;
+    --emc-radius:  14px;
+    --emc-ease:    cubic-bezier(0.22, 1, 0.36, 1);
+    font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+    color: var(--emc-text);
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.em-chat-agent-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(8, 11, 18, 0.6);
+    backdrop-filter: blur(2px);
+}
+.em-chat-agent-dialog {
+    position: relative;
+    width: min(440px, calc(100vw - 32px));
+    max-height: calc(100vh - 64px);
+    overflow: auto;
+    background: var(--emc-bg);
+    border: 1px solid var(--emc-border);
+    border-radius: var(--emc-radius);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+    color: var(--emc-text);
+}
+/* Redesigned wide dashboard variant: nearly full-viewport, scroll-in-body. */
+.em-chat-agent-dialog--wide {
+    width: 80vw;
+    max-width: 80vw;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* body scrolls; header/footer pinned */
+    background:
+        radial-gradient(1200px 480px at 12% -8%, rgba(182, 8, 201, 0.14), transparent 60%),
+        radial-gradient(1100px 520px at 100% 0%, rgba(110, 193, 228, 0.14), transparent 58%),
+        var(--emc-bg);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+        0 30px 90px rgba(0, 0, 0, 0.6),
+        0 0 0 1px rgba(110, 193, 228, 0.10) inset;
+}
+.em-chat-agent-dialog--wide .em-chat-agent-head {
+    flex: 0 0 auto;
+}
+.em-chat-agent-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--emc-border);
+}
+.em-chat-agent-title { font-weight: 700; font-size: 15px; }
+.em-chat-agent-x {
+    appearance: none; border: 0; background: transparent;
+    color: var(--emc-muted); font-size: 22px; line-height: 1; cursor: pointer;
+}
+.em-chat-agent-x:hover { color: var(--emc-text); }
+.em-chat-agent-body { padding: 16px; }
+.em-chat-agent-lead { margin: 0 0 10px; color: var(--emc-muted); font-size: 13px; }
+.em-chat-agent-grouplist { display: flex; flex-direction: column; gap: 8px; }
+.em-chat-agent-group {
+    text-align: left;
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-text);
+    border-radius: 10px;
+    padding: 11px 14px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.18s var(--emc-ease), background 0.18s var(--emc-ease);
+}
+.em-chat-agent-group:hover { border-color: var(--emc-blue); background: var(--emc-glass-strong); }
+.em-chat-agent-back {
+    appearance: none; border: 0; background: transparent;
+    color: var(--emc-blue); font-size: 13px; cursor: pointer; padding: 0 0 10px;
+}
+.em-chat-agent-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.em-chat-agent-field > span { font-size: 12px; font-weight: 600; color: var(--emc-muted); }
+.em-chat-agent-field input,
+.em-chat-agent-field textarea,
+.em-chat-agent-field select {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 9px;
+    padding: 9px 11px;
+    color: var(--emc-text);
+    font: 400 14px/1.4 "Inter", "Segoe UI", system-ui, sans-serif;
+    resize: vertical;
+}
+.em-chat-agent-field input:focus,
+.em-chat-agent-field textarea:focus,
+.em-chat-agent-field select:focus { outline: none; border-color: var(--emc-blue); }
+.em-chat-agent-field select:disabled { opacity: 0.55; cursor: not-allowed; }
+/* Agent-create form parity: side-by-side row, help text, run-target sub-blocks. */
+.em-chat-agent-field-row { display: flex; gap: 8px; }
+.em-chat-agent-field-row .em-chat-agent-field { flex: 1 1 auto; }
+.em-chat-agent-field--grow2 { flex: 2 1 0; }
+.em-chat-agent-field--grow1 { flex: 1 1 0; }
+.em-chat-agent-help {
+    font-size: 11px; line-height: 1.4; color: var(--emc-muted); opacity: 0.8;
+}
+.em-chat-agent-help--block { display: block; margin: -4px 0 12px; }
+.em-chat-agent-runblock {
+    margin: 0 0 12px;
+    padding: 10px 11px;
+    border: 1px solid var(--emc-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.02);
+}
+.em-chat-agent-runblock .em-chat-agent-field:last-child { margin-bottom: 0; }
+.em-chat-agent-actions {
+    display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 4px;
+}
+.em-chat-agent-status { font-size: 12px; flex: 1; }
+.em-chat-agent-status.is-warn { color: #f0c674; }
+.em-chat-agent-status.is-err  { color: #ff8888; }
+.em-chat-agent-status.is-info { color: var(--emc-blue); }
+.em-chat-agent-submit {
+    appearance: none; border: 1px solid transparent; border-radius: 999px;
+    padding: 9px 18px;
+    background: linear-gradient(135deg, var(--emc-magenta) 0%, var(--emc-blue) 100%);
+    color: #fff; font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.em-chat-agent-submit:disabled { opacity: 0.6; cursor: default; }
+
+/* ════════════════════════════════════════════════════════════════
+   REDESIGNED "Add new Agent" dashboard (wide dialog) — section cards,
+   run-target chips + pickers, AJAX search, prompt-sequence builder.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Body becomes a scrollable responsive grid of section cards. */
+.em-chat-agent-body--grid {
+    flex: 1 1 auto;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    padding: 18px;
+    align-content: start;
+}
+@media (max-width: 860px) {
+    .em-chat-agent-body--grid { grid-template-columns: 1fr; }
+}
+
+/* Section card. */
+.em-chat-agent-section {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+    border: 1px solid var(--emc-border);
+    border-radius: 14px;
+    padding: 14px 14px 12px;
+    position: relative;
+    transition: border-color 0.2s var(--emc-ease), box-shadow 0.2s var(--emc-ease);
+}
+.em-chat-agent-section::before {
+    /* Top gradient hairline accent. */
+    content: "";
+    position: absolute;
+    left: 14px; right: 14px; top: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--emc-magenta), var(--emc-blue));
+    opacity: 0.55;
+}
+.em-chat-agent-section:focus-within {
+    border-color: rgba(110, 193, 228, 0.5);
+    box-shadow: 0 0 0 1px rgba(110, 193, 228, 0.25), 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+.em-chat-agent-section--span { grid-column: 1 / -1; }
+.em-chat-agent-section--seq  { padding-bottom: 14px; }
+
+.em-chat-agent-section-head {
+    margin: 4px 0 12px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    color: var(--emc-text);
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.em-chat-agent-section-sub {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--emc-muted);
+    opacity: 0.85;
+}
+.em-chat-agent-req { color: var(--emc-magenta); font-weight: 800; }
+
+/* ── Two-column responsive row (Home org+Billing, Department+Reports) ── */
+.em-chat-agent-2col {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+}
+@media (max-width: 720px) {
+    .em-chat-agent-2col { grid-template-columns: 1fr; }
+}
+.em-chat-agent-2col-cell { display: flex; flex-direction: column; min-width: 0; }
+.em-chat-agent-2col-cell .em-chat-agent-section-head { margin-top: 0; }
+.em-chat-agent-2col-cell .em-chat-agent-field:last-child { margin-bottom: 0; }
+
+/* ── Home org single-select (chosen value) ────────────────────── */
+.em-chat-agent-home-search { display: flex; flex-direction: column; gap: 8px; }
+.em-chat-agent-home-chosen {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px;
+    border: 1px solid rgba(110, 193, 228, 0.45);
+    border-radius: 11px;
+    background: linear-gradient(135deg, rgba(182, 8, 201, 0.18), rgba(110, 193, 228, 0.18));
+}
+.em-chat-agent-home-av {
+    width: 26px; height: 26px; border-radius: 50%;
+    object-fit: cover; flex: 0 0 auto;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.em-chat-agent-home-name {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 13px; font-weight: 600; color: var(--emc-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.em-chat-agent-home-change {
+    flex: 0 0 auto;
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-blue);
+    border-radius: 8px;
+    padding: 4px 11px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease);
+}
+.em-chat-agent-home-change:hover { border-color: var(--emc-blue); background: var(--emc-glass-strong); }
+
+/* ── Department select + "+ New" control ──────────────────────── */
+.em-chat-agent-dept-row { display: flex; gap: 8px; align-items: stretch; }
+.em-chat-agent-dept-row select { flex: 1 1 auto; min-width: 0; }
+.em-chat-agent-dept-add {
+    flex: 0 0 auto;
+    appearance: none;
+    border: 1px dashed rgba(110, 193, 228, 0.45);
+    background: rgba(110, 193, 228, 0.07);
+    color: var(--emc-blue);
+    border-radius: 9px;
+    padding: 0 13px;
+    font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease);
+}
+.em-chat-agent-dept-add:hover:not(:disabled) { border-color: var(--emc-blue); background: rgba(110, 193, 228, 0.14); }
+.em-chat-agent-dept-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Run-target chips ─────────────────────────────────────────── */
+.em-chat-agent-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    min-height: 30px;
+    align-items: center;
+}
+.em-chat-agent-chips-empty { font-size: 12px; color: var(--emc-muted); opacity: 0.8; }
+.em-chat-agent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 8px 5px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--emc-text);
+    background: var(--emc-glass-strong);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    animation: emcChipIn 0.18s var(--emc-ease);
+}
+.em-chat-agent-chip.is-gendme { box-shadow: 0 0 0 1px rgba(151, 228, 110, 0.3) inset; }
+.em-chat-agent-chip.is-webapp {
+    background: linear-gradient(135deg, rgba(182, 8, 201, 0.22), rgba(110, 193, 228, 0.22));
+    border-color: rgba(110, 193, 228, 0.4);
+}
+.em-chat-agent-chip.is-device { box-shadow: 0 0 0 1px rgba(110, 193, 228, 0.25) inset; }
+.em-chat-agent-chip-av {
+    width: 18px; height: 18px; border-radius: 50%;
+    object-fit: cover; flex: 0 0 auto;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.em-chat-agent-chip-lbl { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.em-chat-agent-chip-x {
+    appearance: none; border: 0; background: transparent; cursor: pointer;
+    color: var(--emc-muted); font-size: 15px; line-height: 1; padding: 0 1px;
+    transition: color 0.15s var(--emc-ease);
+}
+.em-chat-agent-chip-x:hover { color: #ff9a9a; }
+@keyframes emcChipIn {
+    from { opacity: 0; transform: scale(0.86); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Run-target pickers ───────────────────────────────────────── */
+.em-chat-agent-pickgroup {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+@media (max-width: 640px) { .em-chat-agent-pickgroup { grid-template-columns: 1fr; } }
+.em-chat-agent-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--emc-border);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.02);
+}
+.em-chat-agent-picker--span { grid-column: 1 / -1; }
+.em-chat-agent-picker-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+    text-transform: uppercase; color: var(--emc-muted);
+    display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+}
+.em-chat-agent-picker-hint {
+    font-style: normal; text-transform: none; letter-spacing: 0;
+    font-size: 10px; font-weight: 600;
+    color: var(--emc-blue); opacity: 0.9;
+}
+.em-chat-agent-pick-note { font-size: 12px; color: var(--emc-muted); opacity: 0.85; }
+
+.em-chat-agent-optlist {
+    display: flex; flex-direction: column; gap: 6px;
+    max-height: 180px; overflow: auto;
+}
+.em-chat-agent-opt {
+    display: flex; align-items: center; gap: 9px;
+    text-align: left;
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-text);
+    border-radius: 9px;
+    padding: 8px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 0.16s var(--emc-ease), background 0.16s var(--emc-ease), transform 0.12s var(--emc-ease);
+}
+.em-chat-agent-opt:hover:not(:disabled) { border-color: var(--emc-blue); transform: translateY(-1px); }
+.em-chat-agent-opt:disabled { opacity: 0.45; cursor: not-allowed; }
+.em-chat-agent-opt.is-on {
+    border-color: transparent;
+    background: linear-gradient(135deg, rgba(182, 8, 201, 0.28), rgba(110, 193, 228, 0.28));
+    box-shadow: 0 0 0 1px rgba(110, 193, 228, 0.45) inset;
+}
+.em-chat-agent-opt-ic { font-size: 14px; flex: 0 0 auto; }
+.em-chat-agent-opt-av {
+    width: 22px; height: 22px; border-radius: 50%;
+    object-fit: cover; flex: 0 0 auto;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.em-chat-agent-opt-lbl { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.em-chat-agent-opt-on { color: var(--emc-accent); font-weight: 800; flex: 0 0 auto; }
+
+/* Gend.me pill (single toggle). */
+.em-chat-agent-pill {
+    appearance: none;
+    align-self: flex-start;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-text);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.16s var(--emc-ease), background 0.16s var(--emc-ease), transform 0.12s var(--emc-ease);
+}
+.em-chat-agent-pill:hover { transform: translateY(-1px); border-color: var(--emc-blue); }
+.em-chat-agent-pill.is-on {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--emc-accent), var(--emc-blue));
+    color: #08111a;
+    box-shadow: 0 4px 14px rgba(151, 228, 110, 0.3);
+}
+
+/* AJAX search input. */
+.em-chat-agent-search {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 9px;
+    padding: 9px 11px;
+    color: var(--emc-text);
+    font: 400 13px/1.4 "Inter", "Segoe UI", system-ui, sans-serif;
+    transition: border-color 0.16s var(--emc-ease), box-shadow 0.16s var(--emc-ease);
+}
+.em-chat-agent-search:focus {
+    outline: none;
+    border-color: var(--emc-blue);
+    box-shadow: 0 0 0 3px rgba(110, 193, 228, 0.18);
+}
+
+/* ── Prompt-sequence builder ──────────────────────────────────── */
+.em-chat-agent-steps { display: flex; flex-direction: column; gap: 10px; }
+.em-chat-agent-step {
+    border: 1px solid var(--emc-border);
+    border-radius: 11px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.025);
+    position: relative;
+    transition: border-color 0.18s var(--emc-ease);
+}
+.em-chat-agent-step:focus-within { border-color: rgba(110, 193, 228, 0.5); }
+.em-chat-agent-step-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+}
+.em-chat-agent-step-n {
+    font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, var(--emc-magenta), var(--emc-blue));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: var(--emc-blue);
+}
+.em-chat-agent-step-ctl { display: flex; gap: 5px; }
+.em-chat-agent-step-btn {
+    appearance: none;
+    width: 26px; height: 26px;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-text);
+    border-radius: 7px;
+    font-size: 13px; line-height: 1; cursor: pointer;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease);
+}
+.em-chat-agent-step-btn:hover:not(:disabled) { border-color: var(--emc-blue); background: var(--emc-glass-strong); }
+.em-chat-agent-step-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.em-chat-agent-step-btn--del:hover:not(:disabled) { border-color: #ff8888; color: #ff9a9a; }
+.em-chat-agent-step-text {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 9px;
+    padding: 9px 11px;
+    color: var(--emc-text);
+    font: 400 13px/1.45 "Inter", "Segoe UI", system-ui, sans-serif;
+    resize: vertical;
+    margin-bottom: 9px;
+}
+.em-chat-agent-step-text:focus { outline: none; border-color: var(--emc-blue); }
+.em-chat-agent-step-targets {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+}
+@media (max-width: 560px) { .em-chat-agent-step-targets { grid-template-columns: 1fr; } }
+.em-chat-agent-step-targets .em-chat-agent-field { margin-bottom: 0; }
+.em-chat-agent-addstep {
+    margin-top: 10px;
+    appearance: none;
+    width: 100%;
+    border: 1px dashed rgba(110, 193, 228, 0.4);
+    background: rgba(110, 193, 228, 0.06);
+    color: var(--emc-blue);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: border-color 0.16s var(--emc-ease), background 0.16s var(--emc-ease);
+}
+.em-chat-agent-addstep:hover { border-color: var(--emc-blue); background: rgba(110, 193, 228, 0.12); }
+
+/* ── Prompt-sequence LIST (parent) ────────────────────────────── */
+.em-chat-agent-seqlist { display: flex; flex-direction: column; gap: 8px; }
+.em-chat-agent-seq-empty {
+    font-size: 12px; line-height: 1.5; color: var(--emc-muted);
+    padding: 10px 12px;
+    border: 1px dashed var(--emc-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+}
+.em-chat-agent-seqrow {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--emc-border);
+    border-radius: 11px;
+    padding: 9px 11px;
+    background: rgba(255, 255, 255, 0.025);
+    transition: border-color 0.18s var(--emc-ease), background 0.18s var(--emc-ease);
+}
+.em-chat-agent-seqrow:hover { border-color: rgba(110, 193, 228, 0.5); }
+.em-chat-agent-seqrow-name {
+    flex: 1 1 auto; min-width: 0;
+    font-size: 13px; font-weight: 600; color: var(--emc-text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.em-chat-agent-seqrow-count {
+    flex: 0 0 auto;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+    color: var(--emc-muted);
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 999px;
+    padding: 3px 9px;
+}
+.em-chat-agent-seqrow-ctl { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.em-chat-agent-seqrow-edit {
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-blue);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease);
+}
+.em-chat-agent-seqrow-edit:hover { border-color: var(--emc-blue); background: var(--emc-glass-strong); }
+.em-chat-agent-seqrow-x {
+    appearance: none;
+    width: 28px; height: 28px;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-muted);
+    border-radius: 8px;
+    font-size: 16px; line-height: 1; cursor: pointer;
+    transition: border-color 0.15s var(--emc-ease), color 0.15s var(--emc-ease);
+}
+.em-chat-agent-seqrow-x:hover { border-color: #ff8888; color: #ff9a9a; }
+.em-chat-agent-addseq {
+    margin-top: 10px;
+    appearance: none;
+    width: 100%;
+    border: 1px dashed rgba(110, 193, 228, 0.4);
+    background: rgba(110, 193, 228, 0.06);
+    color: var(--emc-blue);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: border-color 0.16s var(--emc-ease), background 0.16s var(--emc-ease);
+}
+.em-chat-agent-addseq:hover { border-color: var(--emc-blue); background: rgba(110, 193, 228, 0.12); }
+
+/* ── Nested sequence-builder popup (second modal) ─────────────── */
+/* Sits ABOVE the agent modal (z-index 100000) with its own backdrop so it
+   overlays without closing the parent. Reuses the same glass/gradient look. */
+.em-chat-seq-modal { z-index: 100010; }
+.em-chat-seq-modal .em-chat-agent-backdrop { background: rgba(8, 11, 18, 0.5); }
+.em-chat-seq-dialog {
+    width: min(820px, 94vw);
+    max-width: min(820px, 94vw);
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* body scrolls; header/footer pinned */
+    background:
+        radial-gradient(900px 380px at 10% -10%, rgba(182, 8, 201, 0.14), transparent 60%),
+        radial-gradient(820px 420px at 100% 0%, rgba(110, 193, 228, 0.14), transparent 58%),
+        var(--emc-bg);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+        0 30px 90px rgba(0, 0, 0, 0.62),
+        0 0 0 1px rgba(110, 193, 228, 0.10) inset;
+}
+.em-chat-seq-dialog .em-chat-agent-head { flex: 0 0 auto; }
+.em-chat-seq-body { flex: 1 1 auto; overflow: auto; }
+.em-chat-agent-cancel {
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-text);
+    border-radius: 9px;
+    padding: 9px 16px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease);
+}
+.em-chat-agent-cancel:hover { border-color: var(--emc-blue); background: var(--emc-glass-strong); }
+
+/* ════════════════════════════════════════════════════════════════
+   STEP STUDIO (Phase 1) — per-step cascade (Prompt Runs At →
+   AI integration → Model + cost), Context Files, response actions.
+   Lives inside the nested .em-chat-seq-dialog. Reuses --emc-* tokens.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Shared little section heading used by Context Files + response actions. */
+.em-chat-seq-sub-head {
+    font-size: 11px; font-weight: 800; letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--emc-muted);
+    margin: 0 0 7px;
+}
+
+/* ── Model cascade + cost line ──────────────────────────────────── */
+.em-chat-seq-model { margin-top: 9px; }
+.em-chat-seq-model .em-chat-agent-field { margin-bottom: 6px; }
+.em-chat-seq-cost {
+    font-size: 11px; font-weight: 600;
+    color: var(--emc-accent);
+    background: rgba(151, 228, 110, 0.10);
+    border: 1px solid rgba(151, 228, 110, 0.28);
+    border-radius: 999px;
+    padding: 4px 11px;
+    display: inline-block;
+}
+
+/* ── Context Files ──────────────────────────────────────────────── */
+.em-chat-seq-ctx {
+    margin: 9px 0;
+    padding: 9px 10px;
+    border: 1px solid var(--emc-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+}
+.em-chat-seq-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 8px;
+}
+.em-chat-seq-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+    color: var(--emc-text);
+    background: var(--emc-glass-strong);
+    border: 1px solid var(--emc-border);
+    border-radius: 999px;
+    padding: 4px 6px 4px 11px;
+    max-width: 100%;
+}
+.em-chat-seq-chip-lbl {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 220px;
+}
+.em-chat-seq-chip-x {
+    appearance: none;
+    width: 18px; height: 18px;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--emc-muted);
+    border-radius: 999px;
+    font-size: 13px; line-height: 1; cursor: pointer;
+    transition: background 0.15s var(--emc-ease), color 0.15s var(--emc-ease);
+}
+.em-chat-seq-chip-x:hover { background: rgba(255, 136, 136, 0.2); color: #ff9a9a; }
+.em-chat-seq-ctx-ctl {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+}
+.em-chat-seq-ctx-btn {
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-blue);
+    border-radius: 8px;
+    padding: 6px 11px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease);
+}
+.em-chat-seq-ctx-btn:hover { border-color: var(--emc-blue); background: var(--emc-glass-strong); }
+.em-chat-seq-ctx-btn.is-on {
+    border-color: rgba(151, 228, 110, 0.5);
+    background: rgba(151, 228, 110, 0.12);
+    color: var(--emc-accent);
+}
+.em-chat-seq-ctx-select {
+    flex: 0 1 auto;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: var(--emc-text);
+    font: 600 12px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+    cursor: pointer;
+}
+.em-chat-seq-ctx-select:focus { outline: none; border-color: var(--emc-blue); }
+.em-chat-seq-gdrive {
+    display: flex; flex-direction: column; gap: 6px;
+    margin-top: 8px;
+}
+.em-chat-seq-gdrive-row {
+    display: flex; gap: 7px; align-items: center;
+}
+.em-chat-seq-gdrive-lbl {
+    flex: 0 0 auto;
+    color: var(--emc-muted);
+    font: 600 11px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+}
+.em-chat-seq-gdrive-note {
+    color: var(--emc-muted);
+    font: 400 11px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+}
+.em-chat-seq-gdrive-in,
+.em-chat-seq-gdrive-search {
+    flex: 1 1 auto; min-width: 0;
+    box-sizing: border-box;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: var(--emc-text);
+    font: 400 12px/1.4 "Inter", "Segoe UI", system-ui, sans-serif;
+}
+.em-chat-seq-gdrive-in:focus,
+.em-chat-seq-gdrive-search:focus { outline: none; border-color: var(--emc-blue); }
+
+/* Connect Google Drive button */
+.em-chat-seq-gdrive-connect {
+    display: inline-flex; align-items: center; gap: 7px;
+    align-self: flex-start;
+    box-sizing: border-box;
+    background: var(--emc-glass-strong);
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: var(--emc-text);
+    font: 600 12px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+    cursor: pointer;
+    transition: background 0.18s var(--emc-ease), border-color 0.18s var(--emc-ease);
+}
+.em-chat-seq-gdrive-connect:hover {
+    background: var(--emc-glass);
+    border-color: var(--emc-blue);
+}
+.em-chat-seq-gdrive-g {
+    color: var(--emc-blue);
+    font-size: 12px; line-height: 1;
+}
+.em-chat-seq-gdrive-paste-link {
+    flex: 0 0 auto;
+    color: var(--emc-muted);
+    font: 400 11px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+    text-decoration: underline;
+    cursor: pointer;
+}
+.em-chat-seq-gdrive-paste-link:hover { color: var(--emc-text); }
+
+/* Drive search results list */
+.em-chat-seq-gdrive-results {
+    list-style: none; margin: 0; padding: 0;
+    max-height: 168px; overflow-y: auto;
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+.em-chat-seq-gdrive-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 9px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--emc-border);
+    transition: background 0.15s var(--emc-ease);
+}
+.em-chat-seq-gdrive-item:last-child { border-bottom: none; }
+.em-chat-seq-gdrive-item:hover { background: var(--emc-glass); }
+.em-chat-seq-gdrive-icon {
+    flex: 0 0 auto;
+    width: 16px; height: 16px;
+    object-fit: contain;
+}
+.em-chat-seq-gdrive-name {
+    flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--emc-text);
+    font: 400 12px/1.4 "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+/* ── Response actions ("Do this with the response") ─────────────── */
+.em-chat-seq-out {
+    margin-top: 10px;
+    padding: 9px 10px;
+    border: 1px solid var(--emc-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+}
+.em-chat-seq-out-row {
+    display: flex; flex-wrap: wrap; gap: 8px;
+}
+.em-chat-seq-out-chk {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+    color: var(--emc-muted);
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 999px;
+    padding: 5px 11px;
+    cursor: pointer;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease), color 0.15s var(--emc-ease);
+}
+.em-chat-seq-out-chk:hover { border-color: rgba(110, 193, 228, 0.5); color: var(--emc-text); }
+.em-chat-seq-out-chk input { accent-color: var(--emc-blue); margin: 0; }
+.em-chat-seq-out-chk.is-on {
+    border-color: rgba(110, 193, 228, 0.55);
+    background: rgba(110, 193, 228, 0.12);
+    color: var(--emc-text);
+}
+.em-chat-seq-out-block {
+    margin-top: 9px;
+    padding: 9px 10px;
+    border: 1px solid var(--emc-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.025);
+}
+.em-chat-seq-out-block-head {
+    font-size: 12px; font-weight: 700;
+    color: var(--emc-text);
+    margin-bottom: 7px;
+}
+.em-chat-seq-out-settings {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+}
+@media (max-width: 560px) { .em-chat-seq-out-settings { grid-template-columns: 1fr; } }
+.em-chat-seq-out-settings .em-chat-agent-field { margin-bottom: 0; }
+.em-chat-seq-out-settings > small,
+.em-chat-seq-out-settings > .em-chat-agent-help { grid-column: 1 / -1; }
+.em-chat-seq-out-settings code {
+    font-size: 11px;
+    background: var(--emc-glass-strong);
+    border-radius: 5px;
+    padding: 1px 5px;
+    color: var(--emc-blue);
+}
+
+/* ── Email output: Body field (full width within the 2-col grid) ── */
+.em-chat-seq-email-body { grid-column: 1 / -1; }
+.em-chat-seq-email-body textarea {
+    width: 100%;
+    resize: vertical;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--emc-text);
+    font: 500 12px/1.45 "Inter", "Segoe UI", system-ui, sans-serif;
+}
+.em-chat-seq-email-body textarea:focus { outline: none; border-color: var(--emc-blue); }
+.em-chat-seq-email-body textarea::placeholder { color: var(--emc-muted); }
+
+/* ── Chat output: member multi-select (search + results + chips) ── */
+.em-chat-seq-out-settings .em-chat-agent-field:has(> .em-chat-seq-recip-search) { grid-column: 1 / -1; }
+.em-chat-seq-recip-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 8px;
+}
+.em-chat-seq-recip-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600;
+    color: var(--emc-text);
+    background: var(--emc-glass-strong);
+    border: 1px solid var(--emc-border);
+    border-radius: 999px;
+    padding: 3px 6px 3px 5px;
+    max-width: 100%;
+}
+.em-chat-seq-recip-av {
+    width: 20px; height: 20px;
+    border-radius: 999px;
+    object-fit: cover;
+    flex: 0 0 auto;
+}
+.em-chat-seq-recip-name {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 160px;
+}
+.em-chat-seq-recip-x {
+    appearance: none;
+    width: 18px; height: 18px;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--emc-muted);
+    border-radius: 999px;
+    font-size: 13px; line-height: 1; cursor: pointer;
+    transition: background 0.15s var(--emc-ease), color 0.15s var(--emc-ease);
+}
+.em-chat-seq-recip-x:hover { background: rgba(255, 136, 136, 0.2); color: #ff9a9a; }
+.em-chat-seq-recip-search {
+    width: 100%;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--emc-text);
+    font: 500 12px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+}
+.em-chat-seq-recip-search:focus { outline: none; border-color: var(--emc-blue); }
+.em-chat-seq-recip-search::placeholder { color: var(--emc-muted); }
+.em-chat-seq-recip-results {
+    display: flex; flex-direction: column;
+    margin-top: 6px;
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    background: var(--emc-glass);
+    max-height: 168px;
+    overflow-y: auto;
+}
+.em-chat-seq-recip-result {
+    appearance: none;
+    display: flex; align-items: center; gap: 8px;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: transparent;
+    color: var(--emc-text);
+    padding: 6px 9px;
+    font: 600 12px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+    cursor: pointer;
+    transition: background 0.13s var(--emc-ease);
+}
+.em-chat-seq-recip-result:hover { background: var(--emc-glass-strong); }
+.em-chat-seq-recip-result + .em-chat-seq-recip-result { border-top: 1px solid var(--emc-border); }
+
+/* ── Project output: workspace select + New workspace button ────── */
+.em-chat-seq-out-settings .em-chat-agent-field:has(> .em-chat-seq-proj-row) { grid-column: 1 / -1; }
+.em-chat-seq-proj-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+}
+.em-chat-seq-proj-select {
+    flex: 1 1 160px;
+    min-width: 0;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--emc-text);
+    font: 600 12px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+    cursor: pointer;
+}
+.em-chat-seq-proj-select:focus { outline: none; border-color: var(--emc-blue); }
+.em-chat-seq-proj-new {
+    flex: 0 0 auto;
+    appearance: none;
+    border: 1px solid var(--emc-border);
+    background: var(--emc-glass);
+    color: var(--emc-blue);
+    border-radius: 8px;
+    padding: 7px 11px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s var(--emc-ease), background 0.15s var(--emc-ease);
+}
+.em-chat-seq-proj-new:hover { border-color: var(--emc-blue); background: var(--emc-glass-strong); }
+
+/* ── Launch output: Agent → Sequence cascade selects ───────────── */
+.em-chat-seq-launch-agent,
+.em-chat-seq-launch-seq {
+    width: 100%;
+    background: var(--emc-glass);
+    border: 1px solid var(--emc-border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: var(--emc-text);
+    font: 600 12px/1.3 "Inter", "Segoe UI", system-ui, sans-serif;
+    cursor: pointer;
+}
+.em-chat-seq-launch-agent:focus,
+.em-chat-seq-launch-seq:focus { outline: none; border-color: var(--emc-blue); }
+.em-chat-seq-launch-seq:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Pinned footer ────────────────────────────────────────────── */
+.em-chat-agent-foot {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: flex-end; gap: 14px;
+    padding: 14px 18px;
+    border-top: 1px solid var(--emc-border);
+    background: rgba(8, 11, 18, 0.4);
+    backdrop-filter: blur(4px);
+}
+
 /* ── Reduced motion ───────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
     .em-chat-widget *,
@@ -589,4 +1654,48 @@
         animation-delay: 0s !important;
         transition: none !important;
     }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Futuristic "self-building dashboard" treatment for the agent +
+   sequence modals. These modals are portaled to <body> (outside
+   .em-chat-widget), so they need their OWN entrance + reduced-motion
+   rules. Each modal mounts fresh on open, so a plain `animation` on
+   the sections/steps plays once on mount → the panel assembles
+   itself top-to-bottom on a stagger.
+   ════════════════════════════════════════════════════════════════ */
+@keyframes emc-dialog-in { 0% { opacity: 0; transform: translateY(24px) scale(.95); } 60% { opacity: 1; } 100% { opacity: 1; transform: none; } }
+@keyframes emc-build-rise { 0% { opacity: 0; transform: translateY(18px); filter: blur(6px); } 100% { opacity: 1; transform: none; filter: blur(0); } }
+@keyframes emc-borderglow { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+@keyframes emc-sweep { 0% { transform: translateX(-130%); } 100% { transform: translateX(130%); } }
+
+.em-chat-agent-dialog { animation: emc-dialog-in .5s cubic-bezier(.2,.85,.25,1) both; }
+
+/* Animated top accent edge + one-time light sweep on the wide dashboards. */
+.em-chat-agent-dialog--wide::before,
+.em-chat-seq-dialog::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 3; background: linear-gradient(90deg, transparent, var(--emc-magenta), var(--emc-blue), transparent); animation: emc-borderglow 3s ease-in-out infinite; pointer-events: none; }
+.em-chat-agent-dialog--wide::after,
+.em-chat-seq-dialog::after { content: ""; position: absolute; top: 0; left: 0; width: 42%; height: 100%; z-index: 2; background: linear-gradient(105deg, transparent, rgba(255,255,255,0.05), transparent); pointer-events: none; animation: emc-sweep 1.1s ease .15s 1; }
+
+/* Staggered build-in of the agent form sections + sequence steps. */
+.em-chat-agent-section,
+.em-chat-agent-step { animation: emc-build-rise .55s cubic-bezier(.2,.85,.25,1) both; }
+.em-chat-agent-section:nth-child(1), .em-chat-agent-step:nth-child(1) { animation-delay: .05s; }
+.em-chat-agent-section:nth-child(2), .em-chat-agent-step:nth-child(2) { animation-delay: .12s; }
+.em-chat-agent-section:nth-child(3), .em-chat-agent-step:nth-child(3) { animation-delay: .19s; }
+.em-chat-agent-section:nth-child(4), .em-chat-agent-step:nth-child(4) { animation-delay: .26s; }
+.em-chat-agent-section:nth-child(5), .em-chat-agent-step:nth-child(5) { animation-delay: .33s; }
+.em-chat-agent-section:nth-child(6), .em-chat-agent-step:nth-child(6) { animation-delay: .40s; }
+.em-chat-agent-section:nth-child(7), .em-chat-agent-step:nth-child(7) { animation-delay: .47s; }
+.em-chat-agent-section:nth-child(n+8), .em-chat-agent-step:nth-child(n+8) { animation-delay: .54s; }
+
+/* Readable dark dropdown lists (was light-on-light + unreadable). */
+.em-chat-agent-modal select option { background: #14101d; color: var(--emc-text); }
+.em-chat-agent-modal select option:checked { background: var(--emc-magenta); color: #fff; }
+
+@media (prefers-reduced-motion: reduce) {
+    .em-chat-agent-dialog,
+    .em-chat-agent-dialog--wide::before, .em-chat-seq-dialog::before,
+    .em-chat-agent-dialog--wide::after, .em-chat-seq-dialog::after,
+    .em-chat-agent-section, .em-chat-agent-step { animation: none !important; }
 }

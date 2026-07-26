@@ -515,6 +515,7 @@ class Chat_Forms_Admin
     {
         $thank_you_message = get_post_meta($post->ID, '_chat_form_thank_you_message', true);
         $redirect_url = get_post_meta($post->ID, '_chat_form_redirect_url', true);
+        $launch_code = get_post_meta($post->ID, '_chat_form_launch_code', true);
         ?>
         <p>
             <label><strong><?php _e('Custom Thank You Message:', 'chat-forms'); ?></strong></label><br />
@@ -537,6 +538,17 @@ class Chat_Forms_Admin
             <input type="url" name="chat_form_redirect_url" value="<?php echo esc_attr($redirect_url); ?>" class="widefat"
                 placeholder="https://example.com/thank-you" />
             <small><?php _e('If set, this will override the thank you message and redirect the user immediately.', 'chat-forms'); ?></small>
+        </p>
+
+        <hr style="margin: 20px 0;" />
+
+        <p>
+            <label><strong><?php _e('Launch AI Sequence on Completion (Optional):', 'chat-forms'); ?></strong></label><br />
+            <input type="text" name="chat_form_launch_code" value="<?php echo esc_attr($launch_code); ?>" class="widefat"
+                placeholder="LT-xxxxxxxxxx" />
+            <small>
+                <?php _e('Paste a Launch Trigger code (or its [gend_launch] shortcode) copied from the desktop app\'s Sequences popup. When this chatflow is completed, the linked AI Sequence fires automatically.', 'chat-forms'); ?>
+            </small>
         </p>
         <?php
     }
@@ -1142,6 +1154,15 @@ class Chat_Forms_Admin
         }
         if (isset($_POST['chat_form_redirect_url'])) {
             update_post_meta($post_id, '_chat_form_redirect_url', esc_url_raw($_POST['chat_form_redirect_url']));
+        }
+        if (isset($_POST['chat_form_launch_code'])) {
+            // Tolerate either the bare code or the full [gend_launch code="…"]
+            // shortcode being pasted — extract just the code either way.
+            $raw = sanitize_text_field(wp_unslash($_POST['chat_form_launch_code']));
+            if (preg_match('/code=["\']([^"\']+)["\']/', $raw, $m)) {
+                $raw = $m[1];
+            }
+            update_post_meta($post_id, '_chat_form_launch_code', trim($raw));
         }
 
         // Save Email Rules (New System)

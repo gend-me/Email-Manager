@@ -79,6 +79,50 @@ function em_chat_perm_logged_in() {
  * Helpers
  * ------------------------------------------------------------------------- */
 
+// v8.2 Phase 45: classify a thread participant as an agent so the chat
+// widget can split conversations into Members / Agents / Projects tabs
+// (mirroring the hub Messages page). Prefer gend-society's canonical
+// gs_user_is_agent() when present; otherwise fall back to the meta + role
+// the agent system sets directly (NO hard cross-plugin dependency — the
+// widget must keep working if gend-society is inactive on a container).
+function em_chat_user_is_agent($user_id) {
+    $user_id = (int) $user_id;
+    if ($user_id <= 0) return false;
+    if (function_exists('gs_user_is_agent')) {
+        return (bool) gs_user_is_agent($user_id);
+    }
+    if (get_user_meta($user_id, '_aipa_is_agent', true)) return true;
+    $u = get_user_by('id', $user_id);
+    if ($u && is_array($u->roles) && in_array('ai_agent', $u->roles, true)) return true;
+    return false;
+}
+
+// v8.2 Phase 45: resolve a chat thread to the project it's attached to
+// (Phase-44 linkage rows in wp_pm_meta: entity_type='pm_chat_thread',
+// meta_key='thread_id'). $wpdb-direct — no projects-plugin class call.
+// The pm_meta table only exists where the projects plugin is installed
+// (the hub); a one-shot cached SHOW TABLES guard keeps this silent on
+// containers that lack it. Returns 0 when unattached / unavailable.
+function em_chat_thread_project_id($thread_id) {
+    global $wpdb;
+    $thread_id = (int) $thread_id;
+    if ($thread_id <= 0 || ! isset($wpdb) || ! is_object($wpdb)) return 0;
+
+    static $table = null; // null = unchecked, '' = absent, else the name.
+    if ($table === null) {
+        $name  = $wpdb->prefix . 'pm_meta';
+        $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $name));
+        $table = $found ? $name : '';
+    }
+    if ($table === '') return 0;
+
+    $pid = $wpdb->get_var($wpdb->prepare(
+        "SELECT project_id FROM `{$table}` WHERE entity_type='pm_chat_thread' AND meta_key='thread_id' AND meta_value=%d LIMIT 1",
+        $thread_id
+    ));
+    return (int) $pid;
+}
+
 // Slice 3e.5: accept a pre-loaded BP_Messages_Thread to skip a second
 // full DB read when the caller already has the object (e.g.
 // em_chat_rest_get_thread). Pass null and we'll instantiate it.
@@ -91,8 +135,11 @@ function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
     }
     if (! $thread || empty($thread->messages)) return null;
 
-    // Other recipients (not us).
-    $others = array();
+    // Other recipients (not us). Track whether ANY other participant is an
+    // agent (v8.2 Phase 45) so the widget can route this thread to the
+    // Agents tab + tint its live-dock chip.
+    $others   = array();
+    $is_agent = false;
     if (is_array($thread->recipients)) {
         foreach ($thread->recipients as $rcp) {
             if ((int) $rcp->user_id === (int) $for_user_id) continue;
@@ -104,8 +151,12 @@ function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
                 'avatar_url'   => get_avatar_url($u->ID, array('size' => 96)),
                 'profile_url'  => function_exists('bp_core_get_user_domain') ? bp_core_get_user_domain($u->ID) : '',
             );
+            if (! $is_agent && em_chat_user_is_agent($u->ID)) $is_agent = true;
         }
     }
+
+    // Project linkage (Phase 44) → drives the Projects tab.
+    $project_id = em_chat_thread_project_id($thread_id);
 
     $last = end($thread->messages);
     // Per-thread unread count lives on the recipient row — read it
@@ -129,6 +180,8 @@ function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
         'message_count' => count($thread->messages),
         'unread'      => $thread_unread,
         'others'      => $others,
+        'is_agent'    => (bool) $is_agent,
+        'project_id'  => $project_id ?: null,
     );
 }
 
@@ -347,6 +400,8 @@ function em_chat_rest_unread_count(WP_REST_Request $r) {
                 'unread'       => (int) $summary['unread'],
                 'last_at'      => $summary['last_at'],
                 'excerpt'      => (string) $summary['last_message_excerpt'],
+                'is_agent'     => ! empty($summary['is_agent']),
+                'project_id'   => isset($summary['project_id']) ? $summary['project_id'] : null,
             );
         }
     }

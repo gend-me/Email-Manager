@@ -18,8 +18,10 @@ class Chat_Forms_Core
         require_once EMAIL_MANAGER_PATH . 'inc/forms/class-chat-forms-ajax.php';
         require_once EMAIL_MANAGER_PATH . 'inc/forms/class-chat-forms-submissions.php';
         require_once EMAIL_MANAGER_PATH . 'inc/forms/class-chat-forms-export.php';
+        require_once EMAIL_MANAGER_PATH . 'inc/forms/class-chat-forms-launch.php';
         new Chat_Forms_Ajax();
         new Chat_Forms_Submissions();
+        new Chat_Forms_Launch();
     }
 
     private function define_admin_hooks()
