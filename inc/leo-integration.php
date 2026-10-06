@@ -80,7 +80,7 @@ class EM_Leo
         ];
         update_option(self::SETTINGS_OPTION, $settings);
 
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'leo_settings'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'leo_settings'], admin_url('admin.php')));
         exit;
     }
 
@@ -294,6 +294,23 @@ class EM_Leo
         $resolved = self::resolve_tokens($template, $context);
         if (trim($resolved) === '') wp_send_json_error(['message' => 'Empty prompt'], 400);
 
+        // ── Per-question run target: a connected DEVICE executes this
+        // prompt on member hardware (no gend.me metering); offline or
+        // timed-out devices fall through to the Compute Network below.
+        $run = self::resolve_run_target($form_id, $template);
+        if ($run && !empty($run['run_target']) && 'gendme' !== $run['run_target']) {
+            $dev_text = self::run_on_device($run, $resolved);
+            if (!is_wp_error($dev_text)) {
+                wp_send_json_success([
+                    'text'        => $dev_text,
+                    'tokens_used' => 0,
+                    'balance'     => null,
+                    'form_id'     => $form_id,
+                    'paid_by'     => 'device',
+                ]);
+            }
+        }
+
         // Resolve which user's LEO balance pays. We never trust the client to
         // unilaterally specify another user's id without the question saying so.
         // - 'site'      -> no user, fall back to site_token
@@ -339,6 +356,82 @@ class EM_Leo
             'form_id'     => $form_id,
             'paid_by'     => $paying_user_id ?: 'site',
         ]);
+    }
+
+    /**
+     * Match the posted prompt template back to the form's SAVED question so
+     * the run target is never client-controlled.
+     */
+    private static function resolve_run_target($form_id, $template)
+    {
+        if (!$form_id) return null;
+        $stored = get_post_meta((int) $form_id, '_chat_form_questions', true);
+        if (!is_array($stored)) return null;
+        foreach ($stored as $q) {
+            if (!is_array($q) || ($q['type'] ?? '') !== 'prompt_response') continue;
+            if ((string) ($q['prompt'] ?? '') !== (string) $template) continue;
+            return [
+                'run_target'      => (string) ($q['run_target'] ?? 'gendme'),
+                'run_integration' => (string) ($q['run_integration'] ?? ''),
+                'run_model'       => (string) ($q['run_model'] ?? ''),
+            ];
+        }
+        return null;
+    }
+
+    /**
+     * Execute the prompt on the targeted connected device via the projects
+     * run-queue (the desktop/mobile app drains it) and wait briefly for the
+     * result. WP_Error on missing bridge / offline / timeout — callers fall
+     * back to the Compute Network.
+     */
+    private static function run_on_device($run, $prompt)
+    {
+        foreach (['psoo_group_device_owner_uids', 'psoo_device_get_records', 'psoo_device_runq_enqueue', 'psoo_device_runq_find'] as $fn) {
+            if (!function_exists($fn)) return new WP_Error('no_bridge', 'device bridge unavailable');
+        }
+        $gid       = (int) get_option('gdc_bp_group_id');
+        $device_id = (string) $run['run_target'];
+        $owner = 0; $record = null;
+        foreach (psoo_group_device_owner_uids($gid) as $uid) {
+            foreach (psoo_device_get_records((int) $uid) as $rec) {
+                if ((string) ($rec['device_id'] ?? '') === $device_id) { $owner = (int) $uid; $record = $rec; break 2; }
+            }
+        }
+        if (!$record) return new WP_Error('no_device', 'device not registered');
+        if (function_exists('psoo_device_online') && !psoo_device_online($record)) {
+            return new WP_Error('offline', 'device offline');
+        }
+        $job = [
+            'job_id'         => wp_generate_uuid4(),
+            'device_id'      => $device_id,
+            'agent_slug'     => '',
+            'group_id'       => $gid,
+            'sequence_id'    => '',
+            'step_index'     => 0,
+            'prompt'         => (string) $prompt,
+            'previous'       => '',
+            'system_prompt'  => '',
+            'model'          => (string) ($run['run_model'] ?? ''),
+            'ai_integration' => (string) ($run['run_integration'] ?? ''),
+            'status'         => 'queued',
+            'result'         => null,
+            'error'          => null,
+            'enqueued_at'    => time(),
+            'updated_at'     => time(),
+        ];
+        psoo_device_runq_enqueue($owner, $job);
+        // The desktop drains its queue on a ~30s poll — wait up to ~44s.
+        for ($i = 0; $i < 22; $i++) {
+            sleep(2);
+            $found = psoo_device_runq_find($owner, $job['job_id']);
+            if (!is_array($found)) continue;
+            if (($found['status'] ?? '') === 'done' && $found['result'] !== null) return (string) $found['result'];
+            if (($found['status'] ?? '') === 'error' || !empty($found['error'])) {
+                return new WP_Error('device_error', (string) ($found['error'] ?? 'device run failed'));
+            }
+        }
+        return new WP_Error('timeout', 'device did not respond in time');
     }
 
     public function ajax_check_balance()

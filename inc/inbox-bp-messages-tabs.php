@@ -115,6 +115,34 @@ function em_inbox_bp_messages_email_content() {
 }
 
 /* -------------------------------------------------------------------------
+ * Embed mode (?em_embed=1) — the chat widget's Email tab iframes this
+ * screen. Instead of chasing every piece of theme/BP/floating-dock
+ * chrome, the SPA wrap is promoted to a fixed full-viewport layer above
+ * everything, so whatever renders underneath is simply invisible.
+ * Same-origin iframe only; no functional changes to the SPA itself.
+ * ------------------------------------------------------------------------- */
+
+add_filter('body_class', function ($classes) {
+    if (isset($_GET['em_embed'])) $classes[] = 'em-embed';
+    return $classes;
+});
+
+add_action('wp_head', function () {
+    if (!isset($_GET['em_embed'])) return;
+    echo '<style id="em-embed-css">
+      html { margin-top: 0 !important; }
+      #wpadminbar, #gs-float-menu, .gs-float-dock, .gs-frontend-bar,
+      body.em-embed .em-inbox-messages-tabs { display: none !important; }
+      body.em-embed { overflow: hidden !important; }
+      body.em-embed .em-inbox-wrap--frontend {
+        position: fixed; inset: 0; z-index: 999999;
+        overflow: auto; -webkit-overflow-scrolling: touch;
+        margin: 0; padding: 10px; background: #0e1420;
+      }
+    </style>';
+}, 99);
+
+/* -------------------------------------------------------------------------
  * Email/Chat tab strip — rendered at wp_footer and relocated client-
  * side to the TOP of the messages container, ABOVE the BP subnav. On
  * the Email screen the BP subnav is also CSS-hidden so the user only
@@ -288,11 +316,40 @@ function em_inbox_bp_messages_tab_strip_footer() {
             });
             return removed > 0;
         }
+        // v8.3.3: Youzify's MOBILE layout hides whole desktop wrappers —
+        // the strip can inject fine next to a subnav that sits inside a
+        // display:none ancestor, leaving Email / Chat / Direct Messages
+        // unreachable on phones. After every injection pass, verify the
+        // strip is ACTUALLY visible; if not, relocate it into the first
+        // visible content container, or pin it to the viewport bottom as
+        // the last resort. Click handlers are document-delegated, so the
+        // strip keeps working wherever it lands.
+        function stripIsVisible(strip) {
+            if (! strip) return false;
+            if (strip.offsetParent === null) return false;
+            var r = strip.getBoundingClientRect();
+            return r.height > 2 && r.width > 40;
+        }
+        function ensureStripVisible() {
+            var strip = document.querySelector('.em-inbox-messages-tabs');
+            if (! strip || stripIsVisible(strip)) return;
+            var candidates = FALLBACK_SELECTORS.concat(['.site-main', 'main', '#content', '#primary', '#page']);
+            for (var i = 0; i < candidates.length; i++) {
+                var host = document.querySelector(candidates[i]);
+                if (! host || host.offsetParent === null) continue;
+                host.insertBefore(strip, host.firstChild);
+                if (stripIsVisible(strip)) return;
+            }
+            // Last resort: pin above the viewport bottom edge.
+            document.body.appendChild(strip);
+            strip.classList.add('em-inbox-messages-tabs--pinned');
+        }
         function run() {
             inject();
             removeEmailItem();
             hideEmailHeading();
             injectChatSearch();
+            ensureStripVisible();
             // Slice 3a — clicks on a /messages/view/{id}/ link open the
             // floating widget chat box instead of navigating.
             document.addEventListener('click', interceptChatThreadClicks, true);
@@ -306,9 +363,16 @@ function em_inbox_bp_messages_tab_strip_footer() {
                 removeEmailItem();
                 hideEmailHeading();
                 injectChatSearch();
+                ensureStripVisible();
             });
             obs.observe(document.body, { childList: true, subtree: true });
             setTimeout(function () { obs.disconnect(); }, 3000);
+            // Mobile layouts settle late (fonts, Youzify JS, the app's
+            // WebView) — keep re-checking visibility for a while, and on
+            // any resize/orientation change.
+            var vt = setInterval(ensureStripVisible, 800);
+            setTimeout(function () { clearInterval(vt); }, 8000);
+            window.addEventListener('resize', ensureStripVisible);
         }
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', run);
@@ -587,23 +651,31 @@ function em_inbox_bp_messages_email_enqueue() {
     // Chat works without a full page reload — the SPA's
     // window.emInboxMount() global lets the tab-strip JS re-mount
     // the React tree after swapping content into the page.
+    // v8.4.4: per-file mtime versions (see em_asset_ver in chat-widget.php)
+    // — the time()-based EMAIL_MANAGER_VERSION disabled browser caching
+    // entirely for these heavy assets.
+    $em_ver = function ($rel) {
+        if (function_exists('em_asset_ver')) return em_asset_ver($rel);
+        $p = EMAIL_MANAGER_PATH . $rel;
+        return file_exists($p) ? (string) filemtime($p) : '1';
+    };
     wp_enqueue_style(
         'em-inbox-bp-tabs',
         EMAIL_MANAGER_URL . 'assets/inbox-bp-tabs.css',
         array(),
-        EMAIL_MANAGER_VERSION
+        $em_ver('assets/inbox-bp-tabs.css')
     );
     wp_enqueue_style(
         'em-inbox-app',
         EMAIL_MANAGER_URL . 'assets/inbox-app.css',
         array('wp-components'),
-        EMAIL_MANAGER_VERSION
+        $em_ver('assets/inbox-app.css')
     );
     wp_enqueue_script(
         'em-inbox-app',
         EMAIL_MANAGER_URL . 'assets/inbox-app.js',
         array('wp-element', 'wp-components', 'wp-i18n', 'wp-api-fetch'),
-        EMAIL_MANAGER_VERSION,
+        $em_ver('assets/inbox-app.js'),
         true
     );
     $u = wp_get_current_user();

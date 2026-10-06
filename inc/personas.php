@@ -141,7 +141,7 @@ class EM_Personas
         $prompts_raw = isset($_POST['prompts']) && is_array($_POST['prompts']) ? $_POST['prompts'] : [];
 
         if ($name === '') {
-            wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'persona_error'], admin_url('admin.php')));
+            wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'persona_error'], admin_url('admin.php')));
             exit;
         }
 
@@ -180,7 +180,7 @@ class EM_Personas
         } else {
             $persona_id = wp_insert_post($post_args);
             if (is_wp_error($persona_id) || !$persona_id) {
-                wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'persona_error'], admin_url('admin.php')));
+                wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'persona_error'], admin_url('admin.php')));
                 exit;
             }
         }
@@ -207,7 +207,7 @@ class EM_Personas
             update_user_meta($linked_user_id, self::USER_META_PERSONA, $persona_id);
         }
 
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'persona_saved'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'persona_saved'], admin_url('admin.php')));
         exit;
     }
 
@@ -225,7 +225,7 @@ class EM_Personas
             }
             wp_delete_post($persona_id, true);
         }
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'persona_deleted'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'persona_deleted'], admin_url('admin.php')));
         exit;
     }
 
@@ -320,7 +320,7 @@ class EM_Personas
                     <h3><?php esc_html_e('Personas', 'email-manager'); ?></h3>
                     <p class="description"><?php esc_html_e('Each persona has a role, tone, prompt sequence, and an optional linked member account.', 'email-manager'); ?></p>
                 </div>
-                <a href="<?php echo esc_url(add_query_arg(['page' => 'email-manager', 'new_persona' => 1], admin_url('admin.php'))); ?>" class="button button-primary">
+                <a href="<?php echo esc_url(add_query_arg(['page' => 'talk-flows', 'new_persona' => 1], admin_url('admin.php'))); ?>" class="button button-primary">
                     <span class="dashicons dashicons-plus-alt" style="margin-top:3px;"></span>
                     <?php esc_html_e('New Persona', 'email-manager'); ?>
                 </a>
@@ -339,7 +339,7 @@ class EM_Personas
                         $linked_user = $data['linked_user_id'] ? get_user_by('id', $data['linked_user_id']) : null;
                         $chatflow_title = $data['main_chatflow_id'] ? get_the_title($data['main_chatflow_id']) : '';
                         ?>
-                        <a href="<?php echo esc_url(add_query_arg(['page' => 'email-manager', 'edit_persona' => $p->ID], admin_url('admin.php'))); ?>" class="em-persona-card em-reveal" style="--em-i:<?php echo (int) $i; ?>;">
+                        <a href="<?php echo esc_url(add_query_arg(['page' => 'talk-flows', 'edit_persona' => $p->ID], admin_url('admin.php'))); ?>" class="em-persona-card em-reveal" style="--em-i:<?php echo (int) $i; ?>;">
                             <div class="em-persona-card__avatar">
                                 <?php if ($data['avatar_url']): ?>
                                     <img src="<?php echo esc_url($data['avatar_url']); ?>" alt="" />
@@ -383,7 +383,7 @@ class EM_Personas
         $prompts     = $is_new ? [] : $data['prompts'];
 
         $chatflows = self::get_chatflow_options();
-        $back_url  = add_query_arg(['page' => 'email-manager'], admin_url('admin.php'));
+        $back_url  = add_query_arg(['page' => 'talk-flows'], admin_url('admin.php'));
         ?>
         <div class="gdc-email-panel em-reveal" style="--em-i:0;">
             <div class="gdc-email-panel__header">

@@ -12,6 +12,7 @@
  *   POST   /threads/{id}/read           mark a thread read
  *   POST   /threads/{id}/send           reply  body: {content}
  *   POST   /threads/new                 start  body: {to_user_id, content}
+ *   POST   /agent-send                  server-to-server agent DM  body: {group_id?, agent_slug, content, subject?}
  *   GET    /users/search?q=             type-ahead member search
  *
  * Frontend assets enqueued via wp_footer on every page so the floating
@@ -40,6 +41,16 @@ add_action('rest_api_init', function () {
         'callback'            => 'em_chat_rest_new_thread',
         'permission_callback' => 'em_chat_perm_logged_in',
     ));
+    // Server-to-server: the desktop's sequence runner (local runs AND
+    // Phase-39 device runs) posts each step's prompt/response here so it
+    // becomes visible in the caller's real em-chat DM thread with that
+    // agent, not just the Project-task write-back. Same bearer/permission
+    // posture as every other route in this file.
+    register_rest_route('em/v1', '/chat/agent-send', array(
+        'methods'             => WP_REST_Server::CREATABLE,
+        'callback'            => 'em_chat_rest_agent_send',
+        'permission_callback' => 'em_chat_perm_logged_in',
+    ));
     register_rest_route('em/v1', '/chat/threads/(?P<id>\d+)', array(
         'methods'             => WP_REST_Server::READABLE,
         'callback'            => 'em_chat_rest_get_thread',
@@ -63,6 +74,27 @@ add_action('rest_api_init', function () {
             'q'     => array('type' => 'string', 'required' => true),
             'limit' => array('type' => 'integer', 'default' => 10),
         ),
+    ));
+    // Profile-messages parity actions (star / mark-unread / delete / notices).
+    register_rest_route('em/v1', '/chat/threads/(?P<id>\d+)/star', array(
+        'methods'             => 'POST',
+        'callback'            => 'em_chat_rest_star_thread',
+        'permission_callback' => 'em_chat_perm_logged_in',
+    ));
+    register_rest_route('em/v1', '/chat/threads/(?P<id>\d+)/unread', array(
+        'methods'             => 'POST',
+        'callback'            => 'em_chat_rest_unread_thread',
+        'permission_callback' => 'em_chat_perm_logged_in',
+    ));
+    register_rest_route('em/v1', '/chat/threads/(?P<id>\d+)/delete', array(
+        'methods'             => 'POST',
+        'callback'            => 'em_chat_rest_delete_thread',
+        'permission_callback' => 'em_chat_perm_logged_in',
+    ));
+    register_rest_route('em/v1', '/chat/notices', array(
+        'methods'             => 'GET',
+        'callback'            => 'em_chat_rest_notices',
+        'permission_callback' => 'em_chat_perm_logged_in',
     ));
     register_rest_route('em/v1', '/chat/unread-count', array(
         'methods'             => WP_REST_Server::READABLE,
@@ -171,8 +203,20 @@ function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
         }
     }
 
+    // Starred flag (profile-messages parity): a thread counts as starred
+    // for this user when ANY of its messages is starred. Messages are
+    // already loaded on the thread object; per-message meta reads ride the
+    // meta cache.
+    $starred = false;
+    if (function_exists('bp_messages_is_message_starred')) {
+        foreach ((array) $thread->messages as $m) {
+            if (bp_messages_is_message_starred((int) $m->id, (int) $for_user_id)) { $starred = true; break; }
+        }
+    }
+
     return array(
         'id'          => (int) $thread_id,
+        'starred'     => $starred,
         'subject'     => $last ? wp_strip_all_tags((string) $last->subject) : '',
         'last_message_excerpt' => $last ? mb_substr(wp_strip_all_tags((string) $last->message), 0, 140) : '',
         'last_sender' => $last ? (int) $last->sender_id : 0,
@@ -213,9 +257,14 @@ function em_chat_rest_list_threads(WP_REST_Request $r) {
     if (! class_exists('BP_Messages_Thread') || ! method_exists('BP_Messages_Thread', 'get_current_threads_for_user')) {
         return new WP_Error('em_chat_no_bp', 'BuddyPress messaging not active', array('status' => 500));
     }
+    // Box selector (profile-messages parity): inbox (default) | sentbox |
+    // starred. 'sent' is accepted as an alias; anything else → inbox.
+    $box = sanitize_key((string) $r->get_param('box'));
+    if ($box === 'sent') $box = 'sentbox';
+    if (! in_array($box, array('inbox', 'sentbox', 'starred'), true)) $box = 'inbox';
     $res = BP_Messages_Thread::get_current_threads_for_user(array(
         'user_id' => $uid,
-        'box'     => 'inbox',
+        'box'     => $box,
         'limit'   => $limit,
         'page'    => max(1, intval($offset / $limit) + 1),
     ));
@@ -340,6 +389,91 @@ function em_chat_rest_new_thread(WP_REST_Request $r) {
     return rest_ensure_response(array('ok' => true, 'thread' => $summary));
 }
 
+/**
+ * POST /em/v1/chat/agent-send { group_id?, agent_slug, content, subject? }
+ *
+ * Resolves agent_slug -> the hidden `agent-<slug>` WP user (projects
+ * plugin's psoo_resolve_agent_by_slug(), guarded — cross-plugin call), then
+ * finds the caller's EXISTING 1:1 thread with that agent via the same
+ * BP_Messages_Thread::get_current_threads_for_user() lookup
+ * em_chat_rest_list_threads() already uses, and appends to it.
+ * messages_new_message() always starts a brand-new thread unless a
+ * thread_id is passed — without this lookup, every sequence step (this
+ * route's only caller) would spawn its own separate thread instead of one
+ * ongoing conversation.
+ */
+function em_chat_rest_agent_send(WP_REST_Request $r) {
+    $u = wp_get_current_user();
+    if (! $u || ! $u->ID) return new WP_Error('em_chat_no_user', 'Login required', array('status' => 401));
+    $uid = (int) $u->ID;
+
+    $body     = $r->get_json_params();
+    if (! is_array($body)) $body = $r->get_params() ?: array();
+    $group_id = (int) ($body['group_id'] ?? 0);
+    $slug     = function_exists('sanitize_title') ? sanitize_title((string) ($body['agent_slug'] ?? '')) : '';
+    $content  = trim((string) ($body['content'] ?? ''));
+    $subject  = trim((string) ($body['subject'] ?? '')) ?: 'Sequence run';
+
+    if ($slug === '') return new WP_Error('em_chat_bad_agent', 'agent_slug required', array('status' => 400));
+    if ($content === '') return new WP_Error('em_chat_empty', 'message body required', array('status' => 400));
+    // The desktop's "Device run — step N" echo of a step that a gend.me sequence run already recorded in its project
+    // and reports in the chat itself (leo's aipa_seq_swallow_device_echo()): don't post a duplicate as the user.
+    if (function_exists('aipa_seq_swallow_device_echo') && aipa_seq_swallow_device_echo($slug, $group_id, $content)) {
+        return rest_ensure_response(array('success' => true, 'skipped' => 'tracked-sequence-run'));
+    }
+    if (! function_exists('psoo_resolve_agent_by_slug')) {
+        return new WP_Error('em_chat_no_bridge', 'Agent resolver unavailable', array('status' => 500));
+    }
+    $agent_uid = psoo_resolve_agent_by_slug($slug);
+    if (! $agent_uid) return new WP_Error('em_chat_agent_missing', 'Agent not found', array('status' => 404));
+    if ($group_id > 0 && function_exists('groups_is_user_member') && ! groups_is_user_member($agent_uid, $group_id)) {
+        return new WP_Error('em_chat_agent_group_mismatch', 'Agent is not a member of this group', array('status' => 409));
+    }
+    if (! function_exists('messages_new_message') || ! class_exists('BP_Messages_Thread')
+        || ! method_exists('BP_Messages_Thread', 'get_current_threads_for_user')) {
+        return new WP_Error('em_chat_no_bp', 'BuddyPress messaging not active', array('status' => 500));
+    }
+
+    $thread_id = 0;
+    $res = BP_Messages_Thread::get_current_threads_for_user(array(
+        'user_id' => $uid,
+        'box'     => 'inbox',
+        'limit'   => 100,
+        'page'    => 1,
+    ));
+    if (! empty($res['threads'])) {
+        foreach ($res['threads'] as $th) {
+            $sum = em_chat_thread_summary($th->thread_id, $uid);
+            if (! $sum || count($sum['others']) !== 1) continue;
+            if ((int) $sum['others'][0]['user_id'] === $agent_uid) {
+                $thread_id = (int) $th->thread_id;
+                break;
+            }
+        }
+    }
+
+    if ($thread_id > 0) {
+        $sent = messages_new_message(array(
+            'thread_id' => $thread_id,
+            'sender_id' => $uid,
+            'content'   => $content,
+        ));
+    } else {
+        $sent = messages_new_message(array(
+            'sender_id'  => $uid,
+            'subject'    => $subject,
+            'content'    => $content,
+            'recipients' => array($agent_uid),
+        ));
+        $thread_id = is_wp_error($sent) ? 0 : (int) $sent;
+    }
+    if (! $sent || is_wp_error($sent)) {
+        return new WP_Error('em_chat_send_failed', is_wp_error($sent) ? $sent->get_error_message() : 'send failed', array('status' => 500));
+    }
+
+    return rest_ensure_response(array('ok' => true, 'thread_id' => $thread_id, 'agent_user_id' => $agent_uid));
+}
+
 function em_chat_rest_search_users(WP_REST_Request $r) {
     $u = wp_get_current_user();
     if (! $u || ! $u->ID) return new WP_Error('em_chat_no_user', 'Login required', array('status' => 401));
@@ -361,6 +495,76 @@ function em_chat_rest_search_users(WP_REST_Request $r) {
             'display_name' => $row->display_name ?: $row->user_login,
             'username'     => $row->user_login,
             'avatar_url'   => get_avatar_url($row->ID, array('size' => 96)),
+        );
+    }
+    return rest_ensure_response(array('items' => $items));
+}
+
+/** Shared access gate for the thread-action routes. */
+function em_chat_thread_action_guard($thread_id, $uid) {
+    if (! function_exists('messages_check_thread_access') || ! messages_check_thread_access($thread_id, $uid)) {
+        return new WP_Error('em_chat_forbidden', 'No access to this thread', array('status' => 403));
+    }
+    return true;
+}
+
+function em_chat_rest_star_thread(WP_REST_Request $r) {
+    $uid = get_current_user_id();
+    $id  = (int) $r['id'];
+    $g   = em_chat_thread_action_guard($id, $uid);
+    if (is_wp_error($g)) return $g;
+    if (! function_exists('bp_messages_star_set_action')) {
+        return new WP_Error('em_chat_no_star', 'Message starring is not active', array('status' => 500));
+    }
+    $starred = (string) $r->get_param('starred');
+    $on = ($starred === '1' || $starred === 'true');
+    bp_messages_star_set_action(array(
+        'user_id'   => $uid,
+        'thread_id' => $id,
+        'action'    => $on ? 'star' : 'unstar',
+        'bulk'      => true,
+    ));
+    return rest_ensure_response(array('ok' => true, 'thread_id' => $id, 'starred' => $on));
+}
+
+function em_chat_rest_unread_thread(WP_REST_Request $r) {
+    $uid = get_current_user_id();
+    $id  = (int) $r['id'];
+    $g   = em_chat_thread_action_guard($id, $uid);
+    if (is_wp_error($g)) return $g;
+    if (function_exists('messages_mark_thread_unread')) {
+        messages_mark_thread_unread($id, $uid);
+    }
+    return rest_ensure_response(array('ok' => true, 'thread_id' => $id));
+}
+
+function em_chat_rest_delete_thread(WP_REST_Request $r) {
+    $uid = get_current_user_id();
+    $id  = (int) $r['id'];
+    $g   = em_chat_thread_action_guard($id, $uid);
+    if (is_wp_error($g)) return $g;
+    if (! function_exists('messages_delete_thread')) {
+        return new WP_Error('em_chat_no_bp', 'BuddyPress messaging not active', array('status' => 500));
+    }
+    // Deletes the thread FOR THIS USER (BP semantics — other participants
+    // keep their copy), same as the profile page's trash action.
+    messages_delete_thread($id, $uid);
+    return rest_ensure_response(array('ok' => true, 'thread_id' => $id));
+}
+
+function em_chat_rest_notices(WP_REST_Request $r) {
+    if (! class_exists('BP_Messages_Notice')) {
+        return rest_ensure_response(array('items' => array()));
+    }
+    $items = array();
+    foreach ((array) BP_Messages_Notice::get_notices(array('pag_num' => 20, 'pag_page' => 1)) as $n) {
+        if (! is_object($n)) continue;
+        $items[] = array(
+            'id'        => (int) $n->id,
+            'subject'   => wp_strip_all_tags((string) $n->subject),
+            'message'   => wp_strip_all_tags((string) $n->message),
+            'date'      => (string) $n->date_sent,
+            'is_active' => ! empty($n->is_active),
         );
     }
     return rest_ensure_response(array('items' => $items));
@@ -416,6 +620,20 @@ function em_chat_rest_unread_count(WP_REST_Request $r) {
  * Frontend asset enqueue — site-wide
  * ------------------------------------------------------------------------- */
 
+/**
+ * v8.4.4: per-file mtime asset versions. EMAIL_MANAGER_VERSION is
+ * time()-based, which mints a NEW asset URL on every request — the
+ * browser could never cache the widget or the inbox suite, re-downloading
+ * hundreds of KB per page view ("chat is really slow to load"). filemtime
+ * keeps assets cached until the file on disk actually changes (kubectl cp
+ * deploys update the mtime, so cache-busting still works).
+ */
+function em_asset_ver($rel) {
+    $p = EMAIL_MANAGER_PATH . $rel;
+    $t = file_exists($p) ? filemtime($p) : 0;
+    return $t ? (string) $t : '1';
+}
+
 add_action('wp_enqueue_scripts', 'em_chat_widget_enqueue', 20);
 function em_chat_widget_enqueue() {
     if (! is_user_logged_in()) return;
@@ -425,22 +643,55 @@ function em_chat_widget_enqueue() {
         'em-chat-widget',
         EMAIL_MANAGER_URL . 'assets/chat-widget.css',
         array(),
-        EMAIL_MANAGER_VERSION
+        em_asset_ver('assets/chat-widget.css')
     );
     wp_enqueue_script(
         'em-chat-widget',
         EMAIL_MANAGER_URL . 'assets/chat-widget.js',
         array('wp-element', 'wp-i18n', 'wp-api-fetch'),
-        EMAIL_MANAGER_VERSION,
+        em_asset_ver('assets/chat-widget.js'),
         true
     );
     $u = wp_get_current_user();
+
+    // v8.3.1: the widget's Email tab mounts the member inbox SPA natively
+    // (window.emInboxMount(el) — no iframe), so its assets + config ride
+    // along on every page for users who can access an inbox. WP dedupes
+    // the handles with the messages-screen enqueue automatically.
+    $has_inbox = function_exists('em_inbox_user_has_inbox_access')
+        && em_inbox_user_has_inbox_access(get_current_user_id());
+    if ($has_inbox) {
+        wp_enqueue_style(
+            'em-inbox-app',
+            EMAIL_MANAGER_URL . 'assets/inbox-app.css',
+            array('wp-components'),
+            em_asset_ver('assets/inbox-app.css')
+        );
+        wp_enqueue_script(
+            'em-inbox-app',
+            EMAIL_MANAGER_URL . 'assets/inbox-app.js',
+            array('wp-element', 'wp-components', 'wp-i18n', 'wp-api-fetch'),
+            em_asset_ver('assets/inbox-app.js'),
+            true
+        );
+        $tz_str = function_exists('wp_timezone_string') ? wp_timezone_string() : (get_option('timezone_string') ?: 'UTC');
+        wp_localize_script('em-inbox-app', 'EM_INBOX_CONFIG', array(
+            'restRoot'         => esc_url_raw(rest_url('em/v1/inbox/')),
+            'nonce'            => wp_create_nonce('wp_rest'),
+            'isAdmin'          => current_user_can('manage_options'),
+            'currentUserEmail' => $u ? $u->user_email : '',
+            'userTimezone'     => $tz_str ?: 'UTC',
+            'frontend'         => true,
+        ));
+    }
+
     wp_localize_script('em-chat-widget', 'EM_CHAT_CONFIG', array(
         'restRoot'         => esc_url_raw(rest_url('em/v1/chat/')),
         'nonce'            => wp_create_nonce('wp_rest'),
         'currentUserId'    => (int) $u->ID,
         'currentUserName'  => $u->display_name ?: $u->user_login,
         'currentUserAvatar'=> get_avatar_url($u->ID, array('size' => 64)),
+        'hasInbox'         => $has_inbox,
     ));
 }
 
@@ -451,4 +702,26 @@ function em_chat_widget_mount() {
     if (! is_user_logged_in()) return;
     if (! function_exists('bp_is_active') || ! bp_is_active('messages')) return;
     echo '<div id="em-chat-widget-root" data-loading="1"></div>';
+}
+
+// ─── The widget on EVERY wp-admin page too (operator directive
+// 2026-08-24) — same gates as the frontend, skipping the block editor
+// (a floating widget fights its UI) and the stripped embed surfaces. ───
+function em_chat_widget_admin_ok() {
+    if (! empty($_GET['gdc_tab_only']) || ! empty($_GET['gend_embed'])) return false;
+    if (function_exists('get_current_screen')) {
+        $scr = get_current_screen();
+        if ($scr && method_exists($scr, 'is_block_editor') && $scr->is_block_editor()) return false;
+    }
+    return true;
+}
+add_action('admin_enqueue_scripts', 'em_chat_widget_admin_enqueue', 20);
+function em_chat_widget_admin_enqueue() {
+    if (! em_chat_widget_admin_ok()) return;
+    em_chat_widget_enqueue();
+}
+add_action('admin_footer', 'em_chat_widget_admin_mount', 50);
+function em_chat_widget_admin_mount() {
+    if (! em_chat_widget_admin_ok()) return;
+    em_chat_widget_mount();
 }

@@ -1216,9 +1216,16 @@ body.gdc-preview-open {
   border-radius: 16px !important;
   gap: 8px !important;
   margin-bottom: 32px !important;
+  /* The icon tabs sit in the middle of the bar (and stay centred when they wrap). */
+  justify-content: center !important;
+  align-items: center !important;
 }
 
 .gdc-app-content .gdc-sub-tab {
+  /* Icon + label centred together inside each tab. */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   background: transparent !important;
   border: 1px solid transparent !important;
   color: var(--em-text-secondary) !important;

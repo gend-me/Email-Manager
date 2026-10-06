@@ -14,8 +14,22 @@ jQuery(document).ready(function ($) {
                 <input type="text" name="chat_form_questions[INDEX][text]" class="widefat question-text" />
             </p>
             <p>
-                <label>Type:</label>
-                <select name="chat_form_questions[INDEX][type]" class="question-type">
+                <label>Section:</label>
+                <select class="em-cf-sec-kind">
+                    <option value="question">💬 Question</option>
+                    <option value="info_block">📝 Content Block</option>
+                    <option value="prompt_response">🤖 AI Prompt</option>
+                    <option value="support_ticket">🎫 Support Ticket</option>
+                </select>
+                <select class="em-cf-sec-qtype">
+                    <option value="text">Text</option>
+                    <option value="email">Email</option>
+                    <option value="telephone">Telephone</option>
+                    <option value="multiple">Multiple Choice</option>
+                    <option value="file">File Upload</option>
+                    <option value="account_registration">Account Registration</option>
+                </select>
+                <select name="chat_form_questions[INDEX][type]" class="question-type" style="display:none;">
                     <option value="text">Text</option>
                     <option value="email">Email</option>
                     <option value="telephone">Telephone</option>
@@ -24,6 +38,7 @@ jQuery(document).ready(function ($) {
                     <option value="account_registration">Account Registration</option>
                     <option value="info_block">📝 Info Block (no input)</option>
                     <option value="prompt_response">🤖 Prompt Response (LEO AI)</option>
+                    <option value="support_ticket">🎫 Support Ticket</option>
                 </select>
             </p>
 
@@ -53,6 +68,21 @@ jQuery(document).ready(function ($) {
                 </div>
 
                 <hr style="margin:14px 0 10px;border:0;border-top:1px solid #c7d2fe;" />
+                <p style="margin:0 0 6px;"><strong>🖥️ AI Runs At:</strong></p>
+                <select name="chat_form_questions[INDEX][run_target]" class="widefat prompt-run-target" data-saved="gendme">
+                    <option value="gendme">⛓️ gend.me Compute Network (blockchain)</option>
+                </select>
+                <div class="prompt-run-device" style="display:none;margin-top:8px;">
+                    <select name="chat_form_questions[INDEX][run_integration]" class="widefat prompt-run-integration" data-saved=""></select>
+                    <select name="chat_form_questions[INDEX][run_model]" class="widefat prompt-run-model" style="margin-top:6px;" data-saved=""></select>
+                    <small style="display:block;margin-top:6px;color:#666;">Runs on that device with its own AI (member hardware / personal license — no gend.me metering). Falls back to the Compute Network whenever the device is offline.</small>
+                </div>
+                <div class="prompt-run-gendme-model" style="margin-top:8px;">
+                    <select name="chat_form_questions[INDEX][ai_model]" class="widefat prompt-run-ai-model" data-saved=""></select>
+                    <small style="display:block;margin-top:6px;color:#666;">Which real model on the gend.me Compute Network answers this prompt, from the AI Models leaderboard.</small>
+                </div>
+
+                <hr style="margin:14px 0 10px;border:0;border-top:1px solid #c7d2fe;" />
                 <p style="margin:0 0 6px;"><strong>💳 Who pays for this AI response?</strong></p>
                 <select name="chat_form_questions[INDEX][pays]" class="widefat prompt-response-pays">
                     <option value="site">Site default (configured site token)</option>
@@ -70,6 +100,17 @@ jQuery(document).ready(function ($) {
                 <div class="prompt-response-pays-chat-user" style="display:none;margin-top:8px;font-size:11px;color:#475569;">
                     A balance bar will appear at the top of the chat asking the user to log in with their LEO account before this prompt runs.
                 </div>
+            </div>
+
+            <div class="support-ticket-editor" style="display:none;margin:10px 0;padding:12px;border-radius:12px;">
+                <p style="margin:0 0 6px;"><strong>🎫 Automatic Support Ticket</strong></p>
+                <small style="display:block;margin-bottom:10px;">Completing this flow files the submission as a SUPPORT TICKET in Email Manager → Support — with the full chat transcript and every form field attached.</small>
+                <label>Default priority:</label>
+                <select name="chat_form_questions[INDEX][priority]" class="widefat">
+                    <option value="low">Low</option>
+                    <option value="normal" selected>Normal</option>
+                    <option value="high">High</option>
+                </select>
             </div>
 
             <div class="options-manager" style="display:none;">
@@ -347,6 +388,116 @@ jQuery(document).ready(function ($) {
     $('#add-question').on('click', function () {
         appendNewQuestion();
     });
+
+    // ── AI Prompt "Runs At" cascade: device → integration → model. The
+    // device catalog is printed by PHP as window.emCfRunDevices; selects in
+    // both the PHP-rendered sections and the JS template start with only the
+    // gendme option and are populated here (data-saved restores choices).
+    function emCfDeviceById(id) {
+        var list = window.emCfRunDevices || [];
+        for (var i = 0; i < list.length; i++) { if (String(list[i].device_id) === String(id)) return list[i]; }
+        return null;
+    }
+    function emCfFillRunTargets($scope) {
+        ($scope || $(document)).find('.prompt-run-ai-model').each(function () {
+            var $sel = $(this);
+            if ($sel.children().length) return; // PHP-rendered (existing question) already has its real options
+            $sel.html(window.emCfAiModelOptionsHtml || '<option value="">— AI Models leaderboard unavailable —</option>');
+            var saved = $sel.attr('data-saved') || '';
+            if (saved) $sel.val(saved);
+        });
+        ($scope || $(document)).find('.prompt-run-target').each(function () {
+            var $sel = $(this);
+            if ($sel.data('emPopulated')) return;
+            $sel.data('emPopulated', 1);
+            (window.emCfRunDevices || []).forEach(function (d) {
+                var icon = d.type === 'desktop' ? '🖥️' : (d.type === 'mobile' ? '📱' : (d.type === 'server' ? '🗄️' : '🔌'));
+                var lbl = icon + ' ' + d.label + (d.owner ? ' · ' + d.owner : '') + (d.online ? '' : ' (offline)');
+                $sel.append($('<option>').attr('value', d.device_id).text(lbl));
+            });
+            var saved = $sel.attr('data-saved') || 'gendme';
+            $sel.val(saved);
+            if ($sel.val() === null) { $sel.val('gendme'); }
+            emCfSyncRunDevice($sel, true);
+        });
+    }
+    function emCfSyncRunDevice($sel, restore) {
+        var $wrap = $sel.closest('.prompt-response-editor');
+        var $box = $wrap.find('.prompt-run-device');
+        var $gendmeModel = $wrap.find('.prompt-run-gendme-model');
+        var d = emCfDeviceById($sel.val());
+        if (!d) { $box.hide(); $gendmeModel.show(); return; }
+        $box.show();
+        $gendmeModel.hide();
+        var $int = $wrap.find('.prompt-run-integration').empty();
+        (d.ai_integrations || []).forEach(function (it) {
+            var lbl = (it.displayName || it.id) + (it.available === false ? ' (offline)' : '');
+            $int.append($('<option>').attr('value', it.id).attr('data-models', JSON.stringify(it.models || [])).text(lbl));
+        });
+        if (!$int.children().length) { $int.append($('<option>').attr('value', '').text('No AI integrations on this device')); }
+        if (restore) { var si = $int.closest('.prompt-run-device').find('.prompt-run-integration').attr('data-saved'); if (si) { $int.val(si); } }
+        emCfSyncRunModel($int, restore);
+    }
+    function emCfSyncRunModel($int, restore) {
+        var $wrap = $int.closest('.prompt-response-editor');
+        var $model = $wrap.find('.prompt-run-model').empty();
+        var models = [];
+        try { models = JSON.parse($int.find('option:selected').attr('data-models') || '[]'); } catch (e) {}
+        $model.append($('<option>').attr('value', '').text(models.length ? '— device default model' : '— device default model'));
+        models.forEach(function (m) { $model.append($('<option>').attr('value', m).text(m)); });
+        if (restore) { var sm = $model.attr('data-saved'); if (sm) { $model.val(sm); if ($model.val() === null) { $model.val(''); } } }
+    }
+    $(document).on('change', '.prompt-run-target', function () { emCfSyncRunDevice($(this), false); });
+    $(document).on('change', '.prompt-run-integration', function () { emCfSyncRunModel($(this), false); });
+    emCfFillRunTargets($(document));
+    var emCfOrigAppend = appendNewQuestion;
+    appendNewQuestion = function (presetType) {
+        var $added = emCfOrigAppend(presetType);
+        emCfFillRunTargets($added);
+        return $added;
+    };
+
+    // ── Two-level section selects: "Section" (Question / Content Block /
+    // AI Prompt) + a question-type select shown ONLY for questions. Both
+    // drive the hidden REAL .question-type select so the save format and
+    // every existing type-change behaviour stay untouched.
+    function emCfSyncFromReal($q) {
+        var $real = $q.find('.question-type');
+        var $kind = $q.find('.em-cf-sec-kind');
+        if (!$kind.length || !$real.length) return;
+        var v = $real.val();
+        if (v === 'info_block' || v === 'prompt_response' || v === 'support_ticket') {
+            if ($kind.val() !== v) $kind.val(v);
+            $q.find('.em-cf-sec-qtype').hide();
+        } else {
+            if ($kind.val() !== 'question') $kind.val('question');
+            var $qt = $q.find('.em-cf-sec-qtype').show();
+            if ($qt.val() !== v) $qt.val(v);
+        }
+    }
+    $(document).on('change', '.em-cf-sec-kind', function () {
+        var $q = $(this).closest('.chat-form-question');
+        var kind = $(this).val();
+        if (kind === 'question') {
+            $q.find('.question-type').val($q.find('.em-cf-sec-qtype').val() || 'text').trigger('change');
+        } else {
+            $q.find('.question-type').val(kind).trigger('change');
+        }
+    });
+    $(document).on('change', '.em-cf-sec-qtype', function () {
+        var $q = $(this).closest('.chat-form-question');
+        $q.find('.question-type').val($(this).val()).trigger('change');
+    });
+    // Keep the UI selects mirrored whenever anything (preset appends,
+    // duplicates) changes the real select programmatically.
+    $(document).on('change', '.question-type', function () {
+        var $q = $(this).closest('.chat-form-question');
+        emCfSyncFromReal($q);
+        // Support-Ticket editor visibility (the legacy type-change handler
+        // predates this kind, so it never touches this panel).
+        $q.find('.support-ticket-editor').toggle($(this).val() === 'support_ticket');
+    });
+    $('.chat-form-question').each(function () { emCfSyncFromReal($(this)); });
 
     // Shortcut buttons — explicit entry points for the new types
     $(document).on('click', '#add-content-block', function () {

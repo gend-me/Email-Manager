@@ -67,7 +67,9 @@ jQuery(document).ready(function ($) {
         var botAvatar = $container.attr('data-bot-avatar') || '';
 
         function bootstrapFlow(qs, settings) {
-            questions = qs || [];
+            // support_ticket sections are server-side markers (they file the
+            // submission as a support ticket) — never rendered in the chat.
+            questions = (qs || []).filter(function (q) { return !q || q.type !== 'support_ticket'; });
             formSettings = $.extend({
                 thankYouMessage: '🎉 Thank you! Your response has been saved successfully.',
                 redirectUrl: ''

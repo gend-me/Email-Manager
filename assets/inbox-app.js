@@ -34,7 +34,8 @@
     var Fragment = wp.element.Fragment;
     var html = htm.bind(el);
     var apiFetch = wp.apiFetch;
-    apiFetch.use(apiFetch.createNonceMiddleware(cfg.nonce));
+    var inboxNonceMw = apiFetch.createNonceMiddleware(cfg.nonce);
+    apiFetch.use(inboxNonceMw);
 
     // Slice 3d: ditch the default top-left wp.components.Spinner for a
     // centered, digital, multi-ring orbital loader that owns its stage.
@@ -83,6 +84,46 @@
     }
     function restPost(path, data) {
         return apiFetch({ url: cfg.restRoot + path, method: 'POST', data: data });
+    }
+
+    // ── Load resilience ──────────────────────────────────────────────
+    // The inbox loads once, when the page does. A single bad answer at that moment (a stale REST nonce after
+    // the login session changed, or the server answering with an HTML page instead of JSON, which apiFetch
+    // reports as "The response is not a valid JSON response.") used to leave the panel stuck on an error
+    // until a full page reload. These errors usually clear on their own, so the first load refreshes the
+    // nonce and tries again before giving up.
+    function isTransientRestError(e) {
+        var c = e && e.code;
+        return c === 'invalid_json' || c === 'fetch_error' || c === 'rest_cookie_invalid_nonce';
+    }
+    function refreshRestNonce() {
+        var url = apiFetch.nonceEndpoint || ((window.ajaxurl || '/wp-admin/admin-ajax.php') + '?action=rest-nonce');
+        return window.fetch(url, { credentials: 'same-origin' })
+            .then(function (r) { if (!r.ok) throw new Error('nonce refresh failed'); return r.text(); })
+            .then(function (t) {
+                t = String(t).trim();
+                if (!/^[A-Za-z0-9]{6,32}$/.test(t)) throw new Error('unexpected nonce');
+                inboxNonceMw.nonce = t;                                        // ours...
+                if (apiFetch.nonceMiddleware) apiFetch.nonceMiddleware.nonce = t;   // ...and WordPress's own
+            });
+    }
+    function restGetResilient(path, delays) {
+        delays = delays || [1000, 3000, 7000];   // ~11s of patience: these hiccups have been seen to last several seconds
+        function attempt(i) {
+            return restGet(path).catch(function (e) {
+                if (i >= delays.length || !isTransientRestError(e)) throw e;
+                return refreshRestNonce().catch(function () { /* try again anyway */ })
+                    .then(function () { return new Promise(function (resolve) { setTimeout(resolve, delays[i]); }); })
+                    .then(function () { return attempt(i + 1); });
+            });
+        }
+        return attempt(0);
+    }
+    function friendlyLoadError(e) {
+        if (e && (e.code === 'invalid_json' || e.code === 'fetch_error')) {
+            return 'The inbox could not be loaded because the server sent an unexpected response. This is usually temporary.';
+        }
+        return (e && e.message) || 'Failed to load inboxes';
     }
 
     // ── Components ──────────────────────────────────────────────────────
@@ -861,12 +902,35 @@
         `;
     }
 
+    // Initial inbox pick: the chat widget's Email tab sets
+    // window.EM_INBOX_PRESELECT from its own dropdown before (re)mounting;
+    // an ?em_inbox= URL param works too. Honored when it matches one of
+    // the user's inboxes, else fall back to the first row.
+    function emInitialInbox(rows) {
+        try {
+            var want = String(window.EM_INBOX_PRESELECT || '');
+            if (!want) {
+                var m = /[?&]em_inbox=([^&]+)/.exec(window.location.search);
+                if (m) want = decodeURIComponent(m[1]);
+            }
+            if (want) {
+                for (var i = 0; i < rows.length; i++) {
+                    if (rows[i].inbox_address === want) return want;
+                }
+            }
+        } catch (e) { /* no-op */ }
+        return rows[0].inbox_address;
+    }
+
     function App() {
         var inboxState = useState([]);            var inboxes = inboxState[0], setInboxes = inboxState[1];
         var selectedState = useState('');         var selected = selectedState[0], setSelected = selectedState[1];
         var threadState = useState(null);         var openThreadId = threadState[0], setOpenThreadId = threadState[1];
         var loadingState = useState(true);        var loading = loadingState[0], setLoading = loadingState[1];
         var errState = useState(null);            var err = errState[0], setErr = errState[1];
+        var loadKeyState = useState(0);           var loadKey = loadKeyState[0], setLoadKey = loadKeyState[1];
+        var errBoxRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        function retryLoad() { setErr(null); setLoading(true); setLoadKey(function (k) { return k + 1; }); }
         var composerState = useState(null);       var composerProps = composerState[0], setComposerProps = composerState[1];
         var undoState = useState(null);           var undoSnack = undoState[0], setUndoSnack = undoState[1];
         var searchQState = useState('');          var searchQ = searchQState[0], setSearchQ = searchQState[1];
@@ -1002,10 +1066,10 @@
             // endpoint isn't deployed yet we fall back to the per-feature
             // endpoints for graceful degradation.
             setLoading(true);
-            restGet('bootstrap').then(function (b) {
+            restGetResilient('bootstrap').then(function (b) {
                 var rows = (b && Array.isArray(b.inboxes)) ? b.inboxes : [];
                 setInboxes(rows);
-                if (rows.length && !selected) setSelected(rows[0].inbox_address);
+                if (rows.length && !selected) setSelected(emInitialInbox(rows));
                 if (b && Array.isArray(b.labels)) setLabels(b.labels);
                 if (b && b.vacation !== undefined) setVacationCfg(b.vacation);
                 if (b && b.grants) applyGrantsToFroms(b.grants);
@@ -1016,20 +1080,35 @@
                 // /bootstrap 404s — keeps the SPA usable on older sites.
                 restGet('inboxes').then(function (rows) {
                     setInboxes(rows || []);
-                    if (rows && rows.length && !selected) setSelected(rows[0].inbox_address);
+                    if (rows && rows.length && !selected) setSelected(emInitialInbox(rows));
                     setLoading(false);
                 }).catch(function (e) {
-                    setErr(e.message || 'Failed to load inboxes');
+                    setErr(friendlyLoadError(e));
                     setLoading(false);
                 });
                 reloadLabels();
                 restGet('vacation').then(setVacationCfg).catch(function () {});
                 refreshGrants();
             });
-        }, []);
+        }, [loadKey]);
+
+        // If the load failed while this panel was hidden (e.g. the admin page's Email tab, with another tab in
+        // front), try again automatically when it comes back into view.
+        useEffect(function () {
+            if (!err || !errBoxRef.current || typeof IntersectionObserver === 'undefined') return;
+            var wasHidden = false;
+            var io = new IntersectionObserver(function (entries) {
+                entries.forEach(function (en) {
+                    if (!en.isIntersecting) { wasHidden = true; return; }
+                    if (wasHidden) { wasHidden = false; retryLoad(); }
+                });
+            });
+            io.observe(errBoxRef.current);
+            return function () { io.disconnect(); };
+        }, [err]);
 
         if (loading) return html`<${Spinner} />`;
-        if (err)     return html`<${Notice} status="error" isDismissible=${false}>${err}<//>`;
+        if (err)     return html`<div ref=${errBoxRef}><${Notice} status="error" isDismissible=${false} actions=${[{ label: 'Try again', onClick: retryLoad, variant: 'secondary' }]}>${err}<//></div>`;
         if (!inboxes.length) {
             return html`<${Notice} status="info" isDismissible=${false}>No inboxes yet. Inbound mail at any provisioned address will appear here.<//>`;
         }
@@ -2143,6 +2222,17 @@
         }, [state.counts && JSON.stringify(state.counts)]);
         var selState = useState({});      var selected = selState[0], setSelected = selState[1];
         var loadingMoreState = useState(false); var loadingMore = loadingMoreState[0], setLoadingMore = loadingMoreState[1];
+        // Mobile (≤760px): the 8 filter pills collapse into one dropdown
+        // select so they don't stack above the inbox.
+        var narrowState = useState(!!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches));
+        var isNarrow = narrowState[0], setNarrow = narrowState[1];
+        useEffect(function () {
+            if (!window.matchMedia) return;
+            var mq = window.matchMedia('(max-width: 760px)');
+            var fn = function (e) { setNarrow(e.matches); };
+            if (mq.addEventListener) mq.addEventListener('change', fn); else mq.addListener(fn);
+            return function () { if (mq.removeEventListener) mq.removeEventListener('change', fn); else mq.removeListener(fn); };
+        }, []);
         var inbox = props.inbox;
         var PER_PAGE = 50;
 
@@ -2233,6 +2323,19 @@
           <aside class="em-inbox-feed" aria-label="Inbox thread list">
             <header class="em-inbox-feed-header">
               ${! props.hideHeader && html`
+                ${isNarrow ? html`
+                  <select class="em-inbox-filter-select" aria-label="Inbox filter" value=${filter}
+                    onChange=${function (e) { setFilter(e.target.value); setSelected({}); }}>
+                    <option value="all">${'All' + (counts.total != null ? ' · ' + counts.total : '')}</option>
+                    <option value="unread">${'Unread' + (counts.unread != null ? ' · ' + counts.unread : '')}</option>
+                    <option value="starred">${'★ Starred' + (counts.starred != null ? ' · ' + counts.starred : '')}</option>
+                    <option value="snoozed">${'⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : '')}</option>
+                    <option value="scheduled">⏱ Scheduled</option>
+                    <option value="drafts">📝 Drafts</option>
+                    <option value="archived">${'Archived' + (counts.archived != null ? ' · ' + counts.archived : '')}</option>
+                    <option value="trashed">${'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : '')}</option>
+                  </select>
+                ` : html`
                 <div class="em-inbox-filters" role="tablist" aria-label="Inbox filters">
                   ${btn('all',       'All' + (counts.total != null ? ' · ' + counts.total : ''))}
                   ${btn('unread',    'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
@@ -2243,6 +2346,7 @@
                   ${btn('archived',  'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
                   ${btn('trashed',   'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
                 </div>
+                `}
                 ${(props.labels && props.labels.length) || props.onManageLabels
                   ? html`
                     <div class="em-inbox-label-bar">
@@ -3060,9 +3164,17 @@
     // footer, so the mount node is already in the DOM by the time we run.
     // (DOMContentLoaded gating is fragile: if the event already fired
     // before we attached the listener, our callback never runs.)
-    function mount() {
-        var root = document.getElementById('em-inbox-root');
-        if (!root) { console.error('em-inbox: #em-inbox-root not found'); return; }
+    function mount(rootEl) {
+        // v8.3: accepts an explicit target element so the chat widget's
+        // Email tab can mount the SPA natively inside its own panel
+        // (no iframe, no duplicate page chrome). No-arg call keeps the
+        // classic #em-inbox-root behavior — and stays SILENT when that
+        // node is absent, since the script is now enqueued site-wide.
+        var root = (rootEl && rootEl.nodeType === 1) ? rootEl : document.getElementById('em-inbox-root');
+        if (!root) {
+            if (rootEl !== undefined) console.error('em-inbox: mount target not found');
+            return;
+        }
         root.removeAttribute('data-loading');
         root.textContent = '';
         var tree = html`<${App} />`;
@@ -3088,7 +3200,9 @@
     // browser reload.
     window.emInboxMount = mount;
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mount);
+        // Not `mount` itself as the listener: it would be called with the event object as its "target", which
+        // made every page without an inbox log "mount target not found".
+        document.addEventListener('DOMContentLoaded', function () { mount(); });
     } else {
         mount();
     }

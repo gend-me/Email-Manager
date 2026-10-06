@@ -28,6 +28,161 @@ class EM_Support
 
         add_action('wp_ajax_em_get_ticket_detail', [$this, 'ajax_get_detail']);
         add_action('wp_ajax_em_add_ticket_reply',  [$this, 'ajax_add_reply']);
+
+        add_action('rest_api_init', [$this, 'register_rest_routes']);
+    }
+
+    /* ================================================================
+       REST routes — JSON-only siblings of the admin-post/ajax handlers
+       above, so they never wp_die()/exit() and can be safely dispatched
+       in-process (rest_do_request()) from a cross-site proxy. Reuse the
+       same private mutator methods; no visibility changes needed since
+       these live in the same class.
+       ================================================================ */
+
+    public function register_rest_routes()
+    {
+        $perm = function () {
+            return current_user_can('manage_options');
+        };
+
+        register_rest_route('em/v1', '/support/(?P<id>\d+)', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'rest_get_detail'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/support/(?P<id>\d+)/status', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_update_ticket'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/support/bulk-status', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_bulk_update'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/support/settings', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_save_settings'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/support/form-purposes', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_save_form_purposes'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/support/(?P<id>\d+)/reply', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_add_reply'],
+            'permission_callback' => $perm,
+        ]);
+    }
+
+    public function rest_get_detail(WP_REST_Request $request)
+    {
+        $id   = absint($request->get_param('id'));
+        $post = $id ? get_post($id) : null;
+        if (!$post) return new WP_Error('em_not_found', 'Not found', ['status' => 404]);
+        return new WP_REST_Response($this->build_ticket_payload($id), 200);
+    }
+
+    public function rest_update_ticket(WP_REST_Request $request)
+    {
+        $submission_id = absint($request->get_param('id'));
+        $status_keys    = array_keys(self::statuses());
+        $priority_keys  = array_keys(self::priorities());
+        $status         = in_array($request->get_param('status'), $status_keys, true) ? $request->get_param('status') : 'open';
+        $priority       = in_array($request->get_param('priority'), $priority_keys, true) ? $request->get_param('priority') : 'medium';
+
+        if (!$submission_id) return new WP_Error('em_bad_request', 'Missing submission id', ['status' => 400]);
+        $this->update_ticket_status($submission_id, $status, $priority);
+        return new WP_REST_Response($this->build_ticket_payload($submission_id), 200);
+    }
+
+    public function rest_bulk_update(WP_REST_Request $request)
+    {
+        $ids    = array_map('intval', (array) $request->get_param('ticket_ids'));
+        $status = sanitize_key((string) $request->get_param('bulk_status'));
+
+        if (empty($ids) || !in_array($status, array_keys(self::statuses()), true)) {
+            return new WP_Error('em_bad_request', 'Missing ticket_ids or invalid bulk_status', ['status' => 400]);
+        }
+        foreach ($ids as $id) {
+            $this->update_ticket_status($id, $status);
+        }
+        return new WP_REST_Response(['ok' => true, 'count' => count($ids)], 200);
+    }
+
+    public function rest_save_settings(WP_REST_Request $request)
+    {
+        $settings = [
+            'notify_customer_status'  => $request->get_param('notify_customer_status') ? 1 : 0,
+            'notify_admin'            => $request->get_param('notify_admin') ? 1 : 0,
+            'admin_email'             => sanitize_email((string) $request->get_param('admin_email')),
+            'reply_subject_template'  => sanitize_text_field((string) $request->get_param('reply_subject_template')),
+            'status_subject_template' => sanitize_text_field((string) $request->get_param('status_subject_template')),
+            'status_body_template'    => wp_kses_post((string) $request->get_param('status_body_template')),
+        ];
+        update_option(self::SETTINGS_OPTION, $settings);
+        return new WP_REST_Response(['ok' => true, 'settings' => $settings], 200);
+    }
+
+    public function rest_save_form_purposes(WP_REST_Request $request)
+    {
+        $marked_ids   = array_map('intval', (array) $request->get_param('support_form_ids'));
+        $all_form_ids = EM_Applications::get_all_form_ids();
+
+        foreach ($all_form_ids as $form_id) {
+            $current = get_post_meta($form_id, EM_Applications::FORM_PURPOSE_META, true);
+            if (in_array($form_id, $marked_ids, true)) {
+                update_post_meta($form_id, EM_Applications::FORM_PURPOSE_META, self::PURPOSE_VALUE);
+            } elseif ($current === self::PURPOSE_VALUE) {
+                delete_post_meta($form_id, EM_Applications::FORM_PURPOSE_META);
+            }
+        }
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    public function rest_add_reply(WP_REST_Request $request)
+    {
+        $id       = absint($request->get_param('id'));
+        $content  = wp_kses_post((string) $request->get_param('content'));
+        $internal = (bool) $request->get_param('internal');
+        if (!$id || $content === '') {
+            return new WP_Error('em_bad_request', 'Missing id or content', ['status' => 400]);
+        }
+
+        $current_user = wp_get_current_user();
+        $comment_id = wp_insert_comment([
+            'comment_post_ID'      => $id,
+            'comment_author'       => $current_user ? $current_user->display_name : 'Staff',
+            'comment_author_email' => $current_user ? $current_user->user_email : '',
+            'comment_content'      => $content,
+            'comment_type'         => 'em_ticket_reply',
+            'comment_approved'     => 1,
+            'user_id'              => $current_user ? $current_user->ID : 0,
+        ]);
+        if (!$comment_id) return new WP_Error('em_save_failed', 'Failed to save reply', ['status' => 500]);
+
+        if ($internal) {
+            update_comment_meta($comment_id, self::COMMENT_INTERNAL_META, 1);
+        } else {
+            $settings = self::get_settings();
+            $answers  = get_post_meta($id, '_chat_submission_data', true);
+            $email    = EM_Applications::extract_email_from_submission($answers);
+            $name     = EM_Applications::extract_name_from_submission($answers, $email);
+            if ($email) {
+                $tokens = [
+                    '{customer_name}' => $name ?: 'there',
+                    '{site_name}'     => get_bloginfo('name'),
+                    '{site_url}'      => home_url(),
+                ];
+                $subject = strtr($settings['reply_subject_template'], $tokens);
+                wp_mail($email, $subject, $content);
+            }
+        }
+
+        return new WP_REST_Response($this->build_ticket_payload($id), 200);
     }
 
     public function enable_comments_on_submissions()
@@ -155,7 +310,7 @@ class EM_Support
                 delete_post_meta($form_id, EM_Applications::FORM_PURPOSE_META);
             }
         }
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'support_forms'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'support_forms'], admin_url('admin.php')));
         exit;
     }
 
@@ -172,7 +327,7 @@ class EM_Support
 
         if ($submission_id) $this->update_ticket_status($submission_id, $status, $priority);
 
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'ticket_updated'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'ticket_updated'], admin_url('admin.php')));
         exit;
     }
 
@@ -189,7 +344,7 @@ class EM_Support
                 $this->update_ticket_status($id, $status);
             }
         }
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'bulk_tickets'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'bulk_tickets'], admin_url('admin.php')));
         exit;
     }
 
@@ -208,7 +363,7 @@ class EM_Support
         ];
         update_option(self::SETTINGS_OPTION, $settings);
 
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'support_settings'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'support_settings'], admin_url('admin.php')));
         exit;
     }
 
@@ -342,18 +497,12 @@ class EM_Support
 
             <?php self::render_kpi_strip(count($tickets), $by_status, $statuses, count($support_ids)); ?>
 
-            <div class="gdc-subtabs">
-                <button type="button" class="gdc-subtab active" data-subtab="tickets" style="--em-i:0;">
-                    <?php esc_html_e('Tickets', 'email-manager'); ?>
-                </button>
-                <button type="button" class="gdc-subtab" data-subtab="support-forms" style="--em-i:1;">
-                    <?php esc_html_e('Forms', 'email-manager'); ?>
-                </button>
-                <button type="button" class="gdc-subtab" data-subtab="support-settings" style="--em-i:2;">
-                    <?php esc_html_e('Settings', 'email-manager'); ?>
-                </button>
-            </div>
-
+            <?php /* Sub-tab bar removed (operator directive 2026-08-25):
+                     the Support tab shows Tickets with Settings appended
+                     below as one combined view. The Forms purpose-picker
+                     panel stays in markup but permanently hidden — the
+                     chatflow Support-Ticket section now sets form purposes
+                     automatically. */ ?>
             <?php self::render_tickets_panel($tickets, $statuses, $priorities); ?>
             <?php self::render_forms_panel($form_ids); ?>
             <?php self::render_settings_panel($settings); ?>
@@ -547,7 +696,7 @@ class EM_Support
     private static function render_settings_panel($settings)
     {
         ?>
-        <div class="gdc-subtab-panel" data-subpanel="support-settings" hidden>
+        <div class="gdc-subtab-panel" data-subpanel="support-settings">
             <div class="gdc-email-panel em-reveal" style="--em-i:0;">
                 <div class="gdc-email-panel__header">
                     <div>
@@ -619,3 +768,29 @@ class EM_Support
 }
 
 new EM_Support();
+
+
+// ─── Support-Ticket chatflow section ─────────────────────────────────────────
+// Any submission of a form carrying a support_ticket section arrives as an
+// OPEN ticket at the section's default priority. Fires for both the chat UI
+// and the Agent-Messages flow (both emit chat_form_submission), so the
+// ticket's transcript is the submission's own Q&A data the Support tab
+// already renders.
+add_action('chat_form_submission', 'em_cf_support_ticket_on_submission', 10, 3);
+function em_cf_support_ticket_on_submission($form_id, $answers, $submission_id)
+{
+    if (!class_exists('EM_Support')) return;
+    $qs = get_post_meta((int) $form_id, '_chat_form_questions', true);
+    if (!is_array($qs)) return;
+    $priority = '';
+    foreach ($qs as $q) {
+        if (is_array($q) && ($q['type'] ?? '') === 'support_ticket') {
+            $priority = (string) ($q['priority'] ?? 'normal');
+            break;
+        }
+    }
+    if ($priority === '') return;
+    if (!in_array($priority, array('low', 'normal', 'high'), true)) $priority = 'normal';
+    update_post_meta((int) $submission_id, EM_Support::TICKET_STATUS_META, 'open');
+    update_post_meta((int) $submission_id, EM_Support::TICKET_PRIORITY_META, $priority);
+}

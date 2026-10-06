@@ -106,6 +106,11 @@ function em_add_subscriber($email, $first_name = '', $last_name = '', $list_ids 
                     ),
                     array('%d', '%d', '%s')
                 );
+                /**
+                 * Fires when a subscriber is added to a list — the sequence
+                 * launch-trigger listener (Chat_Forms_Launch) rides this.
+                 */
+                do_action('em_list_subscriber_added', (int) $list_id, (int) $subscriber_id, (string) $email);
             }
         }
     }

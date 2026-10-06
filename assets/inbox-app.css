@@ -990,6 +990,7 @@ img.em-inbox-blocked-img {
 .em-inbox-wrap .em-inbox-help-btn,
 .em-inbox-wrap .em-inbox-vac-btn,
 .em-inbox-wrap .em-inbox-filters-btn,
+.em-inbox-wrap .em-inbox-recovery-btn,
 .em-inbox-wrap .em-inbox-bell,
 .em-inbox-wrap .em-inbox-addinbox-btn {
     background: var(--gs-glass) !important;
@@ -1004,11 +1005,24 @@ img.em-inbox-blocked-img {
 .em-inbox-wrap .em-inbox-help-btn:hover,
 .em-inbox-wrap .em-inbox-vac-btn:hover,
 .em-inbox-wrap .em-inbox-filters-btn:hover,
+.em-inbox-wrap .em-inbox-recovery-btn:hover,
 .em-inbox-wrap .em-inbox-bell:hover,
 .em-inbox-wrap .em-inbox-addinbox-btn:hover {
     background: var(--gs-glass-strong) !important;
     border-color: var(--gs-border-strong) !important;
     transform: translateY(-1px);
+}
+/* .is-unset is a bare state class with no rules of its own elsewhere —
+ * without this, the Recovery button falls back to an unstyled browser
+ * default button (low/no contrast against the dark glass background). */
+.em-inbox-wrap .em-inbox-recovery-btn.is-unset {
+    background: var(--gs-glass) !important;
+    border: 1px solid var(--gs-border) !important;
+    color: var(--gs-text) !important;
+}
+.em-inbox-wrap .em-inbox-recovery-btn.is-unset:hover {
+    background: var(--gs-glass-strong) !important;
+    border-color: var(--gs-border-strong) !important;
 }
 
 /* Compose button stays prominent — gradient brand color */
@@ -2127,4 +2141,100 @@ img.em-inbox-blocked-img {
     .em-loader-grid {
         animation: none !important;
     }
+}
+
+/* ── v8.3.4 Mobile (≤760px): the suite was a fixed two-column grid with
+   a desktop toolbar. On phones — and inside the chat widget's Email tab
+   drawer — collapse to a single column: the left rail stacks on top with
+   just its search box (its filter pills are redundant, FeedView already
+   swaps to a dropdown select at this width), the toolbar buttons wrap,
+   and the feed + thread views run full width. */
+@media (max-width: 760px) {
+    .em-inbox-body.em-inbox-body--three-col { display: block !important; }
+    .em-inbox-leftrail {
+        width: 100% !important;
+        max-width: none !important;
+        border-right: 0 !important;
+        border-bottom: 1px solid var(--gs-border, rgba(255,255,255,.1));
+        padding: 8px 10px !important;
+    }
+    .em-inbox-leftrail-filters { display: none !important; }
+    .em-inbox-leftrail-search { margin: 0 !important; }
+    .em-inbox-leftrail-search input { width: 100% !important; }
+    .em-inbox-toolbar { flex-wrap: wrap !important; gap: 8px !important; align-items: center !important; }
+    .em-inbox-toolbar > div { flex: 1 1 100% !important; }
+    .em-inbox-feed { width: 100% !important; max-width: none !important; }
+    .em-inbox-label-bar { flex-wrap: wrap !important; }
+    .em-inbox-filter-select {
+        display: block; width: 100%;
+        font-size: 14px; padding: 8px 10px; margin-bottom: 8px;
+        background: rgba(0,0,0,.3); color: inherit;
+        border: 1px solid var(--gs-border, rgba(255,255,255,.18));
+        border-radius: 10px;
+    }
+}
+
+/* Widget embed: tighter type + spacing inside the chat drawer. */
+.em-inbox-embed { font-size: 14px; }
+.em-inbox-embed .em-inbox-toolbar { margin-bottom: 8px; }
+
+/* ── v8.4.2: inbox modals over the chat widget, in its design language ──
+   wp-components portals modals (Filters, Labels, Sharing, Signature,
+   Vacation, Composer, previews…) to <body> at z-index 100000 — UNDER the
+   chat widget layer (1000000), so from the widget Email tab they opened
+   BEHIND the popup. Lift every modal overlay above the widget, and skin
+   the em-inbox modals to match the chat popup glass. */
+.components-modal__screen-overlay {
+    z-index: 1000010 !important;
+    background: rgba(6, 9, 18, 0.72) !important;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+.components-modal__frame[class*="em-inbox-"] {
+    background: linear-gradient(158deg, rgba(26,31,55,.97) 0%, rgba(13,16,32,.97) 100%) !important;
+    border: 1px solid rgba(120,160,255,.22) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 24px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06) !important;
+    color: #e8edf5 !important;
+}
+.components-modal__frame[class*="em-inbox-"] .components-modal__header {
+    background: transparent !important;
+    border-bottom: 1px solid rgba(255,255,255,.08) !important;
+}
+.components-modal__frame[class*="em-inbox-"] .components-modal__header-heading { color: #fff !important; }
+.components-modal__frame[class*="em-inbox-"] .components-modal__header .components-button { color: #8b98b0 !important; }
+.components-modal__frame[class*="em-inbox-"] .components-modal__content,
+.components-modal__frame[class*="em-inbox-"] p,
+.components-modal__frame[class*="em-inbox-"] label,
+.components-modal__frame[class*="em-inbox-"] .components-base-control__label { color: #e8edf5 !important; }
+.components-modal__frame[class*="em-inbox-"] .components-base-control__help,
+.components-modal__frame[class*="em-inbox-"] .description { color: #8b98b0 !important; }
+.components-modal__frame[class*="em-inbox-"] input[type="text"],
+.components-modal__frame[class*="em-inbox-"] input[type="email"],
+.components-modal__frame[class*="em-inbox-"] input[type="number"],
+.components-modal__frame[class*="em-inbox-"] input[type="search"],
+.components-modal__frame[class*="em-inbox-"] input[type="date"],
+.components-modal__frame[class*="em-inbox-"] select,
+.components-modal__frame[class*="em-inbox-"] textarea {
+    background: rgba(0,0,0,.3) !important;
+    color: #e8edf5 !important;
+    border: 1px solid rgba(120,160,255,.28) !important;
+    border-radius: 8px !important;
+}
+.components-modal__frame[class*="em-inbox-"] input:focus,
+.components-modal__frame[class*="em-inbox-"] select:focus,
+.components-modal__frame[class*="em-inbox-"] textarea:focus {
+    border-color: #4eaaff !important;
+    box-shadow: 0 0 0 2px rgba(78,170,255,.25) !important;
+}
+.components-modal__frame[class*="em-inbox-"] .components-button.is-primary {
+    background: linear-gradient(120deg, #4eaaff 0%, #b608c9 100%) !important;
+    border: none !important; border-radius: 999px !important; color: #fff !important;
+    box-shadow: 0 6px 18px rgba(78,170,255,.3);
+}
+.components-modal__frame[class*="em-inbox-"] .components-button.is-secondary,
+.components-modal__frame[class*="em-inbox-"] .components-button.is-tertiary {
+    background: rgba(255,255,255,.06) !important;
+    border: 1px solid rgba(120,160,255,.3) !important;
+    border-radius: 999px !important; color: #e8edf5 !important;
 }

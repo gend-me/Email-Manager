@@ -68,13 +68,17 @@
 
     function closeDrawer() {
         $drawer.removeClass('is-open');
-        $('body').removeClass('em-drawer-locked');
+        // Opened over another drawer (a posting's analytics)? Leave the page locked for that one.
+        if (!$('.em-drawer.is-open').length) $('body').removeClass('em-drawer-locked');
         $('#em-drawer-body').empty();
     }
 
-    $document.on('click', '#em-drawer-close, .em-drawer__backdrop', closeDrawer);
+    $document.on('click', '#em-drawer-close, #em-detail-drawer .em-drawer__backdrop', closeDrawer);
     $document.on('keydown', function (e) {
-        if (e.key === 'Escape' && $drawer.hasClass('is-open')) closeDrawer();
+        if (e.key === 'Escape' && $drawer.hasClass('is-open')) {
+            closeDrawer();
+            e.stopImmediatePropagation();   // Escape closes only the top-most drawer
+        }
     });
 
     /* ---------- Renderers ---------- */
