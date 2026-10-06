@@ -39,7 +39,13 @@ class EM_Email_SMTP
         $phpmailer->SMTPAuth = true;
         $phpmailer->Port = $settings['port'] ?? 587;
         $phpmailer->Username = $settings['username'] ?? '';
-        $phpmailer->Password = $settings['password'] ?? '';
+        // Strip whitespace - Google (and most providers) display App
+        // Passwords as "xxxx xxxx xxxx xxxx" for readability, but the
+        // real credential has no spaces. A copy-pasted password with
+        // the display spaces still in it fails SMTP auth silently
+        // (confirmed live: 19-char stored value = 16-char app password
+        // + 3 spaces, every send rejected with "Could not authenticate").
+        $phpmailer->Password = preg_replace('/\s+/', '', $settings['password'] ?? '');
         $phpmailer->SMTPSecure = ($settings['encryption'] ?? 'tls') === 'none' ? '' : ($settings['encryption'] ?? 'tls');
         $phpmailer->From = $settings['from_email'] ?? get_option('admin_email');
         $phpmailer->FromName = $settings['from_name'] ?? get_bloginfo('name');
@@ -290,7 +296,10 @@ class EM_Email_SMTP
             'port' => sanitize_text_field($_POST['port']),
             'encryption' => sanitize_text_field($_POST['encryption']),
             'username' => sanitize_text_field($_POST['username']),
-            'password' => sanitize_text_field($_POST['password']),
+            // Strip whitespace so a password copy-pasted straight from
+            // Google's "xxxx xxxx xxxx xxxx" App Password display doesn't
+            // silently break SMTP auth (see configure_phpmailer()).
+            'password' => preg_replace('/\s+/', '', sanitize_text_field($_POST['password'])),
             'recaptcha_site_key' => sanitize_text_field($_POST['recaptcha_site_key']),
             'recaptcha_secret_key' => sanitize_text_field($_POST['recaptcha_secret_key']),
         ];

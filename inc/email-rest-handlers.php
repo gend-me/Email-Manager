@@ -556,6 +556,8 @@ function em_add_subscriber_to_list_handler(WP_REST_Request $request)
             array('%d', '%d', '%s')
         );
         if ($result) {
+            // Same join event the em_add_subscriber() path fires.
+            do_action('em_list_subscriber_added', (int) $list_id, (int) $subscriber_id, '');
             return array('success' => true);
         }
         return new WP_Error('db_error', __('Failed to link subscriber', 'email-manager'), array('status' => 500));

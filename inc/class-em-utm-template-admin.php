@@ -31,7 +31,7 @@
  * v1.0 hard rule reserves top-level WP-admin menu registration for the
  * email-manager plugin's core surfaces; this sub-tab attaches via the
  * existing 'em_admin_render_subtab' filter when present, or falls back to an
- * admin_init interceptor on ?page=email-manager&subtab=utm.
+ * admin_init interceptor on ?page=talk-flows&subtab=utm.
  *
  * SECURITY — POST handler requires current_user_can('manage_options') +
  * wp_verify_nonce on the form nonce. Nonce action 'em_save_utm_template'.
@@ -80,7 +80,7 @@ class EM_UTM_Template_Admin {
 		self::install_schema();
 
 		// Sub-tab admin render. The email-manager admin page lives at
-		// ?page=email-manager. No WP-admin top-level menu registration call
+		// ?page=talk-flows. No WP-admin top-level menu registration call
 		// is made here — sub-tab is rendered via the existing email-manager
 		// admin filter when present, or via admin_init interceptor as a
 		// fallback.
@@ -245,7 +245,7 @@ class EM_UTM_Template_Admin {
 	}
 
 	/**
-	 * Intercept ?page=email-manager&subtab=utm and emit the sub-tab UI.
+	 * Intercept ?page=talk-flows&subtab=utm and emit the sub-tab UI.
 	 * Falls back to the existing email-manager admin page when no
 	 * em_admin_render_subtab filter exists. SECURITY: current_user_can
 	 * gate; non-admins see a 403-style notice instead of the form.
@@ -254,7 +254,7 @@ class EM_UTM_Template_Admin {
 		if ( ! is_admin() ) { return; }
 		$page   = isset( $_GET['page'] )   ? sanitize_key( wp_unslash( $_GET['page'] ) )   : '';
 		$subtab = isset( $_GET['subtab'] ) ? sanitize_key( wp_unslash( $_GET['subtab'] ) ) : '';
-		if ( $page !== 'email-manager' || $subtab !== 'utm' ) { return; }
+		if ( $page !== 'talk-flows' || $subtab !== 'utm' ) { return; }
 
 		// Render after admin_init via shutdown — we only flag here that the
 		// sub-tab is active; actual rendering hooks into the existing
@@ -378,7 +378,7 @@ class EM_UTM_Template_Admin {
 		] );
 
 		$return_url = add_query_arg( [
-			'page'        => 'email-manager',
+			'page'        => 'talk-flows',
 			'subtab'      => 'utm',
 			'campaign_id' => $campaign_id,
 		], admin_url( 'admin.php' ) );

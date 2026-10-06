@@ -207,14 +207,17 @@ add_action('admin_enqueue_scripts', 'em_enqueue_assets');
 function em_enqueue_assets($hook)
 {
     $current_page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
-    $is_em_page = (strpos($hook, 'email-manager') !== false)
-        || $current_page === 'email-manager'
+    $is_em_page = (strpos($hook, 'talk-flows') !== false)
+        || $current_page === 'talk-flows'
         || $current_page === 'gdc-store-settings'
         || $current_page === 'gdc-social-network-settings';
     if ($is_em_page) {
 
         // Enqueue WP Media
         wp_enqueue_media();
+
+        // TinyMCE/Quicktags for the Apply Process step email editor (Visual/Text toggle).
+        wp_enqueue_editor();
 
         // Enqueue Email AI Popup
         wp_enqueue_style('em-email-ai-popup', EMAIL_MANAGER_URL . 'assets/email-ai-popup.css', array(), EMAIL_MANAGER_VERSION);
@@ -226,19 +229,32 @@ function em_enqueue_assets($hook)
         wp_enqueue_script('em-email-lists-table', EMAIL_MANAGER_URL . 'assets/email-lists-table.js', array('jquery', 'em-email-ai-popup'), EMAIL_MANAGER_VERSION, true);
 
         // Applications + Support shared assets ("-p2" busts cache for the Postings rework)
-        wp_enqueue_style('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.css', array('em-email-manager-admin'), EMAIL_MANAGER_VERSION . '-p3');
-        wp_enqueue_script('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.js', array('jquery'), EMAIL_MANAGER_VERSION . '-p3', true);
+        wp_enqueue_style('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.css', array('em-email-manager-admin'), EMAIL_MANAGER_VERSION . '-p4');
+        wp_enqueue_script('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.js', array('jquery'), EMAIL_MANAGER_VERSION . '-p4', true);
         wp_localize_script('em-app-support', 'EM_AS_CONFIG', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce'   => wp_create_nonce('em_app_support'),
         ));
 
         // Postings (Applications ▸ Postings sub-tab) admin behaviors.
-        wp_enqueue_script('em-postings', EMAIL_MANAGER_URL . 'assets/em-postings.js', array('jquery', 'em-app-support'), EMAIL_MANAGER_VERSION . '-p3', true);
+        wp_enqueue_script('em-postings', EMAIL_MANAGER_URL . 'assets/em-postings.js', array('jquery', 'em-app-support'), EMAIL_MANAGER_VERSION . '-p4', true);
         wp_localize_script('em-postings', 'EM_POSTINGS_CONFIG', array(
             'ajaxUrl'   => admin_url('admin-ajax.php'),
             'nonce'     => wp_create_nonce('em_app_support'),
+            // Analytics is fetched over REST first: unlike admin-ajax it doesn't
+            // boot the whole admin (several seconds on this site), and it
+            // falls back to admin-ajax if the REST call is refused.
+            'restRoot'  => esc_url_raw(rest_url('em/v1/')),
+            'restNonce' => wp_create_nonce('wp_rest'),
             'applyBase' => class_exists('EM_Postings') ? EM_Postings::landing_url('__SLUG__') : '',
+            'roles'     => class_exists('EM_Postings') ? EM_Postings::get_role_choices() : array(),
+            'actionModes'   => class_exists('EM_Postings') ? EM_Postings::action_mode_choices() : array(),
+            'actionUpdates' => class_exists('EM_Postings') ? EM_Postings::action_update_choices() : array(),
+            'contracts'     => class_exists('EM_Postings') ? EM_Postings::contracts_config() : array(),
+            'boards'        => class_exists('EM_Postings') ? EM_Postings::boards_config() : array(),
+            'affiliates'    => class_exists('EM_Postings') ? EM_Postings::affiliates_config() : array(),
+            'boardStatuses' => class_exists('EM_Postings') ? EM_Postings::board_status_choices() : array(),
+            'currency'      => function_exists('get_woocommerce_currency_symbol') ? html_entity_decode(get_woocommerce_currency_symbol(), ENT_QUOTES, 'UTF-8') : '$',
             'i18n'      => array(
                 'copied'       => __('Copied!', 'email-manager'),
                 'copyUrl'      => __('Copy landing URL', 'email-manager'),
@@ -304,7 +320,7 @@ function em_register_admin_menu()
             __('Messages', 'email-manager'),
             __('Messages', 'email-manager'),
             'manage_options',
-            'email-manager',
+            'talk-flows',
             'em_render_email_manager_page'
         );
     } else {
@@ -312,7 +328,7 @@ function em_register_admin_menu()
             __('Messages', 'email-manager'),
             __('Messages', 'email-manager'),
             'manage_options',
-            'email-manager',
+            'talk-flows',
             'em_render_email_manager_page',
             'dashicons-email',
             30
@@ -331,7 +347,7 @@ function em_register_admin_menu()
 // clicks segregate from organic/social/ads in the click ledger.
 //
 // Per-campaign UTM template is editable in the email-manager admin sub-tab
-// at ?page=email-manager&subtab=utm with CLICK-06 controlled vocab
+// at ?page=talk-flows&subtab=utm with CLICK-06 controlled vocab
 // (wp_options gend_cc_utm_campaigns + gend_cc_utm_contents) — free-text
 // submissions rejected via WP_Error('cc_utm_invalid').
 //
@@ -364,4 +380,24 @@ register_activation_hook(__FILE__, function () {
     if (class_exists('EM_UTM_Template_Admin')) {
         EM_UTM_Template_Admin::install_schema();
     }
+});
+
+
+// ─── Legacy slug redirect ────────────────────────────────────────────────────
+// The admin page moved from ?page=email-manager to ?page=talk-flows
+// (2026-08-25). Old links land on the new slug with every other query arg
+// preserved (the #tab= hash survives client-side).
+add_action('admin_init', function () {
+    if (!is_admin() || !isset($_GET['page']) || 'email-manager' !== $_GET['page']) {
+        return;
+    }
+    $args = array();
+    foreach (wp_unslash($_GET) as $k => $v) {
+        if (is_scalar($v)) {
+            $args[sanitize_key($k)] = sanitize_text_field((string) $v);
+        }
+    }
+    $args['page'] = 'talk-flows';
+    wp_safe_redirect(add_query_arg($args, admin_url('admin.php')));
+    exit;
 });

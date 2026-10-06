@@ -31,7 +31,7 @@ class Chat_Forms_Admin
                     wp_enqueue_editor();
                 }
 
-                wp_enqueue_script('chat-forms-admin-js', EMAIL_MANAGER_URL . 'assets/forms/admin.js', array('jquery', 'jquery-ui-sortable'), '1.7', true);
+                wp_enqueue_script('chat-forms-admin-js', EMAIL_MANAGER_URL . 'assets/forms/admin.js', array('jquery', 'jquery-ui-sortable'), '2.0', true);
                 wp_localize_script('chat-forms-admin-js', 'chatFormsAjax', array(
                     'ajax_url' => admin_url('admin-ajax.php'),
                     'nonce' => wp_create_nonce('chat_forms_nonce')
@@ -313,6 +313,175 @@ class Chat_Forms_Admin
                     text-align: center !important;
                     padding: 32px 16px !important;
                 }
+
+                /* ═══ Section builder — full dark glass restyle ═══
+                   The section cards + sub-editors carried light inline
+                   backgrounds (white / #eef2ff / #fff8e6) from the pre-dark
+                   era, leaving headings unreadable on the dark shell.
+                   !important beats those inline styles. */
+                .chat-form-question {
+                    background: linear-gradient(160deg, rgba(15,23,42,.82), rgba(12,16,44,.6)) !important;
+                    border: 1px solid rgba(125,211,252,.18) !important;
+                    border-radius: 16px !important;
+                    padding: 18px 20px !important;
+                    margin: 0 0 16px !important;
+                    box-shadow: 0 14px 34px rgba(0,0,0,.35) !important;
+                    color: #cbd5e1 !important;
+                }
+                .chat-form-question h4 {
+                    color: #f8fafc !important;
+                    display: flex; align-items: center; gap: 10px;
+                    border-bottom: 1px solid rgba(125,211,252,.14);
+                    padding-bottom: 10px; margin: 0 0 14px;
+                }
+                .chat-form-question .drag-handle { color: #64748b !important; }
+                .chat-form-question .question-number { color: #7dd3fc !important; }
+                .chat-form-question .question-actions { margin-left: auto; display: flex; gap: 8px; }
+                .chat-form-question p,
+                .chat-form-question label,
+                .chat-form-question strong,
+                .chat-form-question legend {
+                    color: #e2e8f0 !important;
+                }
+                .chat-form-question small,
+                .chat-form-question .description {
+                    color: #94a3b8 !important;
+                }
+
+                /* Every input surface inside a section — dark glass. */
+                .chat-form-question input[type="text"],
+                .chat-form-question input[type="email"],
+                .chat-form-question input[type="number"],
+                .chat-form-question input[type="url"],
+                .chat-form-question input[type="search"],
+                .chat-form-question select,
+                .chat-form-question textarea {
+                    background: rgba(2,6,23,.62) !important;
+                    color: #e2e8f0 !important;
+                    border: 1px solid rgba(125,211,252,.22) !important;
+                    border-radius: 10px !important;
+                    box-shadow: none !important;
+                }
+                .chat-form-question input:focus,
+                .chat-form-question select:focus,
+                .chat-form-question textarea:focus {
+                    border-color: rgba(34,211,238,.55) !important;
+                    box-shadow: 0 0 14px rgba(34,211,238,.2) !important;
+                    outline: none !important;
+                }
+                .chat-form-question ::placeholder { color: #64748b !important; }
+                .chat-form-question select option { background: #0b1120 !important; color: #e2e8f0 !important; }
+
+                /* Buttons inside sections (Duplicate / Remove / tokens / options). */
+                .chat-form-question .button {
+                    background: rgba(15,23,42,.8) !important;
+                    color: #cbd5e1 !important;
+                    border: 1px solid rgba(125,211,252,.22) !important;
+                    border-radius: 999px !important;
+                    box-shadow: none !important;
+                    transition: color .2s ease, border-color .2s ease, box-shadow .25s ease;
+                }
+                .chat-form-question .button:hover {
+                    color: #eafcff !important;
+                    border-color: rgba(34,211,238,.5) !important;
+                    box-shadow: 0 0 14px rgba(34,211,238,.18) !important;
+                }
+                .chat-form-question .remove-question {
+                    color: #fda4af !important;
+                    border-color: rgba(244,63,94,.35) !important;
+                }
+                .chat-form-question .remove-question:hover {
+                    color: #fecdd3 !important;
+                    border-color: rgba(244,63,94,.6) !important;
+                    box-shadow: 0 0 14px rgba(244,63,94,.2) !important;
+                }
+                .chat-form-question .em-prompt-token {
+                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+                    font-size: 11px !important;
+                    color: #a5b4fc !important;
+                    border-color: rgba(99,102,241,.4) !important;
+                }
+
+                /* AI Prompt sub-editor — indigo glass. */
+                .chat-form-question .prompt-response-editor {
+                    background: rgba(99,102,241,.1) !important;
+                    border: 1px solid rgba(99,102,241,.28) !important;
+                    border-left: 4px solid #6366f1 !important;
+                    border-radius: 12px !important;
+                }
+                .chat-form-question .prompt-response-editor strong { color: #c7d2fe !important; }
+                .chat-form-question .prompt-response-editor small { color: #a5b4fc !important; }
+                .chat-form-question .prompt-response-editor hr { border-top-color: rgba(99,102,241,.3) !important; }
+                .chat-form-question .prompt-response-pays-admin {
+                    background: rgba(2,6,23,.55) !important;
+                    border: 1px solid rgba(99,102,241,.3) !important;
+                    border-radius: 10px !important;
+                }
+                .chat-form-question .prompt-response-pays-admin .em-leo-admin-status { color: #a5b4fc !important; }
+                .chat-form-question .prompt-response-pays-chat-user { color: #94a3b8 !important; }
+
+                /* Content Block sub-editor — amber glass. */
+                .chat-form-question .info-block-editor {
+                    background: rgba(240,180,41,.08) !important;
+                    border: 1px solid rgba(240,180,41,.28) !important;
+                    border-left: 4px solid #f0b429 !important;
+                    border-radius: 12px !important;
+                }
+                .chat-form-question .info-block-editor strong { color: #fde68a !important; }
+                .chat-form-question .info-block-editor small { color: #fcd34d !important; }
+                /* wp_editor inside the content block keeps a light canvas for
+                   WYSIWYG readability — just frame it. */
+                .chat-form-question .info-block-editor .wp-editor-container {
+                    border: 1px solid rgba(240,180,41,.3) !important;
+                    border-radius: 8px; overflow: hidden;
+                }
+                .chat-form-question .info-block-editor .wp-editor-tabs .wp-switch-editor {
+                    background: rgba(2,6,23,.55) !important;
+                    color: #cbd5e1 !important;
+                    border-color: rgba(240,180,41,.3) !important;
+                }
+
+                /* Support-Ticket sub-editor — teal glass. */
+                .chat-form-question .support-ticket-editor {
+                    background: rgba(20,184,166,.09) !important;
+                    border: 1px solid rgba(20,184,166,.3) !important;
+                    border-left: 4px solid #14b8a6 !important;
+                    border-radius: 12px !important;
+                }
+                .chat-form-question .support-ticket-editor strong { color: #99f6e4 !important; }
+                .chat-form-question .support-ticket-editor small { color: #5eead4 !important; }
+
+                /* Options manager, validation + conditional-logic blocks. */
+                .chat-form-question .options-manager,
+                .chat-form-question .conditional-rules,
+                .chat-form-question .validation-settings,
+                .chat-form-question .conditional-logic-wrapper,
+                .chat-form-question .validation-rules {
+                    background: rgba(2,6,23,.4) !important;
+                    border: 1px solid rgba(125,211,252,.14) !important;
+                    border-radius: 12px !important;
+                    color: #cbd5e1 !important;
+                }
+                .chat-form-question .option-item,
+                .chat-form-question .option-response-wrap,
+                .chat-form-question .conditional-rule-item {
+                    background: rgba(15,23,42,.6) !important;
+                    border: 1px solid rgba(125,211,252,.12) !important;
+                    border-radius: 10px !important;
+                }
+                .chat-form-question .validation-settings p,
+                .chat-form-question .validation-settings label,
+                .chat-form-question .conditional-logic-wrapper label,
+                .chat-form-question .conditional-rules label,
+                .chat-form-question .conditional-rules p {
+                    color: #e2e8f0 !important;
+                }
+                .chat-form-question .conditional-logic-wrapper { padding: 10px 12px; }
+                .chat-form-question input[type="checkbox"],
+                .chat-form-question input[type="radio"] {
+                    background: rgba(2,6,23,.62) !important;
+                    border: 1px solid rgba(125,211,252,.35) !important;
+                }
             </style>';
         }
     }
@@ -499,14 +668,103 @@ class Chat_Forms_Admin
                 }
                 ?>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-                <button type="button" id="add-question"
-                    class="button button-primary"><?php _e('+ Add Question', 'chat-forms'); ?></button>
-                <button type="button" id="add-content-block"
-                    class="button" title="<?php esc_attr_e('Add a rich-text or HTML content block (no user input).', 'chat-forms'); ?>">📝 <?php _e('Add Content Block', 'chat-forms'); ?></button>
-                <button type="button" id="add-ai-prompt"
-                    class="button" title="<?php esc_attr_e('Add an AI-generated response step powered by LEO.', 'chat-forms'); ?>">🤖 <?php _e('Add AI Prompt', 'chat-forms'); ?></button>
+            <div class="em-cf-addsec" id="em-cf-addsec" style="margin-top:12px;">
+                <button type="button" id="em-cf-addsec-btn" class="em-cf-addsec-btn">＋ <?php _e('Add New Section', 'chat-forms'); ?></button>
+                <div class="em-cf-addsec-choices" id="em-cf-addsec-choices" hidden>
+                    <button type="button" id="add-question" class="em-cf-addsec-choice"
+                        title="<?php esc_attr_e('A question the member answers (text, choice, email…).', 'chat-forms'); ?>">
+                        <span class="em-cf-addsec-ico">💬</span><span><?php _e('Question', 'chat-forms'); ?></span>
+                    </button>
+                    <button type="button" id="add-content-block" class="em-cf-addsec-choice"
+                        title="<?php esc_attr_e('A rich-text or HTML content block (no user input).', 'chat-forms'); ?>">
+                        <span class="em-cf-addsec-ico">📝</span><span><?php _e('Content Block', 'chat-forms'); ?></span>
+                    </button>
+                    <button type="button" id="add-ai-prompt" class="em-cf-addsec-choice"
+                        title="<?php esc_attr_e('An AI-generated response step powered by LEO.', 'chat-forms'); ?>">
+                        <span class="em-cf-addsec-ico">🤖</span><span><?php _e('AI Prompt', 'chat-forms'); ?></span>
+                    </button>
+                </div>
             </div>
+            <style>
+                @property --emcfsecang { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+                #em-cf-addsec { perspective: 800px; }
+                #em-cf-addsec .em-cf-addsec-btn,
+                #em-cf-addsec .em-cf-addsec-choice {
+                    position: relative; cursor: pointer;
+                    background: linear-gradient(160deg, rgba(15,23,42,.85), rgba(12,16,44,.65));
+                    color: #e2e8f0; border: 1px solid rgba(125,211,252,.25);
+                    border-radius: 14px; font-weight: 700;
+                    transform-style: preserve-3d; will-change: transform;
+                    transition: transform .16s ease, box-shadow .28s ease, color .2s ease;
+                }
+                #em-cf-addsec .em-cf-addsec-btn { padding: 12px 26px; font-size: 14px; }
+                #em-cf-addsec .em-cf-addsec-btn::before,
+                #em-cf-addsec .em-cf-addsec-choice::before {
+                    content: ''; position: absolute; inset: -1px; border-radius: 15px;
+                    padding: 1.5px; pointer-events: none; opacity: 0;
+                    background: conic-gradient(from var(--emcfsecang, 0deg), #22d3ee, #b608c9, #7dd3fc, #22d3ee);
+                    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                    -webkit-mask-composite: xor;
+                            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                            mask-composite: exclude;
+                    transition: opacity .3s ease;
+                }
+                #em-cf-addsec .em-cf-addsec-btn:hover,
+                #em-cf-addsec .em-cf-addsec-choice:hover {
+                    color: #eafcff;
+                    box-shadow: 0 16px 36px rgba(0,0,0,.45), 0 0 22px rgba(34,211,238,.22);
+                }
+                #em-cf-addsec .em-cf-addsec-btn:hover::before,
+                #em-cf-addsec .em-cf-addsec-choice:hover::before {
+                    opacity: 1;
+                    animation: emCfSecSpin 2.6s linear infinite;
+                }
+                @keyframes emCfSecSpin { to { --emcfsecang: 360deg; } }
+                #em-cf-addsec .em-cf-addsec-choices {
+                    display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px;
+                }
+                #em-cf-addsec .em-cf-addsec-choices[hidden] { display: none; }
+                #em-cf-addsec .em-cf-addsec-choice {
+                    display: flex; flex-direction: column; align-items: center; gap: 6px;
+                    padding: 14px 22px; min-width: 130px; font-size: 12.5px;
+                }
+                #em-cf-addsec .em-cf-addsec-ico { font-size: 24px; }
+                @media (prefers-reduced-motion: reduce) {
+                    #em-cf-addsec .em-cf-addsec-btn::before,
+                    #em-cf-addsec .em-cf-addsec-choice::before { animation: none !important; }
+                }
+            </style>
+            <script>
+            // Connected-device catalog for the AI Prompt "Runs At" selects
+            // (group admins' devices incl. the desktop Claude terminal).
+            window.emCfRunDevices = <?php echo wp_json_encode(em_cf_run_devices()); ?>;
+            // Real AI Models leaderboard picks, pre-rendered as <option> HTML once (a brand new AI Prompt
+            // question's JS template starts with an empty select and gets this same real markup spliced in,
+            // exactly matching what an existing question already has PHP-rendered inline).
+            window.emCfAiModelOptionsHtml = <?php echo wp_json_encode(em_cf_ai_model_options('')); ?>;
+            jQuery(function ($) {
+                var $choices = $('#em-cf-addsec-choices');
+                $('#em-cf-addsec-btn').on('click', function () {
+                    $choices.attr('hidden') !== undefined && $choices.is('[hidden]')
+                        ? $choices.removeAttr('hidden') : $choices.attr('hidden', 'hidden');
+                });
+                // Picking a type collapses the chooser again (the existing
+                // admin.js handlers on these ids do the actual append).
+                $choices.on('click', '.em-cf-addsec-choice', function () {
+                    $choices.attr('hidden', 'hidden');
+                });
+                // 3D tilt toward the cursor.
+                $('#em-cf-addsec').on('mousemove', '.em-cf-addsec-btn, .em-cf-addsec-choice', function (e) {
+                    var r = this.getBoundingClientRect();
+                    var x = e.clientX - r.left, y = e.clientY - r.top;
+                    var rx = ((y - r.height / 2) / r.height) * -8;
+                    var ry = ((x - r.width / 2) / r.width) * 8;
+                    this.style.transform = 'perspective(700px) rotateX(' + rx + 'deg) rotateY(' + ry + 'deg) translateY(-1px)';
+                }).on('mouseleave', '.em-cf-addsec-btn, .em-cf-addsec-choice', function () {
+                    this.style.transform = '';
+                });
+            });
+            </script>
         </div>
         <?php
     }
@@ -644,7 +902,7 @@ class Chat_Forms_Admin
                     </p>
                     <p>
                         <label><?php _e('Email Body:', 'chat-forms'); ?></label>
-                        <div id="email-dynamic-vars" style="margin-bottom: 10px; padding: 10px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">
+                        <div id="email-dynamic-vars" style="margin-bottom: 10px; padding: 10px; background: rgba(2,6,23,.55); color: #e2e8f0; border: 1px solid rgba(125,211,252,.18); border-radius: 10px;">
                             <strong><?php _e('Insert Variable:', 'chat-forms'); ?></strong>
                             <div class="vars-list" style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px;">
                                 <!-- Populated by JS -->
@@ -750,14 +1008,14 @@ class Chat_Forms_Admin
                 <div style="font-size: 36px; font-weight: bold;"><?php echo $total; ?></div>
                 <div style="font-size: 14px;">Total Submissions</div>
             </div>
-            <div style="background: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 10px;">
+            <div style="background: rgba(2,6,23,.55); border: 1px solid rgba(125,211,252,.18); color: #e2e8f0; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
                 <div style="display: flex; justify-content: space-between;">
                     <span>📅 Last 30 Days:</span>
                     <strong style="color: #667eea;"><?php echo $recent; ?></strong>
                 </div>
             </div>
             <?php if ($total > 0): ?>
-                <div style="background: #f9f9f9; padding: 15px; border-radius: 6px;">
+                <div style="background: rgba(2,6,23,.55); border: 1px solid rgba(125,211,252,.18); color: #e2e8f0; padding: 15px; border-radius: 10px;">
                     <div style="display: flex; justify-content: space-between;">
                         <span>📈 Avg per Day:</span>
                         <strong
@@ -805,8 +1063,25 @@ class Chat_Forms_Admin
                     value="<?php echo esc_attr($text); ?>" class="widefat question-text" />
             </p>
             <p>
-                <label>Type:</label>
-                <select name="chat_form_questions[<?php echo $index; ?>][type]" class="question-type">
+                <label><?php _e('Section:', 'chat-forms'); ?></label>
+                <?php $em_is_q = !in_array($type, array('info_block', 'prompt_response', 'support_ticket'), true); ?>
+                <select class="em-cf-sec-kind">
+                    <option value="question" <?php selected($em_is_q); ?>>💬 <?php _e('Question', 'chat-forms'); ?></option>
+                    <option value="info_block" <?php selected($type, 'info_block'); ?>>📝 <?php _e('Content Block', 'chat-forms'); ?></option>
+                    <option value="prompt_response" <?php selected($type, 'prompt_response'); ?>>🤖 <?php _e('AI Prompt', 'chat-forms'); ?></option>
+                    <option value="support_ticket" <?php selected($type, 'support_ticket'); ?>>🎫 <?php _e('Support Ticket', 'chat-forms'); ?></option>
+                </select>
+                <select class="em-cf-sec-qtype" style="<?php echo $em_is_q ? '' : 'display:none;'; ?>">
+                    <option value="text" <?php selected($type, 'text'); ?>>Text</option>
+                    <option value="multiple" <?php selected($type, 'multiple'); ?>>Multiple Choice</option>
+                    <option value="email" <?php selected($type, 'email'); ?>>Email</option>
+                    <option value="telephone" <?php selected($type, 'telephone'); ?>>Telephone</option>
+                    <option value="file" <?php selected($type, 'file'); ?>>File Upload</option>
+                    <option value="account_registration" <?php selected($type, 'account_registration'); ?>>Account Registration</option>
+                </select>
+                <?php /* The REAL posted field — hidden, driven by the two UI
+                         selects above so the save format never changes. */ ?>
+                <select name="chat_form_questions[<?php echo $index; ?>][type]" class="question-type" style="display:none;">
                     <option value="text" <?php selected($type, 'text'); ?>>Text</option>
                     <option value="multiple" <?php selected($type, 'multiple'); ?>>Multiple Choice</option>
                     <option value="email" <?php selected($type, 'email'); ?>>Email</option>
@@ -815,6 +1090,7 @@ class Chat_Forms_Admin
                     <option value="account_registration" <?php selected($type, 'account_registration'); ?>>Account Registration</option>
                     <option value="info_block" <?php selected($type, 'info_block'); ?>>📝 Info Block (no input)</option>
                     <option value="prompt_response" <?php selected($type, 'prompt_response'); ?>>🤖 Prompt Response (LEO AI)</option>
+                    <option value="support_ticket" <?php selected($type, 'support_ticket'); ?>>🎫 Support Ticket</option>
                 </select>
             </p>
 
@@ -855,6 +1131,32 @@ class Chat_Forms_Admin
                 </div>
 
                 <hr style="margin:14px 0 10px;border:0;border-top:1px solid #c7d2fe;" />
+                <p style="margin:0 0 6px;"><strong>🖥️ <?php _e('AI Runs At:', 'chat-forms'); ?></strong></p>
+                <?php
+                $run_target      = isset($data['run_target']) && $data['run_target'] !== '' ? (string) $data['run_target'] : 'gendme';
+                $run_integration = isset($data['run_integration']) ? (string) $data['run_integration'] : '';
+                $run_model       = isset($data['run_model']) ? (string) $data['run_model'] : '';
+                ?>
+                <select name="chat_form_questions[<?php echo $index; ?>][run_target]" class="widefat prompt-run-target"
+                        data-saved="<?php echo esc_attr($run_target); ?>">
+                    <option value="gendme"><?php _e('⛓️ gend.me Compute Network (blockchain)', 'chat-forms'); ?></option>
+                </select>
+                <div class="prompt-run-device" style="display:none;margin-top:8px;">
+                    <select name="chat_form_questions[<?php echo $index; ?>][run_integration]" class="widefat prompt-run-integration"
+                            data-saved="<?php echo esc_attr($run_integration); ?>"></select>
+                    <select name="chat_form_questions[<?php echo $index; ?>][run_model]" class="widefat prompt-run-model" style="margin-top:6px;"
+                            data-saved="<?php echo esc_attr($run_model); ?>"></select>
+                    <small style="display:block;margin-top:6px;color:#666;"><?php _e('Runs on that device with its own AI (member hardware / personal license — no gend.me metering). Falls back to the Compute Network whenever the device is offline.', 'chat-forms'); ?></small>
+                </div>
+                <?php $ai_model = isset($data['ai_model']) ? (string) $data['ai_model'] : ''; ?>
+                <div class="prompt-run-gendme-model" style="margin-top:8px;">
+                    <select name="chat_form_questions[<?php echo $index; ?>][ai_model]" class="widefat prompt-run-ai-model" data-saved="<?php echo esc_attr($ai_model); ?>">
+                        <?php echo em_cf_ai_model_options($ai_model); ?>
+                    </select>
+                    <small style="display:block;margin-top:6px;color:#666;"><?php _e('Which real model on the gend.me Compute Network answers this prompt, from the AI Models leaderboard.', 'chat-forms'); ?></small>
+                </div>
+
+                <hr style="margin:14px 0 10px;border:0;border-top:1px solid #c7d2fe;" />
                 <p style="margin:0 0 6px;"><strong>💳 <?php _e('Who pays for this AI response?', 'chat-forms'); ?></strong></p>
                 <select name="chat_form_questions[<?php echo $index; ?>][pays]" class="widefat prompt-response-pays">
                     <option value="site"      <?php selected($pays, 'site'); ?>><?php _e('Site default (configured site token)', 'chat-forms'); ?></option>
@@ -881,6 +1183,19 @@ class Chat_Forms_Admin
                     }
                     ?>
                 </p>
+            </div>
+
+            <!-- Support Ticket editor -->
+            <?php $st_priority = isset($data['priority']) ? $data['priority'] : 'normal'; ?>
+            <div class="support-ticket-editor" style="<?php echo $type === 'support_ticket' ? '' : 'display:none;'; ?>margin:10px 0;padding:12px;border-radius:12px;">
+                <p style="margin:0 0 6px;"><strong>🎫 <?php _e('Automatic Support Ticket', 'chat-forms'); ?></strong></p>
+                <small style="display:block;margin-bottom:10px;"><?php _e('Completing this flow files the submission as a SUPPORT TICKET in Email Manager → Support — with the full chat transcript and every form field attached. Saving the form marks it as a support-intake form so its runs appear on that tab.', 'chat-forms'); ?></small>
+                <label><?php _e('Default priority:', 'chat-forms'); ?></label>
+                <select name="chat_form_questions[<?php echo $index; ?>][priority]" class="widefat">
+                    <option value="low" <?php selected($st_priority, 'low'); ?>><?php _e('Low', 'chat-forms'); ?></option>
+                    <option value="normal" <?php selected($st_priority, 'normal'); ?>><?php _e('Normal', 'chat-forms'); ?></option>
+                    <option value="high" <?php selected($st_priority, 'high'); ?>><?php _e('High', 'chat-forms'); ?></option>
+                </select>
             </div>
 
             <!-- Validation Settings -->
@@ -1079,6 +1394,30 @@ class Chat_Forms_Admin
                     $sanitized_question['prompt'] = sanitize_textarea_field(wp_unslash($question_data['prompt']));
                 }
 
+                // Support Ticket — default priority.
+                if (isset($question_data['priority'])) {
+                    $em_pr = sanitize_key(wp_unslash($question_data['priority']));
+                    $sanitized_question['priority'] = in_array($em_pr, array('low', 'normal', 'high'), true) ? $em_pr : 'normal';
+                }
+
+                // Prompt Response — run target (connected device vs the
+                // gend.me Compute Network).
+                if (isset($question_data['run_target'])) {
+                    $rt = sanitize_text_field(wp_unslash($question_data['run_target']));
+                    $sanitized_question['run_target']      = $rt === '' ? 'gendme' : $rt;
+                    $sanitized_question['run_integration'] = isset($question_data['run_integration']) ? sanitize_text_field(wp_unslash($question_data['run_integration'])) : '';
+                    $sanitized_question['run_model']       = isset($question_data['run_model']) ? sanitize_text_field(wp_unslash($question_data['run_model'])) : '';
+                }
+
+                // Prompt Response — which real AI Models leaderboard pick serves this prompt on the gend.me
+                // Compute Network (moved here from the Sequences admin page's per-task Model field for
+                // Chatflow-kind tasks, since a chat form's own questions are the more natural place to
+                // configure this per-question). Never stored on trust -- must still resolve to a real pick.
+                if (isset($question_data['ai_model'])) {
+                    $am = sanitize_text_field(wp_unslash($question_data['ai_model']));
+                    $sanitized_question['ai_model'] = em_cf_is_valid_ai_model_pick($am) ? $am : '';
+                }
+
                 // Prompt Response — token payer config
                 if (isset($question_data['pays'])) {
                     $pays_raw = sanitize_text_field(wp_unslash($question_data['pays']));
@@ -1139,6 +1478,22 @@ class Chat_Forms_Admin
             file_put_contents($log_file, $log_data, FILE_APPEND);
 
             update_post_meta($post_id, '_chat_form_questions', $questions);
+
+            // A Support-Ticket section makes this a support-intake form —
+            // its submissions then list on Email Manager → Support. Removing
+            // the section clears the purpose again (only when WE set it).
+            if (class_exists('EM_Applications') && class_exists('EM_Support')) {
+                $em_cf_has_support = false;
+                foreach ($questions as $em_cf_q) {
+                    if (is_array($em_cf_q) && ($em_cf_q['type'] ?? '') === 'support_ticket') { $em_cf_has_support = true; break; }
+                }
+                $em_cf_cur = get_post_meta($post_id, EM_Applications::FORM_PURPOSE_META, true);
+                if ($em_cf_has_support) {
+                    update_post_meta($post_id, EM_Applications::FORM_PURPOSE_META, EM_Support::PURPOSE_VALUE);
+                } elseif ($em_cf_cur === EM_Support::PURPOSE_VALUE) {
+                    delete_post_meta($post_id, EM_Applications::FORM_PURPOSE_META);
+                }
+            }
         } else {
             // DEBUG: Log deletion
             $log_data = date('Y-m-d H:i:s') . " - Deleting all questions meta (POST data missing or invalid)\n----------------\n";
@@ -1250,6 +1605,23 @@ class Chat_Forms_Admin
         }
         if (isset($_POST['chat_form_bot_avatar'])) {
             update_post_meta($post_id, '_chat_form_bot_avatar', esc_url_raw(wp_unslash($_POST['chat_form_bot_avatar'])));
+        }
+        if (isset($_POST['chat_form_bot_agent'])) {
+            // Our metabox posted — the checkbox is absent when unchecked.
+            update_post_meta($post_id, '_chat_form_agent_messages', isset($_POST['chat_form_agent_messages']) ? '1' : '');
+        }
+        if (isset($_POST['chat_form_bot_agent'])) {
+            $cf_agent_id = (int) $_POST['chat_form_bot_agent'];
+            if ($cf_agent_id > 0 && get_userdata($cf_agent_id)) {
+                update_post_meta($post_id, '_chat_form_bot_agent_id', $cf_agent_id);
+                // The agent's avatar IS the bot avatar — same meta the whole
+                // front-end chat pipeline already reads.
+                update_post_meta($post_id, '_chat_form_bot_avatar', esc_url_raw(get_avatar_url($cf_agent_id, array('size' => 96))));
+            } else {
+                // "— pick…" chosen: unlink the agent but keep any existing
+                // avatar so older flows keep rendering unchanged.
+                delete_post_meta($post_id, '_chat_form_bot_agent_id');
+            }
         }
     }
 
@@ -1364,22 +1736,179 @@ class Chat_Forms_Admin
 
             <hr style="margin:14px 0;border:0;border-top:1px solid #eee;" />
 
-            <p style="margin:0 0 6px;"><strong><?php _e('Bot Avatar (chat bubbles):', 'chat-forms'); ?></strong></p>
-            <input type="hidden" name="chat_form_bot_avatar" id="chat-form-bot-avatar-url" value="<?php echo esc_attr($bot_avatar); ?>" />
-            <button type="button" class="button chat-form-pick-image" data-target="#chat-form-bot-avatar-url"><?php echo $bot_avatar ? '🖼️ Change' : '📷 Upload'; ?></button>
-            <?php if ($bot_avatar): ?>
-                <img src="<?php echo esc_url($bot_avatar); ?>" style="display:block;width:42px;height:42px;object-fit:cover;border-radius:50%;margin-top:8px;" />
-            <?php endif; ?>
-            <p class="description"><?php _e('Shown next to every bot message. User responses use their WP profile photo automatically.', 'chat-forms'); ?></p>
+            <p style="margin:0 0 6px;"><strong><?php _e('Bot Agent (chat bubbles):', 'chat-forms'); ?></strong></p>
+            <?php
+            // The chatflow speaks AS one of the connected web app's agents —
+            // pick the agent instead of uploading a raw avatar image. The
+            // selection also writes _chat_form_bot_avatar (the agent's
+            // avatar URL) so the whole front-end pipeline stays untouched.
+            $cf_bot_agent_id = (int) get_post_meta($post->ID, '_chat_form_bot_agent_id', true);
+            $cf_bot_agent    = $cf_bot_agent_id ? get_userdata($cf_bot_agent_id) : null;
+            ?>
+            <div class="em-cf-agentpick" id="em-cf-agentpick"
+                 data-nonce="<?php echo esc_attr(wp_create_nonce('em_cf_agent_search')); ?>">
+                <input type="hidden" name="chat_form_bot_agent" id="chat-form-bot-agent"
+                       value="<?php echo esc_attr($cf_bot_agent_id ?: ''); ?>" />
+                <div class="em-cf-agentpick-selected" data-ap-selected <?php echo $cf_bot_agent ? '' : 'hidden'; ?>>
+                    <img data-ap-sel-avatar src="<?php echo esc_url($cf_bot_agent ? get_avatar_url($cf_bot_agent->ID, array('size' => 96)) : ''); ?>" alt="" />
+                    <strong data-ap-sel-name><?php echo esc_html($cf_bot_agent ? $cf_bot_agent->display_name : ''); ?></strong>
+                    <button type="button" class="em-cf-agentpick-x" data-ap-clear aria-label="<?php esc_attr_e('Unlink agent', 'chat-forms'); ?>">&times;</button>
+                </div>
+                <div class="em-cf-agentpick-searchwrap" data-ap-searchwrap <?php echo $cf_bot_agent ? 'hidden' : ''; ?>>
+                    <input type="search" class="em-cf-agentpick-search" data-ap-search autocomplete="off"
+                           placeholder="<?php esc_attr_e('Search connected agents…', 'chat-forms'); ?>" />
+                    <div class="em-cf-agentpick-results" data-ap-results hidden></div>
+                </div>
+            </div>
+            <p class="description"><?php _e('The web app agent this chatflow speaks as — their avatar shows next to every bot message. User responses use their WP profile photo automatically.', 'chat-forms'); ?></p>
 
-            <hr style="margin:14px 0;border:0;border-top:1px solid #eee;" />
+            <?php if (function_exists('messages_new_message') || (function_exists('bp_is_active') && bp_is_active('messages'))) : ?>
+                <hr style="margin:14px 0;border:0;border-top:1px solid #eee;" />
+                <p style="margin:0 0 6px;"><strong><?php _e('Run through Agent Messages:', 'chat-forms'); ?></strong></p>
+                <label style="display:flex;gap:8px;align-items:flex-start;">
+                    <input type="checkbox" name="chat_form_agent_messages" value="1" style="margin-top:3px;"
+                        <?php checked('1', get_post_meta($post->ID, '_chat_form_agent_messages', true)); ?> />
+                    <span><?php _e('Deliver this chatflow as profile messages from the Bot Agent', 'chat-forms'); ?></span>
+                </label>
+                <p class="description"><?php _e('When triggered, each question arrives as a private message from the agent above; the member replies in Messages (or the bottom-right chat widget) and every reply advances the flow. Completion records a submission and fires the same notifications, launch triggers and list joins as the chat UI. Requires a Bot Agent.', 'chat-forms'); ?></p>
+            <?php endif; ?>
+            <style>
+                @property --emcfang { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+                #em-cf-agentpick { position: relative; }
+                #em-cf-agentpick .em-cf-agentpick-search {
+                    width: 100%; padding: 9px 12px; border-radius: 10px;
+                    background: rgba(2,6,23,.65); color: #e2e8f0;
+                    border: 1px solid rgba(125,211,252,.22);
+                    transition: box-shadow .25s ease;
+                }
+                #em-cf-agentpick .em-cf-agentpick-search:focus {
+                    outline: none;
+                    box-shadow: 0 0 16px rgba(34,211,238,.25);
+                    border-color: rgba(34,211,238,.5);
+                }
+                #em-cf-agentpick .em-cf-agentpick-results {
+                    position: absolute; left: 0; right: 0; z-index: 40;
+                    margin-top: 6px; max-height: 260px; overflow-y: auto;
+                    background: rgba(4,8,20,.97); border: 1px solid rgba(125,211,252,.25);
+                    border-radius: 12px; box-shadow: 0 24px 60px rgba(0,0,0,.55);
+                    padding: 6px;
+                }
+                #em-cf-agentpick .em-cf-agentpick-row,
+                #em-cf-agentpick .em-cf-agentpick-selected {
+                    position: relative; display: flex; align-items: center; gap: 10px;
+                    width: 100%; text-align: left; padding: 8px 10px; margin: 4px 0;
+                    background: linear-gradient(160deg, rgba(15,23,42,.75), rgba(12,16,44,.55));
+                    border: 1px solid rgba(125,211,252,.16); border-radius: 12px;
+                    color: #e2e8f0; cursor: pointer;
+                    transform-style: preserve-3d; will-change: transform;
+                    transition: transform .16s ease, box-shadow .25s ease;
+                }
+                #em-cf-agentpick .em-cf-agentpick-row::before,
+                #em-cf-agentpick .em-cf-agentpick-selected::before {
+                    content: ''; position: absolute; inset: -1px; border-radius: 13px;
+                    padding: 1.5px; pointer-events: none; opacity: 0;
+                    background: conic-gradient(from var(--emcfang, 0deg), #22d3ee, #b608c9, #7dd3fc, #22d3ee);
+                    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                    -webkit-mask-composite: xor;
+                            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+                            mask-composite: exclude;
+                    transition: opacity .3s ease;
+                }
+                #em-cf-agentpick .em-cf-agentpick-row:hover,
+                #em-cf-agentpick .em-cf-agentpick-selected:hover {
+                    box-shadow: 0 14px 32px rgba(0,0,0,.45), 0 0 18px rgba(34,211,238,.18);
+                }
+                #em-cf-agentpick .em-cf-agentpick-row:hover::before,
+                #em-cf-agentpick .em-cf-agentpick-selected:hover::before {
+                    opacity: 1;
+                    animation: emCfBorderSpin 2.6s linear infinite;
+                }
+                @keyframes emCfBorderSpin { to { --emcfang: 360deg; } }
+                #em-cf-agentpick img { width: 32px; height: 32px; border-radius: 999px; object-fit: cover; background: rgba(125,211,252,.1); }
+                #em-cf-agentpick strong { color: #f8fafc; font-size: 13px; }
+                #em-cf-agentpick .em-cf-agentpick-muted { color: #94a3b8; font-size: 12px; padding: 8px 10px; }
+                #em-cf-agentpick .em-cf-agentpick-x {
+                    margin-left: auto; width: 26px; height: 26px; border-radius: 999px;
+                    background: rgba(15,23,42,.85); color: #f1f5f9;
+                    border: 1px solid rgba(148,163,184,.3); cursor: pointer;
+                    font-size: 15px; line-height: 1;
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    #em-cf-agentpick .em-cf-agentpick-row::before,
+                    #em-cf-agentpick .em-cf-agentpick-selected::before { animation: none !important; }
+                }
+            </style>
+            <script>
+            jQuery(function ($) {
+                var $wrap = $('#em-cf-agentpick');
+                if (!$wrap.length) { return; }
+                var nonce = $wrap.attr('data-nonce');
+                var $hidden = $('#chat-form-bot-agent');
+                var $sel = $wrap.find('[data-ap-selected]');
+                var $sw = $wrap.find('[data-ap-searchwrap]');
+                var $search = $wrap.find('[data-ap-search]');
+                var $results = $wrap.find('[data-ap-results]');
+                var timer = null;
+                function escT(s) { return $('<i>').text(s == null ? '' : String(s)).html(); }
+                function run(q) {
+                    $results.removeAttr('hidden').html('<div class="em-cf-agentpick-muted"><?php echo esc_js(__('Searching…', 'chat-forms')); ?></div>');
+                    $.post(ajaxurl, { action: 'em_cf_agent_search', nonce: nonce, q: q }, function (resp) {
+                        var rows = (resp && resp.success && resp.data && resp.data.agents) || [];
+                        if (!rows.length) {
+                            $results.html('<div class="em-cf-agentpick-muted"><?php echo esc_js(__('No agents match.', 'chat-forms')); ?></div>');
+                            return;
+                        }
+                        $results.html(rows.map(function (a) {
+                            return '<button type="button" class="em-cf-agentpick-row" data-id="' + parseInt(a.id, 10) + '"'
+                                + ' data-avatar="' + escT(a.avatar) + '" data-name="' + escT(a.name) + '">'
+                                + '<img src="' + escT(a.avatar) + '" alt="" /><strong>' + escT(a.name) + '</strong>'
+                                + '</button>';
+                        }).join(''));
+                    });
+                }
+                $search.on('input focus', function () {
+                    var q = $search.val() || '';
+                    clearTimeout(timer);
+                    timer = setTimeout(function () { run(q); }, 250);
+                });
+                $(document).on('click', function (e) {
+                    if (!$(e.target).closest('#em-cf-agentpick').length) { $results.attr('hidden', 'hidden'); }
+                });
+                $results.on('click', '.em-cf-agentpick-row', function () {
+                    var $b = $(this);
+                    $hidden.val($b.attr('data-id'));
+                    $sel.find('[data-ap-sel-avatar]').attr('src', $b.attr('data-avatar'));
+                    $sel.find('[data-ap-sel-name]').text($b.attr('data-name'));
+                    $sel.removeAttr('hidden');
+                    $sw.attr('hidden', 'hidden');
+                    $results.attr('hidden', 'hidden');
+                });
+                $wrap.on('click', '[data-ap-clear]', function () {
+                    $hidden.val('');
+                    $sel.attr('hidden', 'hidden');
+                    $sw.removeAttr('hidden');
+                    $search.val('').trigger('focus');
+                });
+                // 3D tilt toward the cursor on every interactive card.
+                $wrap.on('mousemove', '.em-cf-agentpick-row, .em-cf-agentpick-selected', function (e) {
+                    var r = this.getBoundingClientRect();
+                    var x = e.clientX - r.left, y = e.clientY - r.top;
+                    var rx = ((y - r.height / 2) / r.height) * -8;
+                    var ry = ((x - r.width / 2) / r.width) * 8;
+                    this.style.transform = 'perspective(600px) rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
+                });
+                $wrap.on('mouseleave', '.em-cf-agentpick-row, .em-cf-agentpick-selected', function () {
+                    this.style.transform = '';
+                });
+            });
+            </script>order:0;border-top:1px solid #eee;" />
 
             <p style="margin:0 0 6px;"><strong><?php _e('Standard Shortcode:', 'chat-forms'); ?></strong></p>
             <input type="text" readonly value="[chat_form id='<?php echo esc_attr($post->ID); ?>']" class="widefat" onclick="this.select()">
 
             <p style="margin:14px 0 6px;"><strong><?php _e('Popup Trigger Class:', 'chat-forms'); ?></strong></p>
-            <div style="background:#f0f6fc;padding:8px;border-radius:4px;border:1px solid #cce5ff;font-size:11px;">
-                <code>class="chat-form-popup-trigger" data-form-id="<?php echo esc_attr($post->ID); ?>"</code>
+            <div style="background:rgba(2,6,23,.6);padding:8px;border-radius:8px;border:1px solid rgba(125,211,252,.25);font-size:11px;color:#e2e8f0;">
+                <code style="background:transparent;color:#7dd3fc;">class="chat-form-popup-trigger" data-form-id="<?php echo esc_attr($post->ID); ?>"</code>
             </div>
         </div>
 
@@ -1456,4 +1985,158 @@ class Chat_Forms_Admin
         }
     }
 
+}
+
+
+// ─── Chatflow "Bot Agent" AJAX search (connected ai_agent users) ─────────────
+add_action('wp_ajax_em_cf_agent_search', 'em_cf_agent_search_ajax');
+function em_cf_agent_search_ajax()
+{
+    check_ajax_referer('em_cf_agent_search', 'nonce');
+    if (!current_user_can('edit_posts')) wp_send_json_error(array('message' => 'forbidden'), 403);
+    $q = isset($_POST['q']) ? sanitize_text_field((string) wp_unslash($_POST['q'])) : '';
+    $args = array(
+        'role'    => 'ai_agent',
+        'number'  => 20,
+        'orderby' => 'display_name',
+        'order'   => 'ASC',
+    );
+    if ($q !== '') {
+        $args['search'] = '*' . $q . '*';
+        $args['search_columns'] = array('display_name', 'user_login', 'user_nicename', 'user_email');
+    }
+    $out = array();
+    foreach (get_users($args) as $u) {
+        $out[] = array(
+            'id'     => (int) $u->ID,
+            'name'   => (string) $u->display_name,
+            'avatar' => get_avatar_url($u->ID, array('size' => 64)),
+        );
+    }
+    wp_send_json_success(array('agents' => $out));
+}
+
+
+// ─── "Back to Chatflows" bar at the top of the flow editor ───────────────────
+add_action('edit_form_top', 'em_cf_editor_back_button');
+function em_cf_editor_back_button($post)
+{
+    if (!$post || !in_array($post->post_type, array('chat_form', 'basic_form'), true)) {
+        return;
+    }
+    $is_flow = 'chat_form' === $post->post_type;
+    $url = admin_url('admin.php?page=talk-flows#tab=' . ($is_flow ? 'chatflows' : 'forms'));
+    $label = $is_flow ? __('Back to Chatflows', 'chat-forms') : __('Back to Forms', 'chat-forms');
+    ?>
+    <a href="<?php echo esc_url($url); ?>" class="em-cf-back-btn">&larr; <?php echo esc_html($label); ?></a>
+    <style>
+        .em-cf-back-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            margin: 0 0 14px; padding: 9px 20px;
+            background: linear-gradient(160deg, rgba(15,23,42,.85), rgba(12,16,44,.65));
+            color: #7dd3fc !important;
+            border: 1px solid rgba(125,211,252,.3);
+            border-radius: 999px;
+            font-weight: 700; font-size: 13px;
+            text-decoration: none;
+            transition: box-shadow .25s ease, border-color .25s ease, transform .15s ease;
+        }
+        .em-cf-back-btn:hover {
+            color: #eafcff !important;
+            border-color: rgba(34,211,238,.6);
+            box-shadow: 0 10px 26px rgba(0,0,0,.4), 0 0 18px rgba(34,211,238,.22);
+            transform: translateY(-1px);
+        }
+    </style>
+    <?php
+}
+
+
+/**
+ * Connected-device catalog for the AI Prompt "Runs At" selector — the
+ * linked group admins' registered devices (projects-plugin registry),
+ * each with its AI integrations. Desktops always offer the Claude
+ * terminal (mirrors the sequence editor). Empty when the bridge is absent.
+ */
+function em_cf_run_devices()
+{
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $cache = array();
+    if (!function_exists('psoo_group_device_owner_uids') || !function_exists('psoo_device_get_records')) {
+        return $cache;
+    }
+    $gid  = (int) get_option('gdc_bp_group_id');
+    $seen = array();
+    foreach (psoo_group_device_owner_uids($gid) as $uid) {
+        $owner = get_userdata((int) $uid);
+        foreach (psoo_device_get_records((int) $uid) as $rec) {
+            $did = isset($rec['device_id']) ? (string) $rec['device_id'] : '';
+            if ($did === '' || isset($seen[$did])) continue;
+            $seen[$did] = true;
+            $ints = isset($rec['ai_integrations']) && is_array($rec['ai_integrations']) ? array_values($rec['ai_integrations']) : array();
+            $type = isset($rec['type']) ? (string) $rec['type'] : 'device';
+            if ('desktop' === $type) {
+                $has_ct = false;
+                foreach ($ints as $it) { if (is_array($it) && ($it['id'] ?? '') === 'claude-terminal') { $has_ct = true; break; } }
+                if (!$has_ct) $ints[] = array('id' => 'claude-terminal', 'displayName' => 'Claude Terminal (personal account)', 'available' => true, 'models' => array());
+            }
+            $cache[] = array(
+                'device_id'       => $did,
+                'label'           => isset($rec['label']) && $rec['label'] !== '' ? (string) $rec['label'] : $did,
+                'type'            => $type,
+                'owner'           => $owner ? (string) $owner->display_name : '',
+                'online'          => function_exists('psoo_device_online') ? (bool) psoo_device_online($rec) : false,
+                'ai_integrations' => $ints,
+            );
+        }
+    }
+    return $cache;
+}
+
+/**
+ * Real AI Models leaderboard picks (leo plugin, aipa_get_ai_models()) as a flat <option> list for the AI
+ * Prompt "AI Runs At" section's model picker -- one option per real Best Quality/Value/Cost pick actually
+ * configured on the leo AI Models page, using the exact same 'pick:<category>:<tier>:<pickId>' value leo's
+ * own model picker uses elsewhere, so this stays interoperable if that value is ever read from that side.
+ * Guarded since email-manager has no hard dependency on leo being active.
+ */
+function em_cf_ai_model_options($selected)
+{
+    if (!function_exists('aipa_get_ai_models')) {
+        return '<option value="">' . esc_html__('— AI Models leaderboard unavailable —', 'chat-forms') . '</option>';
+    }
+    $pick_labels = array('quality' => __('Best Quality', 'chat-forms'), 'value' => __('Best Value', 'chat-forms'), 'cost' => __('Cheapest Cost', 'chat-forms'));
+    $html = '<option value="">' . esc_html__('— use the default model for this tier —', 'chat-forms') . '</option>';
+    foreach (aipa_get_ai_models() as $cat_id => $cat) {
+        foreach ((array) ($cat['tiers'] ?? array()) as $tid => $tier) {
+            $leaderboard = $tier['leaderboard'] ?? array();
+            if (!$leaderboard) continue;
+            $by_id = array();
+            foreach ($leaderboard as $e) { $by_id[$e['id']] = $e['name']; }
+            foreach ($pick_labels as $pid => $pick_label) {
+                $entry_id = $tier['picks'][$pid] ?? null;
+                $model_name = ($entry_id && isset($by_id[$entry_id])) ? $by_id[$entry_id] : null;
+                if (!$model_name) continue;
+                $value = 'pick:' . $cat_id . ':' . $tid . ':' . $pid;
+                $label = ($cat['label'] ?? $cat_id) . ' · ' . $tid . ' · ' . $pick_label . ' (' . $model_name . ')';
+                $html .= '<option value="' . esc_attr($value) . '"' . selected($selected, $value, false) . '>' . esc_html($label) . '</option>';
+            }
+        }
+    }
+    return $html;
+}
+
+/** Real validation for a submitted em_cf_ai_model_options() value -- '' (use default) is always valid;
+ *  anything else must resolve to a pick that genuinely still exists on the real leo AI Models leaderboard,
+ *  never stored as-is on trust. */
+function em_cf_is_valid_ai_model_pick($value)
+{
+    if ($value === '') return true;
+    if (!function_exists('aipa_get_ai_models')) return false;
+    $parts = explode(':', $value);
+    if (count($parts) !== 4 || $parts[0] !== 'pick') return false;
+    list(, $cat_id, $tid, $pid) = $parts;
+    $categories = aipa_get_ai_models();
+    return !empty($categories[$cat_id]['tiers'][$tid]['picks'][$pid]);
 }

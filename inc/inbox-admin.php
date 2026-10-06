@@ -27,7 +27,7 @@ add_action('admin_enqueue_scripts', function ($hook) {
     // Slice 2tt: load assets on the email-manager parent page. Continue
     // honoring the legacy slug for any tooling/CRON callers that still
     // hit it, even though no menu entry exposes it now.
-    if (! in_array($page, array('email-manager', 'email-manager-inbox'), true)) return;
+    if (! in_array($page, array('talk-flows', 'email-manager-inbox'), true)) return;
 
     wp_enqueue_style(
         'em-inbox-app',

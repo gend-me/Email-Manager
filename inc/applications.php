@@ -28,6 +28,164 @@ class EM_Applications
         add_action('admin_post_em_bulk_advance_applicants',        [$this, 'handle_bulk_advance']);
 
         add_action('wp_ajax_em_get_applicant_detail',              [$this, 'ajax_get_detail']);
+
+        add_action('rest_api_init', [$this, 'register_rest_routes']);
+    }
+
+    /* ================================================================
+       REST routes — JSON-only siblings of the admin-post/ajax handlers
+       above, so they never wp_die()/exit() and can be safely dispatched
+       in-process (rest_do_request()) from a cross-site proxy. Reuse the
+       same private mutator methods; no visibility changes needed since
+       these live in the same class.
+       ================================================================ */
+
+    public function register_rest_routes()
+    {
+        $perm = function () {
+            return current_user_can('manage_options');
+        };
+
+        register_rest_route('em/v1', '/applications/(?P<id>\d+)', [
+            'methods'             => 'GET',
+            'callback'            => [$this, 'rest_get_detail'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/applications/(?P<id>\d+)/advance', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_advance'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/applications/bulk-advance', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_bulk_advance'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/applications/stages', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_save_stages'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/applications/settings', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_save_settings'],
+            'permission_callback' => $perm,
+        ]);
+        register_rest_route('em/v1', '/applications/form-purposes', [
+            'methods'             => 'POST',
+            'callback'            => [$this, 'rest_save_form_purposes'],
+            'permission_callback' => $perm,
+        ]);
+    }
+
+    public function rest_get_detail(WP_REST_Request $request)
+    {
+        $id   = absint($request->get_param('id'));
+        $post = $id ? get_post($id) : null;
+        if (!$post) return new WP_Error('em_not_found', 'Not found', ['status' => 404]);
+
+        return new WP_REST_Response(self::applicant_detail($id), 200);
+    }
+
+    /** What the full-application drawer shows: status, the process it is moving through, and the answers. */
+    public static function applicant_detail($id)
+    {
+        $answers = get_post_meta($id, '_chat_submission_data', true);
+        $stage   = get_post_meta($id, self::APPLICANT_STAGE_META, true);
+        $user_id = (int) get_post_meta($id, self::APPLICANT_USER_META, true);
+        $stages  = self::get_stages();
+        // An application that came through a posting moves through that posting's own steps.
+        if (class_exists('EM_Postings')) {
+            $steps = EM_Postings::stage_chips_for_submission($id);
+            if ($steps) $stages = $steps;
+        }
+
+        return [
+            'id'      => $id,
+            'stage'   => $stage ?: 'Submitted',
+            'email'   => self::extract_email_from_submission($answers),
+            'user_id' => $user_id,
+            'stages'  => $stages,
+            'answers' => is_array($answers) ? $answers : [],
+        ];
+    }
+
+    public function rest_advance(WP_REST_Request $request)
+    {
+        $submission_id = absint($request->get_param('id'));
+        $stage_label   = sanitize_text_field((string) $request->get_param('stage'));
+        if (!$submission_id || $stage_label === '') {
+            return new WP_Error('em_bad_request', 'Missing submission id or stage', ['status' => 400]);
+        }
+        if (!$this->transition_applicant($submission_id, $stage_label)) {
+            return new WP_Error('em_bad_stage', 'Unknown stage', ['status' => 400]);
+        }
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    public function rest_bulk_advance(WP_REST_Request $request)
+    {
+        $ids   = array_map('intval', (array) $request->get_param('applicant_ids'));
+        $stage = sanitize_text_field((string) $request->get_param('bulk_stage'));
+        if (empty($ids) || $stage === '') {
+            return new WP_Error('em_bad_request', 'Missing applicant_ids or bulk_stage', ['status' => 400]);
+        }
+        foreach ($ids as $id) {
+            $this->transition_applicant($id, $stage);
+        }
+        return new WP_REST_Response(['ok' => true, 'count' => count($ids)], 200);
+    }
+
+    public function rest_save_stages(WP_REST_Request $request)
+    {
+        $labels       = (array) $request->get_param('stage_label');
+        $roles        = (array) $request->get_param('stage_role');
+        $auto_creates = (array) $request->get_param('stage_auto_create');
+
+        $stages = [];
+        foreach ($labels as $i => $label) {
+            $label = sanitize_text_field((string) $label);
+            if ($label === '') continue;
+            $stages[] = [
+                'label'       => $label,
+                'role'        => isset($roles[$i]) ? sanitize_key($roles[$i]) : '',
+                'auto_create' => !empty($auto_creates[$i]) ? 1 : 0,
+            ];
+        }
+        if (empty($stages)) {
+            $stages = self::default_stages();
+        }
+        update_option(self::STAGES_OPTION, $stages);
+        return new WP_REST_Response(['ok' => true, 'stages' => $stages], 200);
+    }
+
+    public function rest_save_settings(WP_REST_Request $request)
+    {
+        $settings = [
+            'notify_applicant' => $request->get_param('notify_applicant') ? 1 : 0,
+            'notify_admin'     => $request->get_param('notify_admin') ? 1 : 0,
+            'admin_email'      => sanitize_email((string) $request->get_param('admin_email')),
+            'subject_template' => sanitize_text_field((string) $request->get_param('subject_template')),
+            'body_template'    => wp_kses_post((string) $request->get_param('body_template')),
+        ];
+        update_option(self::SETTINGS_OPTION, $settings);
+        return new WP_REST_Response(['ok' => true, 'settings' => $settings], 200);
+    }
+
+    public function rest_save_form_purposes(WP_REST_Request $request)
+    {
+        $marked_ids   = array_map('intval', (array) $request->get_param('application_form_ids'));
+        $all_form_ids = self::get_all_form_ids();
+
+        foreach ($all_form_ids as $form_id) {
+            $current = get_post_meta($form_id, self::FORM_PURPOSE_META, true);
+            if (in_array($form_id, $marked_ids, true)) {
+                update_post_meta($form_id, self::FORM_PURPOSE_META, self::PURPOSE_VALUE);
+            } elseif ($current === self::PURPOSE_VALUE) {
+                delete_post_meta($form_id, self::FORM_PURPOSE_META);
+            }
+        }
+        return new WP_REST_Response(['ok' => true], 200);
     }
 
     /* ================================================================
@@ -188,7 +346,7 @@ class EM_Applications
         return true;
     }
 
-    private static function unique_username_from_email($email)
+    public static function unique_username_from_email($email)
     {
         $base = sanitize_user(strstr($email, '@', true), true) ?: 'user';
         $username = $base;
@@ -245,7 +403,7 @@ class EM_Applications
             }
         }
 
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'application_forms'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'application_forms'], admin_url('admin.php')));
         exit;
     }
 
@@ -273,7 +431,7 @@ class EM_Applications
         }
         update_option(self::STAGES_OPTION, $stages);
 
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'application_stages'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'application_stages'], admin_url('admin.php')));
         exit;
     }
 
@@ -291,7 +449,7 @@ class EM_Applications
         ];
         update_option(self::SETTINGS_OPTION, $settings);
 
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'application_settings'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'application_settings'], admin_url('admin.php')));
         exit;
     }
 
@@ -305,7 +463,7 @@ class EM_Applications
         if ($submission_id && $stage_label !== '') {
             $this->transition_applicant($submission_id, $stage_label);
         }
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'applicant_advanced'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'applicant_advanced'], admin_url('admin.php')));
         exit;
     }
 
@@ -322,7 +480,7 @@ class EM_Applications
                 $this->transition_applicant($id, $stage);
             }
         }
-        wp_safe_redirect(add_query_arg(['page' => 'email-manager', 'updated' => 'bulk_applicants'], admin_url('admin.php')));
+        wp_safe_redirect(add_query_arg(['page' => 'talk-flows', 'updated' => 'bulk_applicants'], admin_url('admin.php')));
         exit;
     }
 
@@ -335,18 +493,7 @@ class EM_Applications
         $post = $id ? get_post($id) : null;
         if (!$post) wp_send_json_error(['message' => 'Not found'], 404);
 
-        $answers = get_post_meta($id, '_chat_submission_data', true);
-        $stage   = get_post_meta($id, self::APPLICANT_STAGE_META, true);
-        $user_id = (int) get_post_meta($id, self::APPLICANT_USER_META, true);
-
-        wp_send_json_success([
-            'id'      => $id,
-            'stage'   => $stage ?: 'Submitted',
-            'email'   => self::extract_email_from_submission($answers),
-            'user_id' => $user_id,
-            'stages'  => self::get_stages(),
-            'answers' => is_array($answers) ? $answers : [],
-        ]);
+        wp_send_json_success(self::applicant_detail($id));
     }
 
     /* ================================================================
@@ -355,53 +502,17 @@ class EM_Applications
 
     public static function render()
     {
-        $form_ids       = self::get_all_form_ids();
-        $application_ids = self::get_application_form_ids();
-        $stages          = self::get_stages();
-        $settings        = self::get_settings();
-
-        $submissions = [];
-        if (!empty($application_ids)) {
-            $submissions = get_posts([
-                'post_type'   => 'chat_submission',
-                'numberposts' => 200,
-                'post_status' => ['publish', 'draft'],
-                'meta_query'  => [['key' => '_chat_submission_form_id', 'value' => $application_ids, 'compare' => 'IN']],
-            ]);
-        }
-
-        // KPI counts
-        $by_stage = [];
-        foreach ($submissions as $sub) {
-            $st = get_post_meta($sub->ID, self::APPLICANT_STAGE_META, true) ?: ($stages[0]['label'] ?? 'Submitted');
-            $by_stage[$st] = ($by_stage[$st] ?? 0) + 1;
-        }
+        // The Applications tab shows only the Postings view. The Applicants, Stages & Roles and Settings
+        // sub-tabs (and their sub-tab bar) were removed, so their panels are no longer output -- which also
+        // skips the applicant query and stage/settings lookups they needed. render_applicants_panel(),
+        // render_stages_panel() and render_settings_panel() below are kept in case they are brought back.
         ?>
         <div class="em-app-tab">
-
-            <div class="gdc-subtabs">
-                <button type="button" class="gdc-subtab active" data-subtab="postings" style="--em-i:0;">
-                    <?php esc_html_e('Postings', 'email-manager'); ?>
-                </button>
-                <button type="button" class="gdc-subtab" data-subtab="applicants" style="--em-i:1;">
-                    <?php esc_html_e('Applicants', 'email-manager'); ?>
-                </button>
-                <button type="button" class="gdc-subtab" data-subtab="application-stages" style="--em-i:2;">
-                    <?php esc_html_e('Stages &amp; Roles', 'email-manager'); ?>
-                </button>
-                <button type="button" class="gdc-subtab" data-subtab="application-settings" style="--em-i:3;">
-                    <?php esc_html_e('Settings', 'email-manager'); ?>
-                </button>
-            </div>
-
             <?php
             if (class_exists('EM_Postings')) {
                 EM_Postings::render_panel();
             }
             ?>
-            <?php self::render_applicants_panel($submissions, $stages, $by_stage, count($application_ids)); ?>
-            <?php self::render_stages_panel($stages); ?>
-            <?php self::render_settings_panel($settings); ?>
         </div>
         <?php
     }
