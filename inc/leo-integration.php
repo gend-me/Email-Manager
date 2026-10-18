@@ -1,7 +1,7 @@
 <?php
 /**
  * LEO AI integration — proxy chatform "Prompt Response" questions through the
- * LEO plugin on gend.me. Each call is paid via the user's LEO token balance.
+ * LEO plugin on gend.me. Each call is paid via the user's AI Builder Tokens balance.
  *
  * Assumed LEO HTTP API (configurable in admin):
  *   POST {base}/leo/v1/complete   { prompt, max_tokens?, temperature?, model? }
@@ -180,7 +180,7 @@ class EM_Leo
         $payload = json_decode(wp_remote_retrieve_body($response), true);
 
         if ($code === 402 || (isset($payload['data']['code']) && $payload['data']['code'] === 'insufficient_tokens')) {
-            return new WP_Error('insufficient_tokens', isset($payload['data']['message']) ? $payload['data']['message'] : __('Insufficient LEO tokens.', 'email-manager'));
+            return new WP_Error('insufficient_tokens', isset($payload['data']['message']) ? $payload['data']['message'] : __('Insufficient AI Builder Tokens.', 'email-manager'));
         }
         if ($code < 200 || $code >= 300 || empty($payload['success'])) {
             $msg = isset($payload['data']['message']) ? $payload['data']['message'] : sprintf(__('LEO request failed (HTTP %d).', 'email-manager'), $code);
@@ -462,7 +462,7 @@ class EM_Leo
                     <h3><?php esc_html_e('LEO AI Integration', 'email-manager'); ?></h3>
                     <p class="description"><?php esc_html_e('Power Prompt Response questions with the LEO plugin on gend.me. Token packages are billed against the configured site token.', 'email-manager'); ?></p>
                 </div>
-                <a href="<?php echo esc_url(self::PURCHASE_URL); ?>" target="_blank" rel="noopener" class="button button-primary"><?php esc_html_e('Buy LEO Tokens', 'email-manager'); ?> ↗</a>
+                <a href="<?php echo esc_url(self::PURCHASE_URL); ?>" target="_blank" rel="noopener" class="button button-primary"><?php esc_html_e('Buy AI Builder Tokens', 'email-manager'); ?> ↗</a>
             </div>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -492,7 +492,7 @@ class EM_Leo
                 <div class="em-setting-row">
                     <div>
                         <div class="em-setting-row__label"><?php esc_html_e('Site Token', 'email-manager'); ?></div>
-                        <div class="em-setting-row__hint"><?php esc_html_e('Bearer token issued from your gend.me account that authorises this site to spend LEO tokens. Used as the fallback when no per-user OAuth token is present.', 'email-manager'); ?></div>
+                        <div class="em-setting-row__hint"><?php esc_html_e('Bearer token issued from your gend.me account that authorises this site to spend AI Builder Tokens. Used as the fallback when no per-user OAuth token is present.', 'email-manager'); ?></div>
                     </div>
                     <div class="em-setting-row__control">
                         <input type="text" name="site_token" value="<?php echo esc_attr($settings['site_token']); ?>" placeholder="leo_…" autocomplete="off" />
@@ -571,7 +571,7 @@ class EM_Leo
             <div class="em-leo-personal">
                 <h3 style="margin:0 0 6px;color:var(--em-text-primary);">🔐 <?php esc_html_e('Your personal LEO account', 'email-manager'); ?></h3>
                 <p class="description" style="color:var(--em-text-secondary);margin:0 0 12px;">
-                    <?php esc_html_e('Connect your gend.me account to spend LEO tokens from your own balance. When a Prompt Response is set to bill the admin, this token is used.', 'email-manager'); ?>
+                    <?php esc_html_e('Connect your gend.me account to spend AI Builder Tokens from your own balance. When a Prompt Response is set to bill the admin, this token is used.', 'email-manager'); ?>
                 </p>
                 <div id="em-leo-oauth-status" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                     <span class="em-leo-conn-state" style="color:var(--em-text-secondary);">Checking…</span>
@@ -603,7 +603,7 @@ class EM_Leo
                         // Connected — fetch balance
                         $.get(<?php echo wp_json_encode(rest_url('em/v1/oauth/balance')); ?>).done(function (b) {
                             var balance = (typeof b.balance === 'number') ? b.balance.toFixed(2) : '—';
-                            var label = b.token_label || 'Leo Tokens';
+                            var label = b.token_label || 'AI Builder Tokens';
                             var topup = b.topup_url || (hubUrl + '/leo/tokens');
                             $state.html(
                                 '<span style="color:#86efac;font-weight:700;">✅ Connected</span>' +

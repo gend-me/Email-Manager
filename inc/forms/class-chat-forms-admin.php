@@ -1165,7 +1165,7 @@ class Chat_Forms_Admin
                     <option value="member"    <?php selected($pays, 'member'); ?>><?php _e('Specific app member', 'chat-forms'); ?></option>
                 </select>
                 <div class="prompt-response-pays-member" style="<?php echo $pays === 'member' ? '' : 'display:none;'; ?>margin-top:8px;">
-                    <small style="display:block;margin-bottom:4px;color:#666;"><?php _e('Member email — resolved to that WP user on save. Their LEO token is used to pay for every run of this prompt.', 'chat-forms'); ?></small>
+                    <small style="display:block;margin-bottom:4px;color:#666;"><?php _e('Member email — resolved to that WP user on save. Their AI Builder Tokens pay for every run of this prompt.', 'chat-forms'); ?></small>
                     <input type="email" name="chat_form_questions[<?php echo $index; ?>][pays_user_email]" value="<?php echo esc_attr($pays_user_email); ?>" class="widefat" placeholder="member@example.com" />
                 </div>
                 <div class="prompt-response-pays-admin" style="<?php echo $pays === 'admin' ? '' : 'display:none;'; ?>margin-top:8px;padding:10px;background:#fff;border:1px solid #c7d2fe;border-radius:6px;">

@@ -347,7 +347,7 @@ class EM_Leo_OAuth
             'last_deduction' => isset($payload['last_deduction']) ? $payload['last_deduction'] : null,
             'user_id'        => isset($payload['user_id']) ? (int) $payload['user_id'] : 0,
             'currency'       => isset($payload['currency']) ? $payload['currency'] : 'USD',
-            'token_label'    => isset($payload['token_label']) ? $payload['token_label'] : 'Leo Tokens',
+            'token_label'    => isset($payload['token_label']) ? $payload['token_label'] : 'AI Builder Tokens',
             'topup_url'      => $hub . '/leo/tokens',
             'native'         => self::leo_native(),
         ], 200);

@@ -4111,7 +4111,7 @@ class EM_Postings
                         <input type="checkbox" id="em-sc-instant" />
                         <span><?php esc_html_e('Limit members to one active approved contract at a time (Instant Execution)', 'email-manager'); ?></span>
                     </label>
-                    <p class="em-pf-hint" style="margin-top:8px;"><?php esc_html_e('Who may approve or apply, and Leo token rewards, can be set later under Projects → Service Contract.', 'email-manager'); ?></p>
+                    <p class="em-pf-hint" style="margin-top:8px;"><?php esc_html_e('Who may approve or apply, and AI Builder Token rewards, can be set later under Projects → Service Contract.', 'email-manager'); ?></p>
 
                     <div class="em-pf-actions">
                         <span class="em-sc-saving" hidden><?php esc_html_e('Creating…', 'email-manager'); ?></span>
