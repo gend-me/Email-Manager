@@ -3082,7 +3082,7 @@
                             return html`<option key=${m.id} value=${String(m.id)}>${m.name || String(m.id)}</option>`;
                           })}
                         </select>
-                        <small class="em-chat-agent-help">Leo Credits + Gas Compute for gend.me runs are charged to this member.</small>
+                        <small class="em-chat-agent-help">AI Builder Tokens + Gas Compute for gend.me runs are charged to this member.</small>
                       </label>
                     </div>
 
