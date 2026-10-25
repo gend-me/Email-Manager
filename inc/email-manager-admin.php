@@ -364,6 +364,13 @@ function em_render_email_manager_page()
                 <div class="gdc-tabpanels">
                     <!-- Email Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="email" <?php echo $gdc_email_embed_single ? 'hidden' : ''; ?>>
+                        <?php
+                        // gend.me Email hosting plans (storage + sending): GenD Society's dashboard Email hosting card,
+                        // rendered by gend-society so the markup, CSS and Change Plan popup are the same ones. Absent-safe.
+                        if ( function_exists( 'gend_society_render_email_plan_card' ) && current_user_can( 'manage_options' ) ) {
+                            gend_society_render_email_plan_card( array( 'context' => 'talk-flows' ) );
+                        }
+                        ?>
                         <div class="gdc-subtabs">
                             <button type="button" class="gdc-subtab active" data-subtab="email-inbox">
                                 <?php esc_html_e('Inbox', 'email-manager'); ?>
