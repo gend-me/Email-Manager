@@ -83,8 +83,12 @@ function em_inbox_user_by_address($address) {
         'meta_value' => $address,
         'number'     => 1,
         'fields'     => 'all',
+        // Network-wide: an address is unique across the network, and a sub-site's inbox can belong to a hub user
+        // (an AI agent of the site's group) who is not a member of that sub-site.
+        'blog_id'    => 0,
     ));
-    $cache[$address] = $users ? $users[0] : null;
+    // Other modules can map extra addresses to a user (e.g. an AI agent's previous address after a rename).
+    $cache[$address] = $users ? $users[0] : apply_filters('em_inbox_user_by_address', null, $address);
     return $cache[$address];
 }
 

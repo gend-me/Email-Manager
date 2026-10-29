@@ -20,6 +20,7 @@ jQuery(document).ready(function ($) {
                     <option value="info_block">📝 Content Block</option>
                     <option value="prompt_response">🤖 AI Prompt</option>
                     <option value="support_ticket">🎫 Support Ticket</option>
+                    <option value="account_registration">👤 Account Registration</option>
                 </select>
                 <select class="em-cf-sec-qtype">
                     <option value="text">Text</option>
@@ -27,7 +28,6 @@ jQuery(document).ready(function ($) {
                     <option value="telephone">Telephone</option>
                     <option value="multiple">Multiple Choice</option>
                     <option value="file">File Upload</option>
-                    <option value="account_registration">Account Registration</option>
                 </select>
                 <select name="chat_form_questions[INDEX][type]" class="question-type" style="display:none;">
                     <option value="text">Text</option>
@@ -111,6 +111,35 @@ jQuery(document).ready(function ($) {
                     <option value="normal" selected>Normal</option>
                     <option value="high">High</option>
                 </select>
+            </div>
+
+            <div class="account-registration-editor" style="display:none;margin:10px 0;padding:12px;border-radius:12px;">
+                <p style="margin:0 0 6px;"><strong>👤 Account Registration</strong></p>
+                <small style="display:block;margin-bottom:10px;">Visitors log in or create an account at this step; members who are already logged in just continue.</small>
+                <label style="display:flex;gap:8px;align-items:flex-start;">
+                    <input type="checkbox" name="chat_form_questions[INDEX][terms][enabled]" value="1" class="em-cf-terms-toggle" style="margin-top:3px;" />
+                    <span>Require accepting terms &amp; conditions before the account is created</span>
+                </label>
+                <div class="em-cf-terms-config" style="display:none;margin-top:10px;">
+                    <label>Checkbox text:</label>
+                    <input type="text" name="chat_form_questions[INDEX][terms][label]" class="widefat" placeholder="I agree to the Terms &amp; Conditions" />
+                    <label style="display:block;margin-top:10px;">Show the terms:</label>
+                    <select name="chat_form_questions[INDEX][terms][mode]" class="widefat em-cf-terms-mode">
+                        <option value="popup">In a popup (write the terms here)</option>
+                        <option value="page">On another page (link)</option>
+                    </select>
+                    <div class="em-cf-terms-popup" style="margin-top:10px;">
+                        <label>Popup title:</label>
+                        <input type="text" name="chat_form_questions[INDEX][terms][title]" class="widefat" placeholder="Terms &amp; Conditions" />
+                        <label style="display:block;margin-top:10px;">Terms text:</label>
+                        <textarea name="chat_form_questions[INDEX][terms][content]" rows="8" class="widefat" placeholder="Paste or write your terms. Basic HTML is allowed."></textarea>
+                    </div>
+                    <div class="em-cf-terms-page" style="display:none;margin-top:10px;">
+                        <label>Terms page:</label>
+                        <input type="url" name="chat_form_questions[INDEX][terms][url]" class="widefat" list="em-cf-terms-pages" placeholder="https://example.com/terms" />
+                        <small style="display:block;margin-top:4px;">Start typing to pick one of your pages, or paste any URL. It opens in a new tab and the visitor ticks the box to accept.</small>
+                    </div>
+                </div>
             </div>
 
             <div class="options-manager" style="display:none;">
@@ -466,7 +495,7 @@ jQuery(document).ready(function ($) {
         var $kind = $q.find('.em-cf-sec-kind');
         if (!$kind.length || !$real.length) return;
         var v = $real.val();
-        if (v === 'info_block' || v === 'prompt_response' || v === 'support_ticket') {
+        if (v === 'info_block' || v === 'prompt_response' || v === 'support_ticket' || v === 'account_registration') {
             if ($kind.val() !== v) $kind.val(v);
             $q.find('.em-cf-sec-qtype').hide();
         } else {
@@ -496,8 +525,22 @@ jQuery(document).ready(function ($) {
         // Support-Ticket editor visibility (the legacy type-change handler
         // predates this kind, so it never touches this panel).
         $q.find('.support-ticket-editor').toggle($(this).val() === 'support_ticket');
+        $q.find('.account-registration-editor').toggle($(this).val() === 'account_registration');
     });
     $('.chat-form-question').each(function () { emCfSyncFromReal($(this)); });
+
+    // Account Registration → terms & conditions settings.
+    function emCfSyncTerms($q) {
+        var on = $q.find('.em-cf-terms-toggle').is(':checked');
+        var mode = $q.find('.em-cf-terms-mode').val();
+        $q.find('.em-cf-terms-config').toggle(on);
+        $q.find('.em-cf-terms-popup').toggle(mode !== 'page');
+        $q.find('.em-cf-terms-page').toggle(mode === 'page');
+    }
+    $(document).on('change', '.em-cf-terms-toggle, .em-cf-terms-mode', function () {
+        emCfSyncTerms($(this).closest('.chat-form-question'));
+    });
+    $('.chat-form-question').each(function () { emCfSyncTerms($(this)); });
 
     // Shortcut buttons — explicit entry points for the new types
     $(document).on('click', '#add-content-block', function () {

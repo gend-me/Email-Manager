@@ -94,6 +94,20 @@ function em_inbox_outq_submit_one($from, $to, $subject, $body_plain, $body_html,
     $cc  = is_array($extras['cc']  ?? null) ? $extras['cc']  : array();
     $bcc = is_array($extras['bcc'] ?? null) ? $extras['bcc'] : array();
 
+    // Other modules can take over or hold a send: the gend.me mail service holds agent mail while the site is over its
+    // monthly sending allowance (['ok' => false, 'held' => true, ...] -- the message stays queued and is retried
+    // without using up its attempts), and a container hands its mail to the gend.me relay. Return null to carry on.
+    $pre = apply_filters('em_inbox_outq_pre_submit', null, array(
+        'from' => $from, 'to' => (array) $to, 'cc' => $cc, 'bcc' => $bcc, 'subject' => $subject,
+        'body_plain' => $body_plain, 'body_html' => $body_html, 'headers' => $headers,
+        'message_id' => $message_id, 'attachments' => $attachments,
+    ));
+    if (is_array($pre)) {
+        $pre += array('ok' => false, 'http' => 0, 'error' => null, 'relay' => null);
+        if (! empty($pre['ok'])) do_action('em_inbox_outq_sent', $from, (array) $to, $cc, $bcc, $pre);
+        return $pre;
+    }
+
     // ── Mailgun transport (MAIL-04) ──────────────────────────────────────
     // Preferred outbound rail when the Mailgun connection (gend-mailgun.php
     // mu-plugin) is configured on this pod. Replaces ONLY the relay leg; the
@@ -109,10 +123,12 @@ function em_inbox_outq_submit_one($from, $to, $subject, $body_plain, $body_html,
     // When Mailgun is NOT configured (empty Secret) the gate is false and we
     // fall through to the existing email-mta path (graceful degrade).
     if (function_exists('gend_mailgun_enabled') && gend_mailgun_enabled()) {
-        return em_inbox_outq_submit_via_mailgun(
+        $res = em_inbox_outq_submit_via_mailgun(
             $from, $to, $subject, $body_plain, $body_html,
             $headers, $message_id, $attachments, $cc, $bcc
         );
+        if (! empty($res['ok'])) do_action('em_inbox_outq_sent', $from, (array) $to, $cc, $bcc, $res);
+        return $res;
     }
 
     // ── email-mta relay (fallback when Mailgun is not configured) ─────────
@@ -375,6 +391,15 @@ function em_inbox_outq_drain($limit = 10) {
         );
 
         $attempts = (int) $row['delivery_attempts'] + 1;
+        if (! empty($result['held'])) {
+            // Held (e.g. over the monthly sending allowance): stays queued, checked again hourly, attempts unused.
+            $wpdb->update($raw, array(
+                'delivery_status'        => 'retrying',
+                'delivery_last_error'    => (string) $result['error'],
+                'delivery_next_attempt_at' => gmdate('Y-m-d H:i:s', time() + HOUR_IN_SECONDS),
+            ), array('id' => (int) $row['id']), array('%s','%s','%s'), array('%d'));
+            continue;
+        }
         if ($result['ok']) {
             $wpdb->update($raw, array(
                 'delivery_status'       => 'sent',

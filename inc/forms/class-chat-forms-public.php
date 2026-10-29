@@ -1,11 +1,44 @@
 <?php
+if (!function_exists('em_cf_bot_avatar')) {
+    /**
+     * Avatar the chatflow speaks with: the linked local agent's current profile
+     * picture, else the stored avatar (gend.me hub agent or legacy upload).
+     */
+    function em_cf_bot_avatar($form_id)
+    {
+        $agent_id = (int) get_post_meta($form_id, '_chat_form_bot_agent_id', true);
+        if ($agent_id && get_userdata($agent_id)) {
+            $url = get_avatar_url($agent_id, array('size' => 96));
+            if ($url) return $url;
+        }
+        return (string) get_post_meta($form_id, '_chat_form_bot_avatar', true);
+    }
+}
+
+if (!function_exists('gend_recaptcha_required')) {
+    /**
+     * reCAPTCHA is only for visitors we can't trust yet: logged out, or logged in with the
+     * WP Ultimo email verification still pending. Verified members never load or answer it.
+     */
+    function gend_recaptcha_required()
+    {
+        if (!is_user_logged_in()) return (bool) apply_filters('gend_recaptcha_required', true, 0);
+        $uid = get_current_user_id();
+        $pending = false;
+        if (function_exists('wu_get_customer_by_user_id') && ($c = wu_get_customer_by_user_id($uid)) && method_exists($c, 'get_email_verification')) {
+            $pending = $c->get_email_verification() === 'pending';
+        }
+        return (bool) apply_filters('gend_recaptcha_required', $pending, $uid);
+    }
+}
+
 
 class Chat_Forms_Public
 {
 
     public function enqueue_styles()
     {
-        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.0', 'all');
+        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
         wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
     }
 
@@ -13,8 +46,9 @@ class Chat_Forms_Public
     {
         $smtp_settings = get_option('em_smtp_settings', []);
         $recaptcha_site_key = $smtp_settings['recaptcha_site_key'] ?? '';
+        if (!gend_recaptcha_required()) $recaptcha_site_key = '';   // verified members: no reCAPTCHA at all
 
-        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.7', false);
+        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.10', false);
         wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
         $current_user_data = array();
         if (is_user_logged_in()) {
@@ -70,9 +104,9 @@ class Chat_Forms_Public
         if (empty($forms)) return;
 
         // Need our chat assets on admin pages too
-        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.0', 'all');
+        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
         wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
-        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.7', true);
+        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.10', true);
         wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
 
         $cu = wp_get_current_user();
@@ -156,7 +190,7 @@ class Chat_Forms_Public
                 'border_radius' => 16,
                 'position'      => 'bottom-right',
             ));
-            $bot_avatar = get_post_meta($form->ID, '_chat_form_bot_avatar', true);
+            $bot_avatar = em_cf_bot_avatar($form->ID);
 
             // Get questions for the localized data
             $questions = get_post_meta($form->ID, '_chat_form_questions', true);
@@ -264,7 +298,8 @@ class Chat_Forms_Public
         echo $this->get_form_styles($form_id);
         ?>
         <div id="chat-form-<?php echo $form_id; ?>" class="chat-form-container glassmorphism"
-            data-form-id="<?php echo $form_id; ?>">
+            data-form-id="<?php echo $form_id; ?>"
+            data-bot-avatar="<?php echo esc_url(em_cf_bot_avatar($form_id)); ?>">
             <div class="chat-header">
                 <h3>
                     <?php echo get_the_title($form_id); ?>

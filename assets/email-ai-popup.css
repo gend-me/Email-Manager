@@ -1209,3 +1209,124 @@ body.toplevel_page_email-manager:not(.gdc-email-modal-open) aipa-widget,
 body[class*="_page_email-manager"]:not(.gdc-email-modal-open) aipa-widget {
     display: none !important;
 }
+/* ==========================================================================
+   Email Body editor — dark, matching Store Management (2026-10-21).
+   The editor markup carries light inline styles from email-ai-popup.js, so
+   these rules use !important to win over them.
+   ========================================================================== */
+.gdc-email-ai-modal .gdc-email-editor-wrapper {
+    height: 460px !important;
+    border: 1px solid rgba(137, 194, 224, .28) !important;
+    border-radius: 16px !important;
+    background: #0a0e17 !important;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .35);
+}
+.gdc-email-ai-modal .gdc-email-editor-tabs {
+    gap: 6px;
+    padding: 8px 10px !important;
+    border-bottom: 1px solid rgba(137, 194, 224, .16) !important;
+    background: rgba(9, 12, 19, .95) !important;
+}
+.gdc-email-ai-modal .gdc-editor-tab {
+    min-height: 32px;
+    padding: 0 16px !important;
+    border: 1px solid rgba(137, 194, 224, .16) !important;
+    border-radius: 999px !important;
+    background: rgba(255, 255, 255, .03) !important;
+    color: #8fa0b5 !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    box-shadow: none !important;
+    transition: background-color .15s, color .15s, border-color .15s;
+}
+.gdc-email-ai-modal .gdc-editor-tab:hover { color: #fff !important; border-color: rgba(137, 194, 224, .34) !important; }
+.gdc-email-ai-modal .gdc-editor-tab.active {
+    border-color: transparent !important;
+    background: linear-gradient(135deg, #22d3ee, #7dd3fc) !important;
+    color: #04121c !important;
+}
+
+.gdc-email-ai-modal .gdc-email-editor-toolbar {
+    align-items: center;
+    gap: 2px !important;
+    padding: 6px 10px !important;
+    border-bottom: 1px solid rgba(137, 194, 224, .16) !important;
+    background: rgba(13, 18, 27, .95) !important;
+}
+/* separators are inline-styled <div>s */
+.gdc-email-ai-modal .gdc-email-editor-toolbar > div {
+    width: 1px !important;
+    height: 18px !important;
+    margin: 0 6px !important;
+    background: rgba(137, 194, 224, .2) !important;
+}
+.gdc-email-ai-modal .gdc-email-editor-toolbar .gdc-editor-format-block {
+    min-height: 30px !important;
+    height: 30px !important;
+    margin: 0 4px 0 0 !important;
+    padding: 0 28px 0 10px !important;
+    border: 1px solid rgba(137, 194, 224, .28) !important;
+    border-radius: 9px !important;
+    background: rgba(5, 9, 16, .8) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2389c2e0' d='M5 6 0 0h10z'/%3E%3C/svg%3E") no-repeat right 10px center !important;
+    color: #e6edf5 !important;
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
+    line-height: 28px !important;
+    box-shadow: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+}
+.gdc-email-ai-modal .gdc-email-editor-toolbar .gdc-editor-format-block option { background: #0f141e; color: #e6edf5; }
+.gdc-email-ai-modal .gdc-editor-btn {
+    width: 30px !important;
+    height: 30px !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    border: 1px solid transparent !important;
+    border-radius: 8px !important;
+    background: transparent !important;
+    color: #b7c4d4 !important;
+    font-size: 14px !important;
+    box-shadow: none !important;
+    transition: background-color .15s, color .15s, border-color .15s;
+}
+.gdc-email-ai-modal .gdc-editor-btn .dashicons { font-size: 17px; width: 17px; height: 17px; color: inherit !important; }
+.gdc-email-ai-modal .gdc-editor-btn:hover,
+.gdc-email-ai-modal .gdc-editor-btn:focus-visible {
+    border-color: rgba(34, 211, 238, .35) !important;
+    background: rgba(34, 211, 238, .12) !important;
+    color: #fff !important;
+    outline: none;
+}
+.gdc-email-ai-modal .gdc-editor-btn.gdc-editor-add-media { color: #22d3ee !important; }
+
+.gdc-email-ai-modal .gdc-email-editor-content { background: #0a0e17 !important; }
+.gdc-email-ai-modal #gdc-email-visual-editor {
+    padding: 20px !important;
+    background: #0a0e17 !important;
+    color: #e2e8f0 !important;
+    scrollbar-color: rgba(137, 194, 224, .3) transparent;
+}
+.gdc-email-ai-modal #gdc-email-visual-editor:focus { box-shadow: inset 0 0 0 2px rgba(34, 211, 238, .25); }
+.gdc-email-ai-modal #gdc-email-ai-body {
+    padding: 18px 20px !important;
+    background: #05080f !important;
+    color: #d6e2ee !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+    font-size: 12.5px !important;
+    line-height: 1.6 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    scrollbar-color: rgba(137, 194, 224, .3) transparent;
+}
+.gdc-email-ai-modal #gdc-email-ai-body:focus { outline: none !important; box-shadow: inset 0 0 0 2px rgba(34, 211, 238, .25) !important; }
+.gdc-email-ai-modal label[for="gdc-email-ai-body"] {
+    display: block;
+    margin-bottom: 8px;
+    color: #89c2e0 !important;
+    font-size: 11.5px !important;
+    font-weight: 800 !important;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}

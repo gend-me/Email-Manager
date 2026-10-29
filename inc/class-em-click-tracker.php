@@ -116,6 +116,31 @@ class EM_Click_Tracker {
 	}
 
 	/**
+	 * Security 2026-10-18: HMAC over campaign id + destination so the click
+	 * endpoint cannot be used as an open redirect.
+	 */
+	public static function click_sig( string $campaign_id, string $dest ) : string {
+		return hash_hmac( 'sha256', 'em-click|' . $campaign_id . '|' . $dest, wp_salt( 'auth' ) );
+	}
+
+	/**
+	 * Security 2026-10-18: build a signed /email/click URL (use this for any new
+	 * tracked link; unsigned links only redirect to this site's own host).
+	 */
+	public static function click_url( string $dest, string $campaign_id = '0', string $recipient_hash = '' ) : string {
+		if ( ! class_exists( 'Gend_CC_Constants' ) ) {
+			return $dest;
+		}
+		$dest = esc_url_raw( $dest );
+		return add_query_arg( array_map( 'rawurlencode', [
+			'dest'              => $dest,
+			'em_campaign_id'    => $campaign_id,
+			'em_recipient_hash' => $recipient_hash,
+			'em_sig'            => self::click_sig( $campaign_id, $dest ),
+		] ), rest_url( Gend_CC_Constants::REST_NS . self::PATH_CLICK ) );
+	}
+
+	/**
 	 * /email/open handler — write a wp_cc_clicks row (bucket='email_open') and
 	 * emit a 1x1 transparent GIF.
 	 *
@@ -161,6 +186,23 @@ class EM_Click_Tracker {
 		$dest = esc_url_raw( $dest );
 		if ( $dest === '' ) {
 			return new WP_Error( 'em_click_bad_dest', 'Missing or invalid dest URL.', [ 'status' => 400 ] );
+		}
+
+		// Security 2026-10-18: no open redirect. http(s) only; a valid em_sig
+		// (click_url()) allows any host, otherwise only this site's own host
+		// (keeps already-sent same-site links working).
+		$scheme = strtolower( (string) wp_parse_url( $dest, PHP_URL_SCHEME ) );
+		if ( ! in_array( $scheme, [ 'http', 'https' ], true ) ) {
+			return new WP_Error( 'em_click_bad_dest', 'Missing or invalid dest URL.', [ 'status' => 400 ] );
+		}
+		$sig    = is_object( $request ) && method_exists( $request, 'get_param' ) ? (string) $request->get_param( 'em_sig' ) : '';
+		$signed = $sig !== '' && hash_equals( self::click_sig( $campaign_id, $dest ), $sig );
+		if ( ! $signed ) {
+			$own_host  = strtolower( (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST ) );
+			$dest_host = strtolower( (string) wp_parse_url( $dest, PHP_URL_HOST ) );
+			if ( $dest_host === '' || $dest_host !== $own_host ) {
+				return new WP_Error( 'em_click_forbidden', 'Invalid link.', [ 'status' => 403 ] );
+			}
 		}
 
 		self::write_click_row( self::BUCKET_CLICK, $campaign_id, $recipient_h );

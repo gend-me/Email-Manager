@@ -226,10 +226,10 @@ function em_enqueue_assets($hook)
         wp_enqueue_script('em-email-ai-popup', EMAIL_MANAGER_URL . 'assets/email-ai-popup.js', array('jquery'), EMAIL_MANAGER_VERSION, true);
 
         // Enqueue Lists Table Script
-        wp_enqueue_script('em-email-lists-table', EMAIL_MANAGER_URL . 'assets/email-lists-table.js', array('jquery', 'em-email-ai-popup'), EMAIL_MANAGER_VERSION, true);
+        wp_enqueue_script('em-email-lists-table', EMAIL_MANAGER_URL . 'assets/email-lists-table.js', array('jquery', 'em-email-ai-popup'), EMAIL_MANAGER_VERSION . '-l1', true);
 
         // Applications + Support shared assets ("-p2" busts cache for the Postings rework)
-        wp_enqueue_style('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.css', array('em-email-manager-admin'), EMAIL_MANAGER_VERSION . '-p4');
+        wp_enqueue_style('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.css', array('em-email-manager-admin'), EMAIL_MANAGER_VERSION . '-p5');
         wp_enqueue_script('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.js', array('jquery'), EMAIL_MANAGER_VERSION . '-p4', true);
         wp_localize_script('em-app-support', 'EM_AS_CONFIG', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
@@ -237,7 +237,7 @@ function em_enqueue_assets($hook)
         ));
 
         // Postings (Applications ▸ Postings sub-tab) admin behaviors.
-        wp_enqueue_script('em-postings', EMAIL_MANAGER_URL . 'assets/em-postings.js', array('jquery', 'em-app-support'), EMAIL_MANAGER_VERSION . '-p4', true);
+        wp_enqueue_script('em-postings', EMAIL_MANAGER_URL . 'assets/em-postings.js', array('jquery', 'em-app-support'), EMAIL_MANAGER_VERSION . '-p5', true);
         wp_localize_script('em-postings', 'EM_POSTINGS_CONFIG', array(
             'ajaxUrl'   => admin_url('admin-ajax.php'),
             'nonce'     => wp_create_nonce('em_app_support'),

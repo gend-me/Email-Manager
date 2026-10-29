@@ -473,10 +473,12 @@ class Chat_Forms_Launch
             'task_id' => $record['task_id'],
         ));
 
-        // Agent-Messages mode: the flow ALSO runs as profile DMs from the
-        // Bot Agent — first question sends immediately; replies advance it
-        // (see em_cf_msgflow_on_message below).
-        if (function_exists('em_cf_msgflow_start') && '1' === get_post_meta($chatflow_id, '_chat_form_agent_messages', true)) {
+        // Every chatflow except "Shortcode only" ones ALSO runs as profile
+        // DMs from its Bot Agent — first question sends immediately; replies
+        // advance it (see em_cf_msgflow_on_message below). No-op without a
+        // Bot Agent that is a user on this site.
+        $display_mode = get_post_meta($chatflow_id, '_chat_form_display_mode', true) ?: 'shortcode';
+        if (function_exists('em_cf_msgflow_start') && $display_mode !== 'shortcode') {
             em_cf_msgflow_start($chatflow_id, $uid);
         }
 
