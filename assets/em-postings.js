@@ -511,7 +511,9 @@
         var $iframe = $wrap.find('.em-pf-iframe');
         var $open = $form.find('.em-pf-openpage[data-role="' + role + '"]');
         if (editUrl) {
-            if ($iframe.attr('src') !== editUrl) $iframe.attr('src', editUrl);
+            // em_frame=1 makes the edit screen fit itself to the frame (EM_Postings::frame_editor_styles()).
+            var frameUrl = editUrl + (editUrl.indexOf('?') === -1 ? '?' : '&') + 'em_frame=1';
+            if ($iframe.attr('src') !== frameUrl) $iframe.attr('src', frameUrl);
             $iframe.prop('hidden', false);
             $wrap.find('.em-pf-needsave').hide();
             $open.attr('href', editUrl).prop('hidden', false);

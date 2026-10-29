@@ -756,10 +756,21 @@ function em_render_email_manager_page()
                                 // Deep-link: admin.php?page=talk-flows#tab=chatflows
                                 // lands directly on that tab (used by the flow
                                 // editor's Back button).
-                                var emTabHash = (window.location.hash || '').match(/tab=([a-z0-9_-]+)/i);
+                                // Also: &subtab=<sub-tab>&section=<element id>, e.g.
+                                // #tab=email&subtab=sending-settings&section=em-recaptcha-options
+                                // (the chat form's Security Settings link).
+                                var emHash = window.location.hash || '';
+                                var emTabHash = emHash.match(/(?:^#|&)tab=([a-z0-9_-]+)/i);
                                 if (emTabHash) {
                                     var $emTabBtn = $('.gdc-sub-tab[data-tab="' + emTabHash[1] + '"]');
                                     if ($emTabBtn.length) { $emTabBtn.trigger('click'); }
+                                    var emSub = emHash.match(/&subtab=([a-z0-9_-]+)/i);
+                                    if (emSub) {
+                                        $('.gdc-sub-tabpanel[data-panel="' + emTabHash[1] + '"] .gdc-subtab[data-subtab="' + emSub[1] + '"]').trigger('click');
+                                    }
+                                    var emSec = emHash.match(/&section=([a-z0-9_-]+)/i);
+                                    var emSecEl = emSec ? document.getElementById(emSec[1]) : null;
+                                    if (emSecEl) { setTimeout(function () { emSecEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 150); }
                                 }
                             });
                         </script>
@@ -973,11 +984,127 @@ function em_render_email_manager_page()
                                 <div class="gdc-email-panel em-reveal" style="--em-i:0;">
                                     <div class="gdc-email-panel__header">
                                         <h3><?php esc_html_e('Chatflows', 'email-manager'); ?></h3>
-                                        <a href="<?php echo admin_url('post-new.php?post_type=chat_form'); ?>" class="button button-primary">
-                                            <span class="dashicons dashicons-plus-alt" style="margin-top: 3px;"></span>
-                                            <?php esc_html_e('Create Chatflow', 'email-manager'); ?>
-                                        </a>
+                                        <div class="gdc-email-search em-cf-list-search">
+                                            <label class="screen-reader-text" for="em-cf-list-search"><?php esc_html_e('Search chatflows', 'email-manager'); ?></label>
+                                            <input type="search" id="em-cf-list-search" autocomplete="off" placeholder="<?php esc_attr_e('Search chatflows…', 'email-manager'); ?>" />
+                                        </div>
+                                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                            <?php if (current_user_can('manage_options') && class_exists('EM_Email_SMTP')) : ?>
+                                                <button type="button" class="button" data-em-recaptcha-open>
+                                                    <span class="dashicons dashicons-shield" style="margin-top: 3px;"></span>
+                                                    <?php esc_html_e('reCAPTCHA Settings', 'email-manager'); ?>
+                                                </button>
+                                            <?php endif; ?>
+                                            <a href="<?php echo admin_url('post-new.php?post_type=chat_form'); ?>" class="button button-primary">
+                                                <span class="dashicons dashicons-plus-alt" style="margin-top: 3px;"></span>
+                                                <?php esc_html_e('Create Chatflow', 'email-manager'); ?>
+                                            </a>
+                                        </div>
                                     </div>
+                                    <?php if (class_exists('EM_Email_SMTP')) EM_Email_SMTP::render_recaptcha_modal(); ?>
+                                    <div class="em-cf-del-modal" id="em-cf-del-modal" role="alertdialog" aria-modal="true" aria-labelledby="em-cf-del-title" aria-describedby="em-cf-del-desc" hidden>
+                                        <div class="em-cf-del-modal__panel">
+                                            <div class="em-cf-del-modal__icon" aria-hidden="true"><span class="dashicons dashicons-trash"></span></div>
+                                            <h2 id="em-cf-del-title"><?php esc_html_e('Delete chatflow?', 'email-manager'); ?></h2>
+                                            <p id="em-cf-del-desc">
+                                                <?php esc_html_e('You are about to delete', 'email-manager'); ?> <strong data-cf-del-name></strong>.
+                                                <?php esc_html_e('It moves to the Trash, where it can be restored.', 'email-manager'); ?>
+                                            </p>
+                                            <div class="em-cf-del-modal__status" data-cf-del-status role="status"></div>
+                                            <div class="em-cf-del-modal__foot">
+                                                <button type="button" class="em-cf-del-modal__btn em-cf-del-modal__btn--ghost" data-cf-del-cancel><?php esc_html_e('Cancel', 'email-manager'); ?></button>
+                                                <button type="button" class="em-cf-del-modal__btn em-cf-del-modal__btn--danger" data-cf-del-confirm><?php esc_html_e('Delete Chatflow', 'email-manager'); ?></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <style>
+                                        .em-cf-del-modal[hidden] { display: none !important; }
+                                        .em-cf-del-modal { position: fixed; inset: 0; z-index: 100100; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(2, 6, 23, .72); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+                                        .em-cf-del-modal__panel { width: 100%; max-width: 440px; text-align: center; background: linear-gradient(170deg, #111827, #0b1020); color: #e2e8f0; border: 1px solid rgba(148, 163, 184, .22); border-radius: 18px; padding: 28px 26px 22px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); animation: emCfDelIn .18s ease-out; }
+                                        @keyframes emCfDelIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+                                        @media (prefers-reduced-motion: reduce) { .em-cf-del-modal__panel { animation: none; } }
+                                        .em-cf-del-modal__icon { width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 999px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, .14); border: 1px solid rgba(248, 113, 113, .35); color: #fca5a5; }
+                                        .em-cf-del-modal__icon .dashicons { width: 26px; height: 26px; font-size: 26px; }
+                                        .em-cf-del-modal h2 { margin: 0 0 8px; font-size: 20px; color: #f8fafc; }
+                                        .em-cf-del-modal p { margin: 0; color: #94a3b8; font-size: 14px; line-height: 1.6; }
+                                        .em-cf-del-modal p strong { color: #f1f5f9; word-break: break-word; }
+                                        .em-cf-del-modal__status { min-height: 20px; margin: 10px 0 0; color: #fca5a5; font-size: 13px; }
+                                        .em-cf-del-modal__foot { display: flex; gap: 10px; margin-top: 12px; }
+                                        .em-cf-del-modal__btn { flex: 1; height: 42px; font-family: inherit; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+                                        .em-cf-del-modal__btn--ghost { background: transparent; color: #e2e8f0; border: 1px solid rgba(148, 163, 184, .35); }
+                                        .em-cf-del-modal__btn--ghost:hover { background: rgba(148, 163, 184, .12); }
+                                        .em-cf-del-modal__btn--danger { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; border: 0; box-shadow: 0 10px 24px rgba(239, 68, 68, .3); }
+                                        .em-cf-del-modal__btn--danger:hover { filter: brightness(1.08); }
+                                        .em-cf-del-modal__btn:disabled { opacity: .7; cursor: default; }
+                                        .em-cf-del-modal__btn:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+                                    </style>
+                                    <style>
+                                        .em-cf-list-search { flex: 1; max-width: 340px; margin: 0 12px 0 auto; }
+                                        .em-cf-list-search input { width: 100%; height: 38px; padding: 0 12px; border-radius: 10px; }
+                                        #em-cf-list-table .em-cf-delete-btn { color: #fca5a5 !important; background: rgba(239,68,68,.1) !important; border: 1px solid rgba(248,113,113,.35) !important; }
+                                        #em-cf-list-table .em-cf-delete-btn:hover { color: #fff !important; background: rgba(239,68,68,.35) !important; }
+                                        #em-cf-list-table tr[hidden] { display: none !important; }
+                                        @media (max-width: 782px) { .em-cf-list-search { order: 3; flex-basis: 100%; max-width: none; margin: 8px 0 0; } }
+                                    </style>
+                                    <script>
+                                    jQuery(function ($) {
+                                        var $table = $('#em-cf-list-table');
+                                        // Every chatflow is already on the page — filter rows as you type.
+                                        function filter() {
+                                            var q = $.trim($('#em-cf-list-search').val()).toLowerCase(), shown = 0;
+                                            $table.find('tr.em-cf-list-row').each(function () {
+                                                var hit = !q || String($(this).attr('data-cf-title')).indexOf(q) !== -1;
+                                                $(this).prop('hidden', !hit);
+                                                if (hit) { shown++; }
+                                            });
+                                            $table.find('tr.em-cf-list-nomatch').prop('hidden', !q || shown > 0);
+                                        }
+                                        $('#em-cf-list-search').on('input', filter);
+                                        // Styled confirm popup (replaces the browser's confirm()).
+                                        var $dm = $('#em-cf-del-modal').appendTo('body'), $dmStatus = $dm.find('[data-cf-del-status]'),
+                                            $dmGo = $dm.find('[data-cf-del-confirm]'), delBtn = null, lastFocus = null;
+                                        function closeDel() {
+                                            if ($dmGo.prop('disabled')) { return; }
+                                            $dm.prop('hidden', true);
+                                            if (lastFocus) { lastFocus.focus(); }
+                                        }
+                                        $table.on('click', '.em-cf-delete-btn', function () {
+                                            delBtn = $(this);
+                                            lastFocus = this;
+                                            $dm.find('[data-cf-del-name]').text(delBtn.attr('data-cf-name') || <?php echo wp_json_encode(__('(no title)', 'email-manager')); ?>);
+                                            $dmStatus.text('');
+                                            $dmGo.prop('disabled', false).text(<?php echo wp_json_encode(__('Delete Chatflow', 'email-manager')); ?>);
+                                            $dm.prop('hidden', false);
+                                            setTimeout(function () { $dm.find('[data-cf-del-cancel]').trigger('focus'); }, 30);
+                                        });
+                                        $dm.on('click', '[data-cf-del-cancel]', closeDel);
+                                        $dm.on('click', function (e) { if (e.target === this) { closeDel(); } });
+                                        $(document).on('keydown', function (e) { if (e.key === 'Escape' && !$dm.prop('hidden')) { closeDel(); } });
+                                        $dmGo.on('click', function () {
+                                            if (!delBtn) { return; }
+                                            var $row = delBtn.closest('tr');
+                                            $dmGo.prop('disabled', true).text(<?php echo wp_json_encode(__('Deleting…', 'email-manager')); ?>);
+                                            $dmStatus.text('');
+                                            $.post(ajaxurl, { action: 'em_cf_delete_chatflow', nonce: $table.attr('data-delete-nonce'), id: delBtn.attr('data-cf-delete') })
+                                                .done(function (res) {
+                                                    if (res && res.success) {
+                                                        $row.remove();
+                                                        filter();
+                                                        $dmGo.prop('disabled', false);
+                                                        lastFocus = null;
+                                                        closeDel();
+                                                    } else {
+                                                        $dmStatus.text((res && res.data && res.data.message) || <?php echo wp_json_encode(__('Could not delete this chatflow.', 'email-manager')); ?>);
+                                                        $dmGo.prop('disabled', false).text(<?php echo wp_json_encode(__('Try Again', 'email-manager')); ?>);
+                                                    }
+                                                })
+                                                .fail(function () {
+                                                    $dmStatus.text(<?php echo wp_json_encode(__('Could not delete this chatflow.', 'email-manager')); ?>);
+                                                    $dmGo.prop('disabled', false).text(<?php echo wp_json_encode(__('Try Again', 'email-manager')); ?>);
+                                                });
+                                        });
+                                    });
+                                    </script>
                                     <?php
                                     // ── Runs per chatflow (completed chat_submission posts) ──
                                     global $wpdb;
@@ -995,9 +1122,9 @@ function em_render_email_manager_page()
                                     // ── The front-end mini chat runs on THIS admin page for the
                                     //    Test column (same handles inject_widgets_admin uses, so
                                     //    no duplicate loads when a widget already targets admin).
-                                    wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.0', 'all');
+                                    wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
                                     wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
-                                    wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.7', true);
+                                    wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.10', true);
                                     wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
                                     $em_cf_cu = wp_get_current_user();
                                     wp_localize_script('chat_forms_frontend_js', 'chatFormsPublic', array(
@@ -1020,13 +1147,14 @@ function em_render_email_manager_page()
                                     ));
                                     ?>
                                     <div class="gdc-table-wrap">
-                                        <table class="widefat striped">
+                                        <table class="widefat striped" id="em-cf-list-table" data-delete-nonce="<?php echo esc_attr(wp_create_nonce('em_cf_delete_chatflow')); ?>">
                                             <thead>
                                                 <tr>
                                                     <th><?php esc_html_e('Title', 'email-manager'); ?></th>
                                                     <th><?php esc_html_e('Runs', 'email-manager'); ?></th>
                                                     <th><?php esc_html_e('Test', 'email-manager'); ?></th>
                                                     <th><?php esc_html_e('Actions', 'email-manager'); ?></th>
+                                                    <th><?php esc_html_e('Delete', 'email-manager'); ?></th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -1057,7 +1185,7 @@ function em_render_email_manager_page()
                                                             'thankYou'     => get_post_meta($post->ID, '_chat_form_thank_you_message', true),
                                                         );
                                                 ?>
-                                                        <tr class="em-row" style="--em-i:<?php echo (int) $i; ?>;">
+                                                        <tr class="em-row em-cf-list-row" style="--em-i:<?php echo (int) $i; ?>;" data-cf-title="<?php echo esc_attr(strtolower($post->post_title)); ?>">
                                                             <td><strong><?php echo esc_html($post->post_title); ?></strong></td>
                                                             <td>
                                                                 <button type="button" class="button button-small em-cf-runs-btn"
@@ -1083,13 +1211,23 @@ function em_render_email_manager_page()
                                                                     <?php esc_html_e('Edit', 'email-manager'); ?>
                                                                 </a>
                                                             </td>
+                                                            <td>
+                                                                <?php if (current_user_can('delete_post', $post->ID)) : ?>
+                                                                    <button type="button" class="button button-small em-cf-delete-btn"
+                                                                        data-cf-delete="<?php echo esc_attr($post->ID); ?>"
+                                                                        data-cf-name="<?php echo esc_attr($post->post_title); ?>"><?php esc_html_e('Delete', 'email-manager'); ?></button>
+                                                                <?php endif; ?>
+                                                            </td>
                                                         </tr>
                                                     <?php endforeach;
                                                 else: ?>
                                                     <tr>
-                                                        <td colspan="4"><?php esc_html_e('No chatflows found.', 'email-manager'); ?></td>
+                                                        <td colspan="5"><?php esc_html_e('No chatflows found.', 'email-manager'); ?></td>
                                                     </tr>
                                                 <?php endif; ?>
+                                                <tr class="em-cf-list-nomatch" hidden>
+                                                    <td colspan="5"><?php esc_html_e('No chatflows match your search.', 'email-manager'); ?></td>
+                                                </tr>
                                             </tbody>
                                         </table>
                                     </div>

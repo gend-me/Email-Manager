@@ -73,6 +73,7 @@ class EM_Postings
         // points straight at the real post.php?action=edit screen, so it
         // gets Gutenberg exactly like the native editor would.
         add_action('add_meta_boxes', [$this, 'register_shortcode_metabox'], 10, 2);
+        add_action('admin_head-post.php', [$this, 'frame_editor_styles']);
 
         // Earning a role (by any means) can enrol the member in a posting's contract.
         add_action('add_user_role', [$this, 'on_role_earned'], 10, 2);
@@ -181,6 +182,23 @@ class EM_Postings
             'side',
             'high'
         );
+    }
+
+    /** The posting popup embeds the page's edit screen in an iframe (src gets
+     *  em_frame=1). Under 782px wide — the frame's width on most laptop
+     *  screens — WordPress drops the editor's fullscreen layout and shows the
+     *  admin chrome again, and the GenD Society admin theme's fixed 64px menu
+     *  rail (z-index 99998) then covers the editor's top-left toolbar, so the
+     *  "+" block inserter can't be clicked. Hide the admin chrome in the frame.
+     *  (The 56px band kept for the GenD header stays: the Leo launcher sits there.) */
+    public function frame_editor_styles()
+    {
+        if (empty($_GET['em_frame'])) return;
+        echo '<style id="em-pf-frame-css">'
+            . '#adminmenumain,#wpadminbar{display:none !important;}'
+            . 'html.wp-toolbar{padding-top:0 !important;}'
+            . '#wpcontent,#wpfooter{margin-left:0 !important;}'
+            . '</style>';
     }
 
     public function render_shortcode_metabox($post)
@@ -1704,14 +1722,7 @@ class EM_Postings
     </div>
 
     <main class="em-lp-shell">
-        <section class="em-lp-hero">
-            <span class="em-lp-tag em-lp-build" style="--d:0;">
-                <span class="em-lp-dot"></span><?php echo esc_html(get_bloginfo('name')); ?> · <?php esc_html_e('Now accepting applications', 'email-manager'); ?>
-            </span>
-            <h1 class="em-lp-title em-lp-build" style="--d:1;"><?php echo esc_html($posting->post_title); ?></h1>
-        </section>
-
-        <section class="em-lp-formcard em-lp-build" style="--d:3;" id="apply">
+        <section class="em-lp-formcard em-lp-build" style="--d:0;" id="apply">
             <?php if ($closed): ?>
                 <div class="em-lp-closed">
                     <div class="em-lp-closed__icon">✦</div>
@@ -1740,23 +1751,6 @@ class EM_Postings
                 </div>
             <?php endif; ?>
         </section>
-
-        <?php $process = self::get_process($posting->ID); if (!empty($process)): ?>
-            <section class="em-lp-process em-lp-build" style="--d:4;">
-                <h2 class="em-lp-section-title"><?php esc_html_e('How it works', 'email-manager'); ?></h2>
-                <div class="em-lp-steps">
-                    <?php foreach ($process as $si => $step): ?>
-                        <div class="em-lp-step">
-                            <div class="em-lp-step__num"><?php echo (int) $si + 1; ?></div>
-                            <div class="em-lp-step__body">
-                                <div class="em-lp-step__title"><?php echo esc_html($step['title']); ?></div>
-                                <?php if (!empty($step['desc'])): ?><div class="em-lp-step__desc"><?php echo esc_html($step['desc']); ?></div><?php endif; ?>
-                            </div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </section>
-        <?php endif; ?>
 
         <?php $contract = self::get_contract($posting->ID); if (!empty($contract['enabled']) && trim($contract['body']) !== ''): ?>
             <section class="em-lp-contract em-lp-build" style="--d:5;">
@@ -1804,63 +1798,44 @@ class EM_Postings
     }
     @keyframes lp-float { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(40px,-30px) scale(1.08); } }
 
-    .em-lp-shell { position: relative; z-index: 1; max-width: 760px; margin: 0 auto; padding: 72px 22px 56px; }
-    .em-lp-hero { text-align: center; margin-bottom: 34px; }
-    .em-lp-tag {
-        display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 999px;
-        background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
-        font-size: 0.78rem; font-weight: 600; letter-spacing: 0.02em; color: #cbd5f5; margin-bottom: 22px;
-    }
-    .em-lp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lp-accent); box-shadow: 0 0 0 0 var(--lp-accent); animation: lp-pulse 2.4s ease-out infinite; }
-    @keyframes lp-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--lp-accent) 70%, transparent); } 100% { box-shadow: 0 0 0 12px transparent; } }
-    .em-lp-title {
-        font-size: clamp(2.1rem, 6vw, 3.5rem); line-height: 1.05; font-weight: 800; letter-spacing: -0.03em; margin: 0 0 16px;
-        background: linear-gradient(120deg, #fff 20%, color-mix(in srgb, var(--lp-accent) 60%, #fff) 60%, color-mix(in srgb, var(--lp-accent2) 70%, #fff));
-        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-    }
-
+    .em-lp-shell { position: relative; z-index: 1; width: 100%; max-width: 1360px; margin: 0 auto; padding: clamp(32px, 6vh, 72px) clamp(16px, 4vw, 56px) 64px; }
+    body.em-lp, body.em-lp :is(h1, h2, h3, h4, p, li, label, input, textarea, select, button) { font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .em-lp-formcard {
         background: rgba(15,23,42,0.72); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(148,163,184,0.16); border-radius: 24px; padding: 30px;
+        border: 1px solid rgba(148,163,184,0.16); border-radius: 28px; padding: clamp(20px, 3.5vw, 52px);
         box-shadow: 0 40px 90px rgba(2,6,23,0.55); position: relative; overflow: hidden;
     }
     .em-lp-formcard::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent); }
-    .em-lp-content { color: #d7def2; line-height: 1.7; }
-    .em-lp-content h1, .em-lp-content h2, .em-lp-content h3 { color: #f8fafc; }
+    .em-lp-content { color: #d7def2; line-height: 1.75; font-size: clamp(1rem, 1.25vw, 1.15rem); }
+    .em-lp-content > *:first-child { margin-top: 0; }
+    .em-lp-content > *:last-child { margin-bottom: 0; }
+    .em-lp-content h1, .em-lp-content h2, .em-lp-content h3 { color: #f8fafc; letter-spacing: -0.02em; line-height: 1.2; }
+    .em-lp-content h1 { font-size: clamp(2rem, 3.4vw, 2.9rem); }
+    .em-lp-content h2 { font-size: clamp(1.6rem, 2.6vw, 2.2rem); }
+    .em-lp-content h3 { font-size: clamp(1.25rem, 1.9vw, 1.6rem); }
     .em-lp-content a { color: var(--lp-accent); }
-    .em-lp-content img { max-width: 100%; height: auto; border-radius: 12px; }
-    .em-lp-closed { text-align: center; padding: 26px 12px; }
-    .em-lp-closed__icon { font-size: 2.4rem; color: var(--lp-accent); margin-bottom: 8px; }
-    .em-lp-closed h2 { margin: 0 0 8px; color: #f8fafc; font-size: 1.3rem; }
-    .em-lp-closed p { margin: 0; color: #93a0c2; }
-    .em-lp-foot { text-align: center; color: #647088; font-size: 0.82rem; margin-top: 30px; }
+    .em-lp-content img, .em-lp-content video, .em-lp-content iframe { max-width: 100%; border-radius: 14px; }
+    .em-lp-content img { height: auto; }
+    .em-lp-content .alignwide, .em-lp-content .alignfull, .em-lp-content .wp-block-group, .em-lp-content .wp-block-columns { max-width: 100% !important; width: 100%; }
+    .em-lp-closed { text-align: center; padding: 48px 12px; }
+    .em-lp-closed__icon { font-size: 3rem; color: var(--lp-accent); margin-bottom: 12px; }
+    .em-lp-closed h2 { margin: 0 0 10px; color: #f8fafc; font-size: clamp(1.5rem, 2.4vw, 2rem); }
+    .em-lp-closed p { margin: 0; color: #93a0c2; font-size: 1.1rem; }
+    .em-lp-foot { text-align: center; color: #647088; font-size: 0.88rem; margin-top: 44px; }
 
     .em-lp-build { opacity: 0; transform: translateY(22px); animation: lp-build 720ms cubic-bezier(0.22,0.61,0.36,1) forwards; animation-delay: calc(var(--d, 0) * 120ms + 120ms); }
     @keyframes lp-build { to { opacity: 1; transform: translateY(0); } }
     @media (prefers-reduced-motion: reduce) { .em-lp-build { animation: none; opacity: 1; transform: none; } }
 
-    .em-lp-content .chat-form-container, .em-lp-content .basic-form-container { max-width: 100% !important; margin: 0 auto !important; }
+    .em-lp-content .chat-form-container, .em-lp-content .basic-form-container { max-width: 100% !important; width: 100% !important; margin: 0 auto !important; }
 
-    .em-lp-section-title { text-align: center; font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em; color: #f8fafc; margin: 0 0 22px; }
-    .em-lp-process { margin-top: 40px; }
-    .em-lp-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
-    .em-lp-step {
-        display: flex; gap: 13px; align-items: flex-start; padding: 18px;
-        background: rgba(255,255,255,0.04); border: 1px solid rgba(148,163,184,0.14); border-radius: 16px;
-    }
-    .em-lp-step__num {
-        flex-shrink: 0; width: 34px; height: 34px; border-radius: 50%;
-        display: flex; align-items: center; justify-content: center; font-weight: 700; color: #fff;
-        background: linear-gradient(135deg, var(--lp-accent), var(--lp-accent2));
-    }
-    .em-lp-step__title { font-weight: 700; color: #f8fafc; margin-bottom: 4px; }
-    .em-lp-step__desc { color: #97a3c4; font-size: 0.9rem; line-height: 1.55; }
-    .em-lp-contract { margin-top: 40px; }
+    body.em-lp .em-lp-section-title { text-align: center; font-size: clamp(1.7rem, 3vw, 2.4rem); font-weight: 800; letter-spacing: -0.02em; color: #f8fafc; margin: 0 0 26px; }
+    .em-lp-contract { margin-top: clamp(44px, 6vw, 72px); }
     .em-lp-contract__body {
-        background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.14); border-radius: 16px;
-        padding: 22px 24px; color: #c7d0e6; line-height: 1.7; max-height: 360px; overflow-y: auto;
+        background: rgba(15,23,42,0.6); border: 1px solid rgba(148,163,184,0.14); border-radius: 20px;
+        padding: clamp(22px, 3vw, 40px); color: #c7d0e6; line-height: 1.75; font-size: 1.05rem; max-height: 480px; overflow-y: auto;
     }
-    .em-lp-contract__note { text-align: center; color: #93a0c2; font-size: 0.86rem; margin-top: 12px; }
+    .em-lp-contract__note { text-align: center; color: #93a0c2; font-size: 0.95rem; margin-top: 14px; }
 </style>
         <?php
     }
@@ -3589,7 +3564,7 @@ class EM_Postings
 
                         <!-- Apply Process -->
                         <div class="em-pf-pane" data-pane="process">
-                            <p class="em-pf-hint" style="margin-bottom:12px;"><?php esc_html_e('Outline the steps applicants go through. Each step appears as a "How it works" entry on the landing page, and can also grant a role, add the applicant to a mailing list, and send emails when they reach it. Step 1 runs when the form is submitted; every later step is completed either by a member\'s approval or by an action the applicant takes, and finishing it moves the applicant to the next step. The last step is fixed: it sets up what happens when the applicant is approved.', 'email-manager'); ?></p>
+                            <p class="em-pf-hint" style="margin-bottom:12px;"><?php esc_html_e('Outline the steps applicants go through. Each step can grant a role, add the applicant to a mailing list, and send emails when they reach it. Step 1 runs when the form is submitted; every later step is completed either by a member\'s approval or by an action the applicant takes, and finishing it moves the applicant to the next step. The last step is fixed: it sets up what happens when the applicant is approved.', 'email-manager'); ?></p>
                             <?php /* The Add Step button lives inside the rows list, between the ordinary steps and the approved step, so
                                      the approved step is always the last thing shown. Steps are inserted before it (see em-postings.js). */ ?>
                             <div id="em-process-rows" class="em-process-rows">
@@ -3718,9 +3693,7 @@ class EM_Postings
                 <iframe class="em-pf-iframe" data-role="<?php echo esc_attr($role); ?>" title="<?php esc_attr_e('Page editor', 'email-manager'); ?>" hidden></iframe>
             </div>
             <aside class="em-pf-side">
-                <?php if ($role === 'landing'): ?>
-                    <a class="button em-pf-openpage" data-role="landing" href="#" target="_blank" rel="noopener" hidden><?php esc_html_e('Open full editor ↗', 'email-manager'); ?></a>
-                <?php endif; ?>
+                <a class="button em-pf-openpage" data-role="<?php echo esc_attr($role); ?>" href="#" target="_blank" rel="noopener" hidden><?php esc_html_e('Open full editor ↗', 'email-manager'); ?></a>
                 <div class="em-pf-side__title"><?php esc_html_e('Form shortcode', 'email-manager'); ?></div>
                 <p class="em-pf-side__hint"><?php esc_html_e('Paste this into the page where the form should appear.', 'email-manager'); ?></p>
                 <div class="em-pf-shortcode">

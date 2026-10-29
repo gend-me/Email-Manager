@@ -222,6 +222,7 @@ jQuery(document).ready(function ($) {
                 },
                 success: function (response) {
                     if (response.success) {
+                        if (!botAvatar && response.data.bot_avatar) botAvatar = response.data.bot_avatar;
                         bootstrapFlow(response.data.questions || response.data, {
                             thankYouMessage: response.data.thank_you_message || '🎉 Thank you! Your response has been saved successfully.',
                             redirectUrl: response.data.redirect_url || ''
@@ -571,15 +572,38 @@ jQuery(document).ready(function ($) {
 
             if (isLoggedIn) {
                 var displayName = currentUser.display_name || currentUser.username || 'Unknown';
+                var initial = (displayName.charAt(0) || 'U').toUpperCase();
                 $inputArea.html(
                     '<div class="chat-account-widget">' +
                         '<div class="account-logged-in">' +
-                            '<span class="account-avatar">👤</span>' +
-                            '<p>You are logged in as <strong>' + displayName + '</strong></p>' +
-                            '<button type="button" class="chat-submit-btn account-continue-btn">Continue</button>' +
+                            '<div class="account-user">' +
+                                '<div class="account-avatar"><span class="account-avatar-initial"></span></div>' +
+                                '<div class="account-user-text">' +
+                                    '<span class="account-user-label">Signed in as</span>' +
+                                    '<span class="account-user-name"></span>' +
+                                    '<span class="account-user-email"></span>' +
+                                '</div>' +
+                            '</div>' +
+                            '<button type="button" class="chat-submit-btn account-continue-btn">Continue as <span class="account-continue-name"></span></button>' +
                         '</div>' +
                     '</div>'
                 );
+
+                var $card = $inputArea.find('.account-logged-in');
+                $card.find('.account-avatar-initial').text(initial);
+                $card.find('.account-user-name, .account-continue-name').text(displayName);
+                if (currentUser.email) {
+                    $card.find('.account-user-email').text(currentUser.email);
+                } else {
+                    $card.find('.account-user-email').remove();
+                }
+                if (currentUser.avatar_url) {
+                    $('<img alt="" />')
+                        .on('load', function () { $card.find('.account-avatar').addClass('has-image'); })
+                        .on('error', function () { $(this).remove(); })
+                        .attr('src', currentUser.avatar_url)
+                        .appendTo($card.find('.account-avatar'));
+                }
 
                 $inputArea.find('.account-continue-btn').on('click', function () {
                     handleAnswer(
@@ -606,11 +630,45 @@ jQuery(document).ready(function ($) {
                             '<input type="email" class="chat-input account-reg-email" placeholder="Email Address" />' +
                             '<input type="password" class="chat-input account-reg-password" placeholder="Password (min 8 chars)" />' +
                             '<input type="password" class="chat-input account-reg-confirm" placeholder="Confirm Password" />' +
+                            '<div class="account-terms-slot"></div>' +
                             '<div class="account-msg" style="display:none;"></div>' +
                             '<button type="button" class="chat-submit-btn account-register-btn">Register & Continue</button>' +
                         '</div>' +
                     '</div>'
                 );
+
+                // Terms & conditions the visitor must accept before registering.
+                var terms = (question.terms && (question.terms.enabled === true || question.terms.enabled === '1' || question.terms.enabled === 1)) ? question.terms : null;
+                if (terms) {
+                    var $terms = $('<label class="account-terms"><input type="checkbox" class="account-terms-cb" /> <span class="account-terms-text"></span></label>');
+                    $terms.find('.account-terms-text').text((terms.label || 'I agree to the Terms & Conditions') + ' ');
+                    var $read = $('<a href="#" class="account-terms-link">Read terms</a>');
+                    if (terms.mode === 'page' && terms.url) {
+                        $read.attr({ href: terms.url, target: '_blank', rel: 'noopener' });
+                    } else {
+                        $read.on('click', function (e) {
+                            e.preventDefault();
+                            var $modal = $('<div class="chat-terms-modal" role="dialog" aria-modal="true">' +
+                                '<div class="chat-terms-modal__panel">' +
+                                    '<div class="chat-terms-modal__head"><h3></h3><button type="button" class="chat-terms-modal__x" aria-label="Close">&times;</button></div>' +
+                                    '<div class="chat-terms-modal__body"></div>' +
+                                    '<div class="chat-terms-modal__foot"><button type="button" class="chat-submit-btn chat-terms-agree">I Agree</button></div>' +
+                                '</div></div>');
+                            $modal.find('h3').text(terms.title || 'Terms & Conditions');
+                            // Admin-authored, wp_kses_post-filtered on save.
+                            $modal.find('.chat-terms-modal__body').html(terms.content || '');
+                            $modal.on('click', function (ev) { if (ev.target === this) { $modal.remove(); } });
+                            $modal.find('.chat-terms-modal__x').on('click', function () { $modal.remove(); });
+                            $modal.find('.chat-terms-agree').on('click', function () {
+                                $terms.find('.account-terms-cb').prop('checked', true);
+                                $modal.remove();
+                            });
+                            $('body').append($modal);
+                        });
+                    }
+                    $terms.find('.account-terms-text').append($read);
+                    $inputArea.find('.account-terms-slot').replaceWith($terms);
+                }
 
                 // Tab switching
                 $inputArea.find('.account-tab').on('click', function () {
@@ -687,9 +745,13 @@ jQuery(document).ready(function ($) {
                         $msg.removeClass('success').addClass('error').text('Passwords do not match.').show();
                         return;
                     }
+                    if (terms && !$inputArea.find('.account-terms-cb').is(':checked')) {
+                        $msg.removeClass('success').addClass('error').text('Please accept the terms and conditions to create your account.').show();
+                        return;
+                    }
 
                     handleAnswer(
-                        JSON.stringify({ action: 'register', username: username, email: email, password: password }),
+                        JSON.stringify({ action: 'register', username: username, email: email, password: password, terms_accepted: !!terms }),
                         'Registering as ' + username
                     );
                 });

@@ -106,13 +106,16 @@ if (!class_exists('GenD_GitHub_Updater')) {
         {
             $cache_key = 'gend_remote_data_' . md5($this->github_repo);
 
-            // Allow bypassing cache for testing
-            if (defined('GEND_UPDATE_BYPASS_CACHE') && GEND_UPDATE_BYPASS_CACHE) {
+            // Allow bypassing cache for testing -- only on an explicit "Check again" (update-core.php?force-check=1).
+            // GEND_UPDATE_BYPASS_CACHE is set on the live pod, and honouring it on every request made each of these
+            // updaters call GitHub on every wp-admin page load.
+            if (defined('GEND_UPDATE_BYPASS_CACHE') && GEND_UPDATE_BYPASS_CACHE && !empty($_GET['force-check'])) {
                 delete_transient($cache_key);
             } else {
                 $remote_data = get_transient($cache_key);
                 if ($remote_data !== false) {
-                    return $remote_data;
+                    // A cached failed check (see below) means "no update info" until it expires.
+                    return empty($remote_data['_failed']) ? $remote_data : false;
                 }
             }
 
@@ -132,12 +135,16 @@ if (!class_exists('GenD_GitHub_Updater')) {
 
             $response = wp_remote_get($url, $args);
 
+            // Failed checks are cached too (6 h): without a token the private repos answer 401, and an uncached
+            // failure repeated this GitHub call for every plugin on every wp-admin page load.
             if (is_wp_error($response)) {
+                set_transient($cache_key, ['_failed' => 1], 6 * HOUR_IN_SECONDS);
                 return false;
             }
 
             $content = wp_remote_retrieve_body($response);
             if (empty($content) || wp_remote_retrieve_response_code($response) != 200) {
+                set_transient($cache_key, ['_failed' => 1], 6 * HOUR_IN_SECONDS);
                 return false;
             }
 
@@ -164,6 +171,7 @@ if (!class_exists('GenD_GitHub_Updater')) {
             }
 
             if (empty($remote_data['Version'])) {
+                set_transient($cache_key, ['_failed' => 1], 6 * HOUR_IN_SECONDS);
                 return false;
             }
 

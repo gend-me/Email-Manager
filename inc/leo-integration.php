@@ -264,7 +264,10 @@ class EM_Leo
     {
         check_ajax_referer('chat_forms_submit_nonce', 'nonce');
 
-        if (!self::is_enabled()) {
+        // On the hub the prompt runs on the gend.me compute network directly (leo's gas router) -- no hub
+        // token / proxy round-trip is involved, so the integration need not be "enabled" there.
+        $on_hub = function_exists('aipa_gas_run');
+        if (!$on_hub && !self::is_enabled()) {
             wp_send_json_error(['message' => __('AI integration is not enabled.', 'email-manager')], 503);
         }
 
@@ -273,6 +276,31 @@ class EM_Leo
         $form_id  = isset($_POST['form_id']) ? absint($_POST['form_id']) : 0;
         $pays     = isset($_POST['pays']) ? sanitize_key($_POST['pays']) : 'site';
         $client_pays_uid = isset($_POST['pays_user_id']) ? absint($_POST['pays_user_id']) : 0;
+
+        // Security 2026-10-18: the prompt must be one of the saved questions of a published chat form, and who
+        // pays comes from that saved question, never from the request. Guests are rate limited per IP.
+        $saved_q = null;
+        if ($form_id && get_post_status($form_id) === 'publish' && get_post_type($form_id) === 'chat_form') {
+            foreach ((array) get_post_meta($form_id, '_chat_form_questions', true) as $q) {
+                if (is_array($q) && ($q['type'] ?? '') === 'prompt_response' && (string) ($q['prompt'] ?? '') === (string) $template) {
+                    $saved_q = $q;
+                    break;
+                }
+            }
+        }
+        if (!$saved_q) {
+            wp_send_json_error(['message' => __('This prompt is not part of a published chat form.', 'email-manager')], 403);
+        }
+        $pays            = sanitize_key((string) ($saved_q['pays'] ?? 'site'));
+        $client_pays_uid = absint($saved_q['pays_user_id'] ?? 0);
+        if (!is_user_logged_in()) {
+            $rl_key = 'em_leo_rl_' . md5((string) ($_SERVER['REMOTE_ADDR'] ?? '') . '|' . $form_id);
+            $hits   = (int) get_transient($rl_key);
+            if ($hits >= 20) {
+                wp_send_json_error(['message' => __('Too many requests. Please try again later.', 'email-manager')], 429);
+            }
+            set_transient($rl_key, $hits + 1, HOUR_IN_SECONDS);
+        }
 
         // Sanitize incoming answers shallowly
         $clean_answers = [];
@@ -294,22 +322,8 @@ class EM_Leo
         $resolved = self::resolve_tokens($template, $context);
         if (trim($resolved) === '') wp_send_json_error(['message' => 'Empty prompt'], 400);
 
-        // ── Per-question run target: a connected DEVICE executes this
-        // prompt on member hardware (no gend.me metering); offline or
-        // timed-out devices fall through to the Compute Network below.
+        // ── Per-question run target and model pick, from the SAVED question (never client-controlled).
         $run = self::resolve_run_target($form_id, $template);
-        if ($run && !empty($run['run_target']) && 'gendme' !== $run['run_target']) {
-            $dev_text = self::run_on_device($run, $resolved);
-            if (!is_wp_error($dev_text)) {
-                wp_send_json_success([
-                    'text'        => $dev_text,
-                    'tokens_used' => 0,
-                    'balance'     => null,
-                    'form_id'     => $form_id,
-                    'paid_by'     => 'device',
-                ]);
-            }
-        }
 
         // Resolve which user's LEO balance pays. We never trust the client to
         // unilaterally specify another user's id without the question saying so.
@@ -341,9 +355,70 @@ class EM_Leo
             }
         }
 
-        $result = self::complete($resolved, $complete_args);
         $paying_user_id = isset($complete_args['paying_user_id']) ? (int) $complete_args['paying_user_id']
                         : (!empty($complete_args['use_request_user']) ? get_current_user_id() : 0);
+
+        if ($on_hub) {
+            // The gend.me compute network (leo/includes/gas-router.php): a connected device of the hub group's
+            // admins when one is online and able -- the question's own device choice is honoured first -- else
+            // gend.me compute. Priced at the question's model pick (ai_model), charged to the payer once; the
+            // device's owner earns the station share. We wait up to 25s for a device (the chat front-end gives
+            // up at 35s), then gend.me compute answers instead.
+            $payer = $paying_user_id;
+            if ($payer <= 0 && $form_id) {
+                // "Site pays" on the hub: the admin who built the chat form.
+                $payer = (int) get_post_field('post_author', $form_id);
+            }
+            if ($payer <= 0) {
+                wp_send_json_error(['code' => 'no_payer', 'message' => __('No paying account is set for this AI prompt.', 'email-manager')], 402);
+            }
+            $target = (string) ($run['run_target'] ?? 'gendme');
+            $routed = aipa_gas_run([
+                'kind'           => 'chatflow',
+                'prompt'         => $resolved,
+                'pick'           => (string) ($run['ai_model'] ?? ''),
+                'payer_uid'      => $payer,
+                'group_id'       => (int) get_option('gdc_bp_group_id'),
+                'reference'      => 'chatflow:' . $form_id,
+                'async'          => false,
+                'wait'           => 25,
+                'run_target'     => 'network',
+                'device_id'      => ($target !== '' && $target !== 'gendme') ? $target : '',
+                'model'          => (string) ($run['run_model'] ?? ''),
+                'ai_integration' => (string) ($run['run_integration'] ?? ''),
+                'meta'           => ['source' => 'chatflow', 'chatflow_form_id' => $form_id],
+            ]);
+            if (is_wp_error($routed)) {
+                $code = $routed->get_error_code() === 'insufficient_credits' ? 402 : 500;
+                wp_send_json_error(['code' => $routed->get_error_code(), 'message' => $routed->get_error_message()], $code);
+            }
+            wp_send_json_success([
+                'text'        => (string) $routed['response'],
+                'tokens_used' => (int) round((float) ($routed['charged_tokens'] ?? 0)),
+                'balance'     => class_exists('AIPA_Usage') ? (int) AIPA_Usage::get_balance($payer) : null,
+                'form_id'     => $form_id,
+                'paid_by'     => $payer,
+                'served_by'   => (string) ($routed['served_by'] ?? ''),
+                'station'     => (string) ($routed['station_label'] ?? ''),
+            ]);
+        }
+
+        // ── Subsite: a connected DEVICE executes this prompt on member hardware; offline or timed-out
+        // devices fall through to the hub call below.
+        if ($run && !empty($run['run_target']) && 'gendme' !== $run['run_target']) {
+            $dev_text = self::run_on_device($run, $resolved);
+            if (!is_wp_error($dev_text)) {
+                wp_send_json_success([
+                    'text'        => $dev_text,
+                    'tokens_used' => 0,
+                    'balance'     => null,
+                    'form_id'     => $form_id,
+                    'paid_by'     => 'device',
+                ]);
+            }
+        }
+
+        $result = self::complete($resolved, $complete_args);
         if (is_wp_error($result)) {
             $code = $result->get_error_code() === 'insufficient_tokens' ? 402 : 500;
             wp_send_json_error(['code' => $result->get_error_code(), 'message' => $result->get_error_message()], $code);
@@ -374,6 +449,8 @@ class EM_Leo
                 'run_target'      => (string) ($q['run_target'] ?? 'gendme'),
                 'run_integration' => (string) ($q['run_integration'] ?? ''),
                 'run_model'       => (string) ($q['run_model'] ?? ''),
+                // The AI Models pick ("pick:lang:T5:quality") that prices and selects the model on the network.
+                'ai_model'        => (string) ($q['ai_model'] ?? ''),
             ];
         }
         return null;

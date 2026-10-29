@@ -2351,3 +2351,58 @@ html body.em-mce-static { position: static !important; }
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
 }
+
+/* ── Email ▸ Lists table: full dark restyle. WP core's `table.widefat`
+   paints the table itself white, so the transparent-row fix above still
+   left light text on white. Everything here is scoped to the lists panel. */
+.gdc-email-page #gdc-email-lists-search {
+    width: 300px; max-width: 100%; height: 42px; padding: 0 14px 0 40px !important;
+    background: rgba(2, 6, 23, 0.65) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat 14px center !important;
+    border: 1px solid rgba(148, 163, 184, 0.28) !important; border-radius: 12px !important;
+    color: #f1f5f9 !important; font-size: 14px; box-shadow: none !important;
+}
+.gdc-email-page #gdc-email-lists-search::placeholder { color: #94a3b8; opacity: 1; }
+.gdc-email-page #gdc-email-lists-search:focus { border-color: #818cf8 !important; box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.25) !important; outline: none; }
+
+.gdc-email-page .gdc-table-wrap:has(#gdc-email-lists-table) {
+    background: rgba(2, 6, 23, 0.55) !important; border: 1px solid rgba(148, 163, 184, 0.18) !important;
+    border-radius: 16px !important; overflow-x: auto; box-shadow: none !important;
+}
+.gdc-email-page table#gdc-email-lists-table {
+    background: transparent !important; border: 0 !important; border-collapse: collapse; width: 100%; min-width: 640px; box-shadow: none !important;
+}
+.gdc-email-page table#gdc-email-lists-table thead th {
+    background: rgba(15, 23, 42, 0.95) !important; color: #94a3b8 !important;
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 14px 20px !important; border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important; text-align: left;
+}
+.gdc-email-page table#gdc-email-lists-table > tbody > tr,
+.gdc-email-page table#gdc-email-lists-table > tbody > tr:nth-child(odd),
+.gdc-email-page table#gdc-email-lists-table > tbody > tr:nth-child(even) {
+    background: transparent !important; transition: background 0.15s ease;
+}
+.gdc-email-page table#gdc-email-lists-table > tbody > tr:hover { background: rgba(129, 140, 248, 0.08) !important; }
+.gdc-email-page table#gdc-email-lists-table > tbody > tr > td {
+    background: transparent !important; color: #cbd5e1 !important; font-size: 14px; line-height: 1.5;
+    padding: 16px 20px !important; vertical-align: middle; border-bottom: 1px solid rgba(148, 163, 184, 0.1) !important;
+}
+.gdc-email-page table#gdc-email-lists-table > tbody > tr:last-child > td { border-bottom: 0 !important; }
+.gdc-email-page table#gdc-email-lists-table td.gdc-lists-name strong { color: #f8fafc !important; font-size: 15px; font-weight: 600; }
+.gdc-email-page table#gdc-email-lists-table td.gdc-lists-date { color: #94a3b8 !important; white-space: nowrap; }
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-muted { color: #64748b; font-style: italic; }
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-pill {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 32px; padding: 3px 10px; border-radius: 999px;
+    font-size: 13px; font-weight: 700; color: #c7d2fe; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(129, 140, 248, 0.35);
+}
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-pill.is-zero { color: #94a3b8; background: rgba(148, 163, 184, 0.1); border-color: rgba(148, 163, 184, 0.22); }
+.gdc-email-page table#gdc-email-lists-table td.gdc-lists-actions { white-space: nowrap; }
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-btn {
+    display: inline-flex; align-items: center; height: 32px; padding: 0 14px; margin: 0 6px 0 0;
+    border-radius: 9px; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; cursor: pointer;
+    color: #c7d2fe !important; background: rgba(99, 102, 241, 0.14) !important; border: 1px solid rgba(129, 140, 248, 0.4) !important;
+    box-shadow: none !important; transition: background 0.15s ease, border-color 0.15s ease;
+}
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-btn:hover { background: rgba(99, 102, 241, 0.3) !important; color: #fff !important; }
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-btn--danger { color: #fca5a5 !important; background: rgba(239, 68, 68, 0.1) !important; border-color: rgba(248, 113, 113, 0.35) !important; }
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-btn--danger:hover { background: rgba(239, 68, 68, 0.24) !important; color: #fff !important; }
+.gdc-email-page table#gdc-email-lists-table .gdc-lists-btn:focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }

@@ -1053,8 +1053,10 @@
         // Set global context for Leo Widget
         window.LEO_OVERRIDE_CONTEXT = 'email_architect';
 
-        // Trigger the global AIPA widget
-        if (window.AIPA_WIDGET && document.querySelector('aipa-widget')) {
+        // Trigger the global AIPA widget — but not for Store / Social Network
+        // emails: "Configure" is a settings form, and the chat opening on top
+        // of it hid the editor. Leo still gets the email context if opened by hand.
+        if (!isStore && !isCommunity && window.AIPA_WIDGET && document.querySelector('aipa-widget')) {
             const aipa = document.querySelector('aipa-widget');
             if (typeof aipa.open === 'function') {
                 aipa.open();

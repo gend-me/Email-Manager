@@ -1,4 +1,21 @@
 <?php
+if (!function_exists('gend_recaptcha_required')) {
+    /**
+     * reCAPTCHA is only for visitors we can't trust yet: logged out, or logged in with the
+     * WP Ultimo email verification still pending. Verified members never load or answer it.
+     */
+    function gend_recaptcha_required()
+    {
+        if (!is_user_logged_in()) return (bool) apply_filters('gend_recaptcha_required', true, 0);
+        $uid = get_current_user_id();
+        $pending = false;
+        if (function_exists('wu_get_customer_by_user_id') && ($c = wu_get_customer_by_user_id($uid)) && method_exists($c, 'get_email_verification')) {
+            $pending = $c->get_email_verification() === 'pending';
+        }
+        return (bool) apply_filters('gend_recaptcha_required', $pending, $uid);
+    }
+}
+
 
 class Chat_Forms_Ajax
 {
@@ -76,6 +93,7 @@ class Chat_Forms_Ajax
                     'prompt'        => isset($q['prompt'])  ? $q['prompt']  : '',
                     'pays'          => isset($q['pays'])          ? $q['pays']          : 'site',
                     'pays_user_id'  => isset($q['pays_user_id'])  ? (int) $q['pays_user_id'] : 0,
+                    'terms'         => isset($q['terms']) && is_array($q['terms']) ? $q['terms'] : array(),
                 );
 
                 // Handle options - support both old string format and new array format
@@ -127,8 +145,47 @@ class Chat_Forms_Ajax
         wp_send_json_success(array(
             'questions' => $formatted_questions,
             'thank_you_message' => $thank_you_message,
-            'redirect_url' => $redirect_url
+            'redirect_url' => $redirect_url,
+            'bot_avatar' => function_exists('em_cf_bot_avatar') ? em_cf_bot_avatar($form_id) : ''
         ));
+    }
+
+    /**
+     * When the Sales Team plugin is active and the visitor has no referral
+     * cookie, read its programs' URL params (e.g. ?ref=12) from the chat page
+     * (the AJAX request's same-site Referer) and seed the cookie values the
+     * plugin's own user_register/checkout hooks read, so its rules decide.
+     */
+    private function seed_affiliate_referral()
+    {
+        // The site's own program may use per-site cookie names (aas_ck()).
+        $ck_ref  = function_exists('aas_ck') ? aas_ck('aas_referrer_id') : 'aas_referrer_id';
+        $ck_prog = function_exists('aas_ck') ? aas_ck('aas_referrer_program_id') : 'aas_referrer_program_id';
+        if (!function_exists('aas_get_referral_programs') || !empty($_COOKIE[$ck_ref])) {
+            return;
+        }
+        $page = isset($_SERVER['HTTP_REFERER']) ? esc_url_raw(wp_unslash($_SERVER['HTTP_REFERER'])) : '';
+        if ($page === '' || wp_parse_url($page, PHP_URL_HOST) !== wp_parse_url(home_url(), PHP_URL_HOST)) {
+            return;
+        }
+        parse_str((string) wp_parse_url($page, PHP_URL_QUERY), $query);
+        foreach (aas_get_referral_programs() as $program) {
+            $param = isset($program['url_param']) ? (string) $program['url_param'] : '';
+            if ($param === '' || !isset($query[$param])) {
+                continue;
+            }
+            $ref_id = (int) $query[$param];
+            if ($ref_id <= 0 || !get_userdata($ref_id)) {
+                return;
+            }
+            $_COOKIE[$ck_ref]  = (string) $ref_id;
+            $_COOKIE[$ck_prog] = (string) $program['id'];
+            // Persist it too, so a later checkout is credited the same way.
+            $expires = time() + DAY_IN_SECONDS * (int) ($program['cookie_duration'] ?? 30);
+            setcookie($ck_ref, (string) $ref_id, $expires, COOKIEPATH, COOKIE_DOMAIN);
+            setcookie($ck_prog, (string) $program['id'], $expires, COOKIEPATH, COOKIE_DOMAIN);
+            return; // first matching program wins, same as the plugin
+        }
     }
 
     public function submit_entry()
@@ -140,8 +197,28 @@ class Chat_Forms_Ajax
             wp_send_json_error('Invalid form ID');
         }
 
+        // Security 2026-10-18: only real, published chat forms accept submissions, and
+        // the form nonce printed by Chat_Forms_Public (chatFormsPublic.nonce / hidden
+        // "nonce" input) must be valid.
+        if (get_post_type($form_id) !== 'chat_form' || get_post_status($form_id) !== 'publish') {
+            wp_send_json_error('Invalid form ID');
+        }
+        if (!check_ajax_referer('chat_forms_submit_nonce', 'nonce', false)) {
+            wp_send_json_error('Your session expired. Please reload the page and try again.');
+        }
+        if (!is_array($answers)) {
+            $answers = array();
+        }
+
         // reCAPTCHA verification
-        $recaptcha_enabled = get_post_meta($form_id, '_chat_form_enable_recaptcha', true) === '1';
+        // Security 2026-10-18: enforce for every visitor gend_recaptcha_required() flags
+        // (logged out / unverified) whenever the site has reCAPTCHA keys, not only when
+        // the per-form toggle is on. The frontend already sends a token whenever the
+        // site key is configured and reCAPTCHA is required.
+        $em_rc_settings = get_option('em_smtp_settings', []);
+        $em_rc_keys = !empty($em_rc_settings['recaptcha_site_key']) && !empty($em_rc_settings['recaptcha_secret_key']);
+        $recaptcha_enabled = gend_recaptcha_required()
+            && (get_post_meta($form_id, '_chat_form_enable_recaptcha', true) === '1' || $em_rc_keys);
         if ($recaptcha_enabled) {
             $smtp_settings = get_option('em_smtp_settings', []);
             $secret_key = $smtp_settings['recaptcha_secret_key'] ?? '';
@@ -185,12 +262,37 @@ class Chat_Forms_Ajax
 
         foreach ($answers as $key => $raw_answer) {
             $answer_str = is_array($raw_answer) ? (isset($raw_answer['answer']) ? $raw_answer['answer'] : '') : (string) $raw_answer;
-            $decoded    = json_decode($answer_str, true);
+            // $_POST is slashed by WordPress — unslash or the JSON never decodes.
+            $decoded    = json_decode(wp_unslash($answer_str), true);
 
             if (is_array($decoded) && isset($decoded['action']) && $decoded['action'] === 'register') {
                 $registration_key  = $key;
                 $registration_data = $decoded;
                 break;
+            }
+        }
+
+        // Security 2026-10-18: only create/log in accounts when the form really has an
+        // Account Registration step, the visitor is logged out, and the site allows
+        // registration (multisite: network "registration" setting user/all).
+        if ($registration_data) {
+            $em_form_registers = false;
+            foreach ((array) get_post_meta($form_id, '_chat_form_questions', true) as $em_fq) {
+                if (is_array($em_fq) && ($em_fq['type'] ?? '') === 'account_registration') {
+                    $em_form_registers = true;
+                    break;
+                }
+            }
+            if (is_multisite()) {
+                $em_site_registers = in_array(get_site_option('registration'), array('user', 'all'), true);
+            } else {
+                $em_site_registers = (bool) get_option('users_can_register');
+            }
+            if (!$em_form_registers || is_user_logged_in()) {
+                wp_send_json_error('Registration is not available on this form.');
+            }
+            if (!$em_site_registers) {
+                wp_send_json_error('New account registration is currently disabled on this site.');
             }
         }
 
@@ -211,10 +313,40 @@ class Chat_Forms_Ajax
                 wp_send_json_error('An account with that email address already exists.');
             }
 
+            // Terms & conditions set on the form's Account Registration step
+            // must be accepted before the account is created.
+            $reg_terms = null;
+            foreach ((array) get_post_meta($form_id, '_chat_form_questions', true) as $fq) {
+                if (is_array($fq) && ($fq['type'] ?? '') === 'account_registration' && !empty($fq['terms']['enabled'])) {
+                    $reg_terms = $fq['terms'];
+                    break;
+                }
+            }
+            if ($reg_terms && empty($registration_data['terms_accepted'])) {
+                wp_send_json_error('Please accept the terms and conditions to create your account.');
+            }
+
+            // Sales Team affiliate links: its user_register hook assigns the new
+            // account to the referrer from the aas_referrer_id cookie. If that
+            // cookie never got set (cached page, blocked cookie) fall back to the
+            // referral param on the page the chat runs on.
+            $this->seed_affiliate_referral();
+
             $user_id = wp_create_user($reg_username, $reg_password, $reg_email);
 
             if (is_wp_error($user_id)) {
                 wp_send_json_error($user_id->get_error_message());
+            }
+
+            if ($reg_terms) {
+                update_user_meta($user_id, '_chat_form_terms_accepted', array(
+                    'form_id' => (int) $form_id,
+                    'at'      => current_time('mysql'),
+                    'mode'    => $reg_terms['mode'] ?? 'popup',
+                    'url'     => $reg_terms['url'] ?? '',
+                    // Fingerprint of the exact popup text that was accepted.
+                    'hash'    => md5((string) ($reg_terms['content'] ?? '')),
+                ));
             }
 
             // Send new-user notifications (admin + welcome email to user)

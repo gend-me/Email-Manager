@@ -31,7 +31,7 @@ class Chat_Forms_Admin
                     wp_enqueue_editor();
                 }
 
-                wp_enqueue_script('chat-forms-admin-js', EMAIL_MANAGER_URL . 'assets/forms/admin.js', array('jquery', 'jquery-ui-sortable'), '2.0', true);
+                wp_enqueue_script('chat-forms-admin-js', EMAIL_MANAGER_URL . 'assets/forms/admin.js', array('jquery', 'jquery-ui-sortable'), '2.1', true);
                 wp_localize_script('chat-forms-admin-js', 'chatFormsAjax', array(
                     'ajax_url' => admin_url('admin-ajax.php'),
                     'nonce' => wp_create_nonce('chat_forms_nonce')
@@ -47,9 +47,9 @@ class Chat_Forms_Admin
 
                 // Live-preview support — load the public chat assets on the edit page
                 // so the "Test This Chatflow" button can mount the actual chat widget.
-                wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.0', 'all');
+                wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
                 wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
-                wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.6', true);
+                wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.10', true);
                 wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
 
                 $cu = wp_get_current_user();
@@ -442,6 +442,12 @@ class Chat_Forms_Admin
                 }
 
                 /* Support-Ticket sub-editor — teal glass. */
+                .chat-form-question .account-registration-editor {
+                    background: linear-gradient(160deg, rgba(99,102,241,.14), rgba(14,165,233,.08)) !important;
+                    border: 1px solid rgba(129,140,248,.35) !important; border-left: 4px solid #818cf8 !important; color: #e0e7ff;
+                }
+                .chat-form-question .account-registration-editor strong { color: #c7d2fe !important; }
+                .chat-form-question .account-registration-editor small { color: #a5b4fc !important; }
                 .chat-form-question .support-ticket-editor {
                     background: rgba(20,184,166,.09) !important;
                     border: 1px solid rgba(20,184,166,.3) !important;
@@ -583,6 +589,10 @@ class Chat_Forms_Admin
                 'default'
             );
         }
+
+        // WordPress's generic "Custom Fields" box isn't used by chatflows —
+        // hide it (post-type support stays, so meta keeps working).
+        remove_meta_box('postcustom', 'chat_form', 'normal');
 
         // Add Custom HTML metabox only for basic forms
         add_meta_box(
@@ -800,14 +810,201 @@ class Chat_Forms_Admin
 
         <hr style="margin: 20px 0;" />
 
-        <p>
-            <label><strong><?php _e('Launch AI Sequence on Completion (Optional):', 'chat-forms'); ?></strong></label><br />
-            <input type="text" name="chat_form_launch_code" value="<?php echo esc_attr($launch_code); ?>" class="widefat"
-                placeholder="LT-xxxxxxxxxx" />
+        <div class="em-cf-seqpick" id="em-cf-seqpick"
+             data-nonce="<?php echo esc_attr(wp_create_nonce('em_cf_seq_search')); ?>">
+            <label for="em-cf-seqpick-search"><strong><?php _e('Launch AI Sequence on Completion (Optional):', 'chat-forms'); ?></strong></label>
+            <input type="hidden" name="chat_form_launch_code" id="chat-form-launch-code" value="<?php echo esc_attr($launch_code); ?>" />
+            <div class="em-cf-seqpick-selected" data-sp-selected <?php echo $launch_code ? '' : 'hidden'; ?>>
+                <span class="em-cf-seqpick-selected__icon" aria-hidden="true">&#9889;</span>
+                <span class="em-cf-seqpick-selected__text">
+                    <strong data-sp-sel-name><?php esc_html_e('Loading sequence…', 'chat-forms'); ?></strong>
+                    <span data-sp-sel-meta></span>
+                </span>
+                <button type="button" class="em-cf-seqpick-x" data-sp-clear aria-label="<?php esc_attr_e('Remove sequence', 'chat-forms'); ?>">&times;</button>
+            </div>
+            <div class="em-cf-seqpick-bar">
+                <div class="em-cf-seqpick-searchwrap">
+                    <input type="search" class="em-cf-seqpick-search" id="em-cf-seqpick-search" data-sp-search autocomplete="off"
+                           placeholder="<?php esc_attr_e('Search your gend.me group\'s sequences…', 'chat-forms'); ?>" />
+                    <div class="em-cf-seqpick-results" data-sp-results hidden></div>
+                </div>
+                <a class="em-cf-seqpick-new" data-sp-new href="#" target="_blank" rel="noopener" hidden><?php _e('+ Add New Sequence', 'chat-forms'); ?></a>
+            </div>
+            <button type="button" class="em-cf-seqpick-manual-toggle" data-sp-manual-toggle><?php _e('Paste a launch code instead', 'chat-forms'); ?></button>
+            <div class="em-cf-seqpick-code" data-sp-manual hidden>
+                <input type="text" data-sp-manual-input autocomplete="off"
+                       placeholder="<?php esc_attr_e('LT-xxxxxxxxxx or a [gend_launch] shortcode', 'chat-forms'); ?>" />
+            </div>
             <small>
-                <?php _e('Paste a Launch Trigger code (or its [gend_launch] shortcode) copied from the desktop app\'s Sequences popup. When this chatflow is completed, the linked AI Sequence fires automatically.', 'chat-forms'); ?>
+                <?php _e('Pick a sequence from the gend.me group this site belongs to. When this chatflow is completed, the selected AI Sequence fires automatically.', 'chat-forms'); ?>
             </small>
-        </p>
+        </div>
+        <style>
+            #em-cf-seqpick { position: relative; }
+            #em-cf-seqpick > label { display: block; margin-bottom: 8px; }
+            #em-cf-seqpick .em-cf-seqpick-bar { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
+            #em-cf-seqpick .em-cf-seqpick-searchwrap { position: relative; flex: 1; min-width: 0; }
+            #em-cf-seqpick .em-cf-seqpick-new {
+                flex-shrink: 0; display: inline-flex; align-items: center; height: 42px; padding: 0 18px; border-radius: 10px;
+                background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff !important; font-weight: 600; font-size: 13px;
+                text-decoration: none; white-space: nowrap; box-shadow: 0 8px 20px rgba(99,102,241,.3);
+            }
+            #em-cf-seqpick .em-cf-seqpick-new:hover { filter: brightness(1.1); }
+            #em-cf-seqpick .em-cf-seqpick-new[hidden] { display: none; }
+            @media (max-width: 600px) { #em-cf-seqpick .em-cf-seqpick-bar { flex-direction: column; align-items: stretch; } }
+            #em-cf-seqpick .em-cf-seqpick-search,
+            #em-cf-seqpick .em-cf-seqpick-code input {
+                width: 100%; padding: 9px 12px; border-radius: 10px;
+                background: rgba(2,6,23,.65); color: #e2e8f0; border: 1px solid rgba(125,211,252,.22);
+            }
+            #em-cf-seqpick .em-cf-seqpick-code { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+            #em-cf-seqpick [hidden] { display: none !important; }
+            #em-cf-seqpick > small { display: block; }
+            #em-cf-seqpick .em-cf-seqpick-code input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+            #em-cf-seqpick input::placeholder { color: #94a3b8; }
+            #em-cf-seqpick input:focus { outline: none; border-color: rgba(129,140,248,.6); box-shadow: 0 0 0 3px rgba(129,140,248,.2); }
+            #em-cf-seqpick .em-cf-seqpick-selected {
+                display: flex; align-items: center; gap: 12px; margin-bottom: 10px; padding: 12px 14px; border-radius: 12px;
+                background: linear-gradient(160deg, rgba(99,102,241,.2), rgba(139,92,246,.12)); border: 1px solid rgba(129,140,248,.45);
+            }
+            #em-cf-seqpick .em-cf-seqpick-selected[hidden] { display: none; }
+            #em-cf-seqpick .em-cf-seqpick-selected__icon {
+                flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+                background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-size: 16px;
+            }
+            #em-cf-seqpick .em-cf-seqpick-selected__text { flex: 1; min-width: 0; }
+            #em-cf-seqpick .em-cf-seqpick-selected__text strong { display: block; color: #fff; font-size: 15px; line-height: 1.3; }
+            #em-cf-seqpick .em-cf-seqpick-selected__text span { display: block; color: #c7d2fe; font-size: 12.5px; margin-top: 2px; }
+            #em-cf-seqpick .em-cf-seqpick-selected__text span:empty { display: none; }
+            #em-cf-seqpick .em-cf-seqpick-x {
+                flex-shrink: 0; width: 30px; height: 30px; border-radius: 999px; cursor: pointer; font-size: 17px; line-height: 1;
+                background: rgba(15,23,42,.85); color: #f1f5f9; border: 1px solid rgba(148,163,184,.3);
+            }
+            #em-cf-seqpick .em-cf-seqpick-x:hover { background: rgba(239,68,68,.6); border-color: transparent; }
+            #em-cf-seqpick .em-cf-seqpick-manual-toggle {
+                display: block; margin: 0 0 6px; padding: 0; border: 0; background: none; cursor: pointer;
+                color: #a5b4fc; font-size: 12.5px; text-decoration: underline;
+            }
+            #em-cf-seqpick .em-cf-seqpick-results {
+                position: absolute; left: 0; right: 0; z-index: 40; margin-top: 6px; max-height: 320px; overflow-y: auto; padding: 6px;
+                background: #050915 !important; border: 1px solid rgba(125,211,252,.25); border-radius: 12px; box-shadow: 0 24px 60px rgba(0,0,0,.55);
+            }
+            #em-cf-seqpick .em-cf-seqpick-row {
+                display: block; width: 100%; text-align: left; padding: 9px 12px; margin: 2px 0; border-radius: 9px;
+                border: 0; background: transparent; color: #f1f5f9; cursor: pointer;
+            }
+            #em-cf-seqpick .em-cf-seqpick-row:hover, #em-cf-seqpick .em-cf-seqpick-row:focus { background: rgba(99,102,241,.2); outline: none; }
+            #em-cf-seqpick .em-cf-seqpick-row strong { display: block; font-size: 13px; color: #f8fafc; }
+            #em-cf-seqpick .em-cf-seqpick-row span { display: block; font-size: 12px; color: #94a3b8; margin-top: 2px; }
+            #em-cf-seqpick .em-cf-seqpick-row code { background: none; padding: 0; color: #a5b4fc; font-size: 11.5px; }
+            #em-cf-seqpick .em-cf-seqpick-row.is-off strong::after { content: ' · disabled'; color: #fca5a5; font-weight: 500; }
+            #em-cf-seqpick .em-cf-seqpick-muted { color: #94a3b8; font-size: 12.5px; padding: 8px 10px; line-height: 1.5; }
+        </style>
+        <script>
+        jQuery(function ($) {
+            var $wrap = $('#em-cf-seqpick');
+            if (!$wrap.length) { return; }
+            var $code = $('#chat-form-launch-code'), $search = $wrap.find('[data-sp-search]'),
+                $results = $wrap.find('[data-sp-results]'), $sel = $wrap.find('[data-sp-selected]'),
+                $selName = $wrap.find('[data-sp-sel-name]'), $selMeta = $wrap.find('[data-sp-sel-meta]'),
+                $clear = $wrap.find('[data-sp-clear]'), $new = $wrap.find('[data-sp-new]'),
+                $manual = $wrap.find('[data-sp-manual]'), $manualInput = $wrap.find('[data-sp-manual-input]'),
+                cache = null, loading = null, timer = null, wentToNew = false;
+
+            function load() {
+                if (cache) { return $.Deferred().resolve(cache).promise(); }
+                if (loading) { return loading; }
+                loading = $.post(ajaxurl, { action: 'em_cf_seq_search', nonce: $wrap.data('nonce') })
+                    .then(function (res) {
+                        loading = null;
+                        if (res && res.success) {
+                            cache = res.data;
+                            if (cache.group && cache.group.new_url) { $new.attr('href', cache.group.new_url).prop('hidden', false); }
+                            return cache;
+                        }
+                        return $.Deferred().reject((res && res.data && res.data.message) || 'Could not load sequences.');
+                    }, function () { loading = null; return 'Could not load sequences.'; });
+                return loading;
+            }
+            function seqName(t) { return t.sequence || t.workspace || 'Untitled sequence'; }
+            function seqMeta(t) {
+                return [t.name, t.workspace && t.workspace !== t.sequence ? t.workspace : '', t.enabled ? '' : 'disabled']
+                    .filter(Boolean).join(' · ');
+            }
+            // Show the selected sequence by name; the LT- code only lives in the hidden field.
+            function showLinked() {
+                var c = $.trim($code.val());
+                $sel.prop('hidden', !c);
+                if (!c) { return; }
+                var hit = cache ? cache.triggers.filter(function (t) { return t.code === c; })[0] : null;
+                if (hit) {
+                    $selName.text(seqName(hit));
+                    $selMeta.text(seqMeta(hit));
+                } else if (cache || !loading) {
+                    // A code pasted by hand that isn't one of this group's sequences.
+                    $selName.text('Custom launch code');
+                    $selMeta.text(c);
+                }
+            }
+            function render(data) {
+                var q = $.trim($search.val()).toLowerCase();
+                var list = data.triggers.filter(function (t) {
+                    return !q || [t.sequence, t.workspace, t.name, t.code].join(' ').toLowerCase().indexOf(q) !== -1;
+                });
+                $results.empty().prop('hidden', false);
+                if (data.group && data.group.name) {
+                    $('<div class="em-cf-seqpick-muted">').text('Sequences in ' + data.group.name).appendTo($results);
+                }
+                if (!list.length) {
+                    $('<div class="em-cf-seqpick-muted">').text(data.triggers.length ? 'No matching sequences.' : 'This group has no sequences with a launch code yet. Add a Launch Trigger to a sequence in the desktop app.').appendTo($results);
+                    return;
+                }
+                list.slice(0, 50).forEach(function (t) {
+                    var meta = [t.name, t.workspace !== t.sequence ? t.workspace : ''].filter(Boolean).join(' · ');
+                    $('<button type="button" class="em-cf-seqpick-row">').toggleClass('is-off', !t.enabled).data('t', t)
+                        .append($('<strong>').text(seqName(t)))
+                        .append(meta ? $('<span>').text(meta) : '')
+                        .appendTo($results);
+                });
+            }
+            function open() {
+                $results.empty().prop('hidden', false).append($('<div class="em-cf-seqpick-muted">').text('Loading sequences…'));
+                load().then(render, function (msg) {
+                    $results.empty().append($('<div class="em-cf-seqpick-muted">').text(msg));
+                });
+            }
+
+            $search.on('focus', open).on('input', function () { clearTimeout(timer); timer = setTimeout(function () { cache ? render(cache) : open(); }, 120); });
+            $search.on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); } });
+            $results.on('click', '.em-cf-seqpick-row', function () {
+                $code.val($(this).data('t').code);
+                $search.val('');
+                $manualInput.val('');
+                $manual.prop('hidden', true);
+                $results.prop('hidden', true).empty();
+                showLinked();
+            });
+            $clear.on('click', function () { $code.val(''); $manualInput.val(''); showLinked(); });
+            $wrap.find('[data-sp-manual-toggle]').on('click', function () {
+                $manual.prop('hidden', !$manual.prop('hidden'));
+                if (!$manual.prop('hidden')) { $manualInput.trigger('focus'); }
+            });
+            // The save handler accepts a bare code or a [gend_launch code="…"] shortcode.
+            $manualInput.on('input', function () { $code.val($.trim($manualInput.val())); showLinked(); });
+            $(document).on('click', function (e) {
+                if (!$(e.target).closest('#em-cf-seqpick .em-cf-seqpick-searchwrap').length) { $results.prop('hidden', true); }
+            });
+            // Load up front so the "+ Add New Sequence" link knows the group's
+            // gend.me URL; reload after the user comes back from creating one.
+            load().then(showLinked, showLinked);
+            $new.on('click', function () { wentToNew = true; });
+            $(window).on('focus', function () {
+                if (!wentToNew) { return; }
+                wentToNew = false; cache = null;
+                load().then(showLinked);
+            });
+        });
+        </script>
         <?php
     }
 
@@ -822,6 +1019,124 @@ class Chat_Forms_Admin
             // For now, let's just leave it empty to avoid confusion. User can create new ones.
         }
         ?>
+        <?php
+        $cf_list_ids = array_map('intval', (array) get_post_meta($post->ID, '_chat_form_email_lists', true));
+        $cf_lists    = array();
+        foreach (array_filter($cf_list_ids) as $cf_list_id) {
+            $cf_list = function_exists('em_get_list') ? em_get_list($cf_list_id) : null;
+            if ($cf_list) {
+                $cf_lists[] = array('id' => (int) $cf_list->id, 'name' => (string) $cf_list->name);
+            }
+        }
+        ?>
+        <div class="em-cf-listpick" id="em-cf-listpick"
+             data-nonce="<?php echo esc_attr(wp_create_nonce('em_cf_list_search')); ?>">
+            <label class="em-cf-listpick-label" for="em-cf-listpick-search"><?php _e('Add submitters to email lists', 'chat-forms'); ?></label>
+            <input type="hidden" name="chat_form_email_lists" id="chat-form-email-lists"
+                   value="<?php echo esc_attr(implode(',', wp_list_pluck($cf_lists, 'id'))); ?>" />
+            <div class="em-cf-listpick-chips" data-lp-chips>
+                <?php foreach ($cf_lists as $cf_list) : ?>
+                    <span class="em-cf-listpick-chip" data-id="<?php echo (int) $cf_list['id']; ?>">
+                        <?php echo esc_html($cf_list['name']); ?>
+                        <button type="button" data-lp-remove aria-label="<?php esc_attr_e('Remove list', 'chat-forms'); ?>">&times;</button>
+                    </span>
+                <?php endforeach; ?>
+            </div>
+            <div class="em-cf-listpick-searchwrap">
+                <input type="search" class="em-cf-listpick-search" id="em-cf-listpick-search" data-lp-search autocomplete="off"
+                       placeholder="<?php esc_attr_e('Search email lists…', 'chat-forms'); ?>" />
+                <div class="em-cf-listpick-results" data-lp-results hidden></div>
+            </div>
+            <p class="description"><?php _e('Everyone who completes this form is added to the selected lists, using the email address they enter (or their account email if they are logged in).', 'chat-forms'); ?></p>
+        </div>
+        <style>
+            #em-cf-listpick { position: relative; margin: 4px 0 22px; padding-bottom: 18px; border-bottom: 1px solid rgba(148,163,184,.16); }
+            #em-cf-listpick .em-cf-listpick-label { display: block; margin-bottom: 8px; font-weight: 600; color: #e2e8f0; }
+            #em-cf-listpick .em-cf-listpick-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+            #em-cf-listpick .em-cf-listpick-chips:not(:empty) { margin-bottom: 10px; }
+            #em-cf-listpick .em-cf-listpick-chip {
+                display: inline-flex; align-items: center; gap: 6px; padding: 5px 6px 5px 12px; border-radius: 999px;
+                background: rgba(99,102,241,.18); border: 1px solid rgba(129,140,248,.4); color: #e0e7ff; font-size: 13px; font-weight: 600;
+            }
+            #em-cf-listpick .em-cf-listpick-chip button {
+                width: 20px; height: 20px; border-radius: 999px; border: 0; padding: 0; cursor: pointer;
+                background: rgba(15,23,42,.7); color: #c7d2fe; font-size: 14px; line-height: 20px;
+            }
+            #em-cf-listpick .em-cf-listpick-chip button:hover { background: rgba(239,68,68,.6); color: #fff; }
+            #em-cf-listpick .em-cf-listpick-searchwrap { position: relative; max-width: 460px; }
+            #em-cf-listpick .em-cf-listpick-search {
+                width: 100%; padding: 9px 12px; border-radius: 10px;
+                background: rgba(2,6,23,.65); color: #e2e8f0; border: 1px solid rgba(125,211,252,.22);
+            }
+            #em-cf-listpick .em-cf-listpick-search::placeholder { color: #94a3b8; }
+            #em-cf-listpick .em-cf-listpick-search:focus { outline: none; border-color: rgba(129,140,248,.6); box-shadow: 0 0 0 3px rgba(129,140,248,.2); }
+            #em-cf-listpick .em-cf-listpick-results {
+                position: absolute; left: 0; right: 0; z-index: 40; margin-top: 6px; max-height: 260px; overflow-y: auto; padding: 6px;
+                background: #050915 !important; border: 1px solid rgba(125,211,252,.25); border-radius: 12px; box-shadow: 0 24px 60px rgba(0,0,0,.55);
+            }
+            #em-cf-listpick .em-cf-listpick-row {
+                display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left;
+                padding: 9px 12px; margin: 2px 0; border-radius: 9px; border: 0; background: transparent; color: #f1f5f9; font-size: 13px; cursor: pointer;
+            }
+            #em-cf-listpick .em-cf-listpick-row:hover, #em-cf-listpick .em-cf-listpick-row:focus { background: rgba(99,102,241,.2); outline: none; }
+            #em-cf-listpick .em-cf-listpick-row small { color: #94a3b8; }
+            #em-cf-listpick .em-cf-listpick-muted { color: #94a3b8; font-size: 12px; padding: 8px 10px; }
+        </style>
+        <script>
+        jQuery(function ($) {
+            var $wrap = $('#em-cf-listpick');
+            if (!$wrap.length) { return; }
+            var $input = $('#chat-form-email-lists'), $chips = $wrap.find('[data-lp-chips]'),
+                $search = $wrap.find('[data-lp-search]'), $results = $wrap.find('[data-lp-results]'),
+                timer = null, req = null;
+
+            function ids() { return $input.val() ? $input.val().split(',') : []; }
+            function sync() {
+                $input.val($chips.children().map(function () { return $(this).attr('data-id'); }).get().join(','));
+            }
+            function addChip(id, name) {
+                if (ids().indexOf(String(id)) !== -1) { return; }
+                $('<span class="em-cf-listpick-chip">').attr('data-id', id).text(name)
+                    .append($('<button type="button" data-lp-remove>&times;</button>').attr('aria-label', 'Remove list'))
+                    .appendTo($chips);
+                sync();
+            }
+            function search() {
+                if (req) { req.abort(); }
+                req = $.post(ajaxurl, { action: 'em_cf_list_search', nonce: $wrap.data('nonce'), q: $search.val() })
+                    .done(function (res) {
+                        var lists = (res && res.success && res.data.lists) || [], chosen = ids();
+                        lists = lists.filter(function (l) { return chosen.indexOf(String(l.id)) === -1; });
+                        $results.empty().prop('hidden', false);
+                        if (!lists.length) {
+                            $results.append($('<div class="em-cf-listpick-muted">').text('No matching lists.'));
+                            return;
+                        }
+                        lists.forEach(function (l) {
+                            $('<button type="button" class="em-cf-listpick-row">')
+                                .data('list', l)
+                                .append($('<span>').text(l.name))
+                                .append($('<small>').text(l.count + (l.count === 1 ? ' subscriber' : ' subscribers')))
+                                .appendTo($results);
+                        });
+                    });
+            }
+
+            $search.on('focus input', function () { clearTimeout(timer); timer = setTimeout(search, 200); });
+            $search.on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); } });
+            $results.on('click', '.em-cf-listpick-row', function () {
+                var l = $(this).data('list');
+                addChip(l.id, l.name);
+                $search.val('');
+                $results.prop('hidden', true).empty();
+            });
+            $chips.on('click', '[data-lp-remove]', function () { $(this).closest('.em-cf-listpick-chip').remove(); sync(); });
+            $(document).on('click', function (e) {
+                if (!$(e.target).closest('#em-cf-listpick .em-cf-listpick-searchwrap').length) { $results.prop('hidden', true); }
+            });
+        });
+        </script>
+
         <div id="chat-forms-email-logic-wrapper">
             <p class="description">
                 <?php _e('Configure email notifications sent upon form submission. You can set up multiple emails for admins, users, or specific teams.', 'chat-forms'); ?>
@@ -1064,12 +1379,13 @@ class Chat_Forms_Admin
             </p>
             <p>
                 <label><?php _e('Section:', 'chat-forms'); ?></label>
-                <?php $em_is_q = !in_array($type, array('info_block', 'prompt_response', 'support_ticket'), true); ?>
+                <?php $em_is_q = !in_array($type, array('info_block', 'prompt_response', 'support_ticket', 'account_registration'), true); ?>
                 <select class="em-cf-sec-kind">
                     <option value="question" <?php selected($em_is_q); ?>>💬 <?php _e('Question', 'chat-forms'); ?></option>
                     <option value="info_block" <?php selected($type, 'info_block'); ?>>📝 <?php _e('Content Block', 'chat-forms'); ?></option>
                     <option value="prompt_response" <?php selected($type, 'prompt_response'); ?>>🤖 <?php _e('AI Prompt', 'chat-forms'); ?></option>
                     <option value="support_ticket" <?php selected($type, 'support_ticket'); ?>>🎫 <?php _e('Support Ticket', 'chat-forms'); ?></option>
+                    <option value="account_registration" <?php selected($type, 'account_registration'); ?>>👤 <?php _e('Account Registration', 'chat-forms'); ?></option>
                 </select>
                 <select class="em-cf-sec-qtype" style="<?php echo $em_is_q ? '' : 'display:none;'; ?>">
                     <option value="text" <?php selected($type, 'text'); ?>>Text</option>
@@ -1077,7 +1393,6 @@ class Chat_Forms_Admin
                     <option value="email" <?php selected($type, 'email'); ?>>Email</option>
                     <option value="telephone" <?php selected($type, 'telephone'); ?>>Telephone</option>
                     <option value="file" <?php selected($type, 'file'); ?>>File Upload</option>
-                    <option value="account_registration" <?php selected($type, 'account_registration'); ?>>Account Registration</option>
                 </select>
                 <?php /* The REAL posted field — hidden, driven by the two UI
                          selects above so the save format never changes. */ ?>
@@ -1196,6 +1511,53 @@ class Chat_Forms_Admin
                     <option value="normal" <?php selected($st_priority, 'normal'); ?>><?php _e('Normal', 'chat-forms'); ?></option>
                     <option value="high" <?php selected($st_priority, 'high'); ?>><?php _e('High', 'chat-forms'); ?></option>
                 </select>
+            </div>
+
+            <!-- Account Registration: terms & conditions -->
+            <?php
+            $tc = isset($data['terms']) && is_array($data['terms']) ? $data['terms'] : array();
+            $tc = wp_parse_args($tc, array('enabled' => false, 'label' => '', 'mode' => 'popup', 'title' => '', 'content' => '', 'url' => ''));
+            $tc_name = 'chat_form_questions[' . $index . '][terms]';
+            ?>
+            <div class="account-registration-editor" style="<?php echo $type === 'account_registration' ? '' : 'display:none;'; ?>margin:10px 0;padding:12px;border-radius:12px;">
+                <p style="margin:0 0 6px;"><strong>👤 <?php _e('Account Registration', 'chat-forms'); ?></strong></p>
+                <small style="display:block;margin-bottom:10px;"><?php _e('Visitors log in or create an account at this step; members who are already logged in just continue.', 'chat-forms'); ?></small>
+                <label style="display:flex;gap:8px;align-items:flex-start;">
+                    <input type="checkbox" name="<?php echo esc_attr($tc_name); ?>[enabled]" value="1" class="em-cf-terms-toggle" style="margin-top:3px;" <?php checked(!empty($tc['enabled'])); ?> />
+                    <span><?php _e('Require accepting terms &amp; conditions before the account is created', 'chat-forms'); ?></span>
+                </label>
+                <div class="em-cf-terms-config" style="<?php echo !empty($tc['enabled']) ? '' : 'display:none;'; ?>margin-top:10px;">
+                    <label><?php _e('Checkbox text:', 'chat-forms'); ?></label>
+                    <input type="text" name="<?php echo esc_attr($tc_name); ?>[label]" class="widefat" value="<?php echo esc_attr($tc['label']); ?>" placeholder="<?php esc_attr_e('I agree to the Terms & Conditions', 'chat-forms'); ?>" />
+                    <label style="display:block;margin-top:10px;"><?php _e('Show the terms:', 'chat-forms'); ?></label>
+                    <select name="<?php echo esc_attr($tc_name); ?>[mode]" class="widefat em-cf-terms-mode">
+                        <option value="popup" <?php selected($tc['mode'], 'popup'); ?>><?php _e('In a popup (write the terms here)', 'chat-forms'); ?></option>
+                        <option value="page" <?php selected($tc['mode'], 'page'); ?>><?php _e('On another page (link)', 'chat-forms'); ?></option>
+                    </select>
+                    <div class="em-cf-terms-popup" style="<?php echo $tc['mode'] === 'page' ? 'display:none;' : ''; ?>margin-top:10px;">
+                        <label><?php _e('Popup title:', 'chat-forms'); ?></label>
+                        <input type="text" name="<?php echo esc_attr($tc_name); ?>[title]" class="widefat" value="<?php echo esc_attr($tc['title']); ?>" placeholder="<?php esc_attr_e('Terms & Conditions', 'chat-forms'); ?>" />
+                        <label style="display:block;margin-top:10px;"><?php _e('Terms text:', 'chat-forms'); ?></label>
+                        <textarea name="<?php echo esc_attr($tc_name); ?>[content]" rows="8" class="widefat" placeholder="<?php esc_attr_e('Paste or write your terms. Basic HTML is allowed.', 'chat-forms'); ?>"><?php echo esc_textarea($tc['content']); ?></textarea>
+                    </div>
+                    <div class="em-cf-terms-page" style="<?php echo $tc['mode'] === 'page' ? '' : 'display:none;'; ?>margin-top:10px;">
+                        <label><?php _e('Terms page:', 'chat-forms'); ?></label>
+                        <input type="url" name="<?php echo esc_attr($tc_name); ?>[url]" class="widefat" list="em-cf-terms-pages" value="<?php echo esc_attr($tc['url']); ?>" placeholder="https://example.com/terms" />
+                        <small style="display:block;margin-top:4px;"><?php _e('Start typing to pick one of your pages, or paste any URL. It opens in a new tab and the visitor ticks the box to accept.', 'chat-forms'); ?></small>
+                    </div>
+                </div>
+                <?php
+                // One datalist of the site's pages for every terms-page field (printed once).
+                static $em_cf_terms_pages_done = false;
+                if (!$em_cf_terms_pages_done) {
+                    $em_cf_terms_pages_done = true;
+                    echo '<datalist id="em-cf-terms-pages">';
+                    foreach (get_pages(array('number' => 200, 'sort_column' => 'post_title')) as $tp) {
+                        echo '<option value="' . esc_attr(get_permalink($tp)) . '">' . esc_html($tp->post_title) . '</option>';
+                    }
+                    echo '</datalist>';
+                }
+                ?>
             </div>
 
             <!-- Validation Settings -->
@@ -1354,11 +1716,6 @@ class Chat_Forms_Admin
             return;
         }
 
-        // DEBUG: Log what we're receiving
-        $log_file = WP_CONTENT_DIR . '/debug_chat_forms.txt';
-        $log_data = date('Y-m-d H:i:s') . " - Save Questions POST:\n" . print_r($_POST, true) . "\n----------------\n";
-        file_put_contents($log_file, $log_data, FILE_APPEND);
-
 
         if (isset($_POST['chat_form_questions']) && is_array($_POST['chat_form_questions'])) {
             $questions = array();
@@ -1392,6 +1749,19 @@ class Chat_Forms_Admin
                 // Prompt Response template
                 if (isset($question_data['prompt'])) {
                     $sanitized_question['prompt'] = sanitize_textarea_field(wp_unslash($question_data['prompt']));
+                }
+
+                // Account Registration — terms & conditions the visitor must accept.
+                if (isset($question_data['terms']) && is_array($question_data['terms'])) {
+                    $tq = wp_unslash($question_data['terms']);
+                    $sanitized_question['terms'] = array(
+                        'enabled' => !empty($tq['enabled']),
+                        'label'   => sanitize_text_field($tq['label'] ?? ''),
+                        'mode'    => (($tq['mode'] ?? '') === 'page') ? 'page' : 'popup',
+                        'title'   => sanitize_text_field($tq['title'] ?? ''),
+                        'content' => wp_kses_post($tq['content'] ?? ''),
+                        'url'     => esc_url_raw($tq['url'] ?? ''),
+                    );
                 }
 
                 // Support Ticket — default priority.
@@ -1473,10 +1843,6 @@ class Chat_Forms_Admin
                 $questions[] = $sanitized_question;
             }
 
-            // DEBUG: Log final questions array before saving
-            $log_data = date('Y-m-d H:i:s') . " - FINAL Sanitized Questions to Save:\n" . print_r($questions, true) . "\n----------------\n";
-            file_put_contents($log_file, $log_data, FILE_APPEND);
-
             update_post_meta($post_id, '_chat_form_questions', $questions);
 
             // A Support-Ticket section makes this a support-intake form —
@@ -1495,10 +1861,6 @@ class Chat_Forms_Admin
                 }
             }
         } else {
-            // DEBUG: Log deletion
-            $log_data = date('Y-m-d H:i:s') . " - Deleting all questions meta (POST data missing or invalid)\n----------------\n";
-            file_put_contents($log_file, $log_data, FILE_APPEND);
-
             delete_post_meta($post_id, '_chat_form_questions');
         }
 
@@ -1518,6 +1880,15 @@ class Chat_Forms_Admin
                 $raw = $m[1];
             }
             update_post_meta($post_id, '_chat_form_launch_code', trim($raw));
+        }
+
+        // Email lists every submitter gets added to (see em_cf_join_email_lists).
+        if (isset($_POST['chat_form_email_lists'])) {
+            $list_ids = array_filter(array_map('intval', explode(',', (string) wp_unslash($_POST['chat_form_email_lists']))));
+            $list_ids = array_values(array_unique(array_filter($list_ids, function ($id) {
+                return function_exists('em_get_list') && em_get_list($id);
+            })));
+            update_post_meta($post_id, '_chat_form_email_lists', $list_ids);
         }
 
         // Save Email Rules (New System)
@@ -1607,20 +1978,30 @@ class Chat_Forms_Admin
             update_post_meta($post_id, '_chat_form_bot_avatar', esc_url_raw(wp_unslash($_POST['chat_form_bot_avatar'])));
         }
         if (isset($_POST['chat_form_bot_agent'])) {
-            // Our metabox posted — the checkbox is absent when unchecked.
-            update_post_meta($post_id, '_chat_form_agent_messages', isset($_POST['chat_form_agent_messages']) ? '1' : '');
-        }
-        if (isset($_POST['chat_form_bot_agent'])) {
-            $cf_agent_id = (int) $_POST['chat_form_bot_agent'];
+            $cf_agent_id   = (int) $_POST['chat_form_bot_agent'];
+            $cf_agent_name = isset($_POST['chat_form_bot_agent_name']) ? sanitize_text_field(wp_unslash($_POST['chat_form_bot_agent_name'])) : '';
+            $cf_agent_av   = isset($_POST['chat_form_bot_agent_avatar']) ? em_cf_clean_avatar(wp_unslash($_POST['chat_form_bot_agent_avatar'])) : '';
             if ($cf_agent_id > 0 && get_userdata($cf_agent_id)) {
                 update_post_meta($post_id, '_chat_form_bot_agent_id', $cf_agent_id);
+                update_post_meta($post_id, '_chat_form_bot_agent_name', get_userdata($cf_agent_id)->display_name);
+                delete_post_meta($post_id, '_chat_form_bot_agent_hub_id');
                 // The agent's avatar IS the bot avatar — same meta the whole
                 // front-end chat pipeline already reads.
                 update_post_meta($post_id, '_chat_form_bot_avatar', esc_url_raw(get_avatar_url($cf_agent_id, array('size' => 96))));
+            } elseif ($cf_agent_id > 0 && $cf_agent_name !== '') {
+                // Separately hosted site: a gend.me group agent with no local
+                // user. Speaks with its gend.me name + avatar (Agent Messages
+                // still needs a local user, so _chat_form_bot_agent_id stays empty).
+                delete_post_meta($post_id, '_chat_form_bot_agent_id');
+                update_post_meta($post_id, '_chat_form_bot_agent_hub_id', $cf_agent_id);
+                update_post_meta($post_id, '_chat_form_bot_agent_name', $cf_agent_name);
+                if ($cf_agent_av !== '') update_post_meta($post_id, '_chat_form_bot_avatar', $cf_agent_av);
             } else {
                 // "— pick…" chosen: unlink the agent but keep any existing
                 // avatar so older flows keep rendering unchanged.
                 delete_post_meta($post_id, '_chat_form_bot_agent_id');
+                delete_post_meta($post_id, '_chat_form_bot_agent_hub_id');
+                delete_post_meta($post_id, '_chat_form_bot_agent_name');
             }
         }
     }
@@ -1636,8 +2017,12 @@ class Chat_Forms_Admin
             </label>
         </p>
         <p class="description">
-            <?php _e('Protects your form from spam submissions. Requires Site and Secret keys to be configured in Email Manager settings.', 'chat-forms'); ?>
+            <?php _e('Protects your form from spam submissions. Requires the Site and Secret keys from the Talk Flows reCAPTCHA settings.', 'chat-forms'); ?>
         </p>
+        <?php if (current_user_can('manage_options') && class_exists('EM_Email_SMTP')) : ?>
+            <p><button type="button" class="button" data-em-recaptcha-open><?php _e('reCAPTCHA Settings', 'chat-forms'); ?></button></p>
+            <?php EM_Email_SMTP::render_recaptcha_modal(); ?>
+        <?php endif; ?>
         <?php
     }
 
@@ -1692,46 +2077,154 @@ class Chat_Forms_Admin
 
                 <hr style="margin:18px 0;border:0;border-top:1px solid #eee;" />
 
-                <p style="margin:0 0 6px;"><strong><?php _e('Show on Frontend Pages:', 'chat-forms'); ?></strong></p>
-                <select name="chat_form_widget_pages_frontend[]" multiple class="widefat" style="height:100px;">
-                    <?php
-                    $frontend_options = array(
-                        'all'      => __('Every page', 'chat-forms'),
-                        'home'     => __('Home page', 'chat-forms'),
-                        'archive'  => __('Archives & blog', 'chat-forms'),
-                        'singular' => __('Single posts/pages', 'chat-forms'),
-                    );
-                    foreach ($frontend_options as $val => $label):
-                        $sel = in_array($val, $pages_frontend, true) ? 'selected' : '';
-                    ?>
-                        <option value="<?php echo esc_attr($val); ?>" <?php echo $sel; ?>><?php echo esc_html($label); ?></option>
-                    <?php endforeach;
-                    // List pages by ID
-                    $pages = get_pages(array('number' => 100));
-                    foreach ($pages as $page):
-                        $sel = in_array((string) $page->ID, array_map('strval', $pages_frontend), true) ? 'selected' : '';
-                    ?>
-                        <option value="<?php echo esc_attr($page->ID); ?>" <?php echo $sel; ?>><?php echo esc_html('— ' . $page->post_title); ?></option>
-                    <?php endforeach; ?>
-                </select>
-                <p class="description"><?php _e('Hold Ctrl/Cmd to select multiple. "Every page" overrides everything else.', 'chat-forms'); ?></p>
+                <?php
+                $frontend_options = array(
+                    'all'      => __('Every page', 'chat-forms'),
+                    'home'     => __('Home page', 'chat-forms'),
+                    'archive'  => __('Archives & blog', 'chat-forms'),
+                    'singular' => __('Every single post, page & product', 'chat-forms'),
+                );
+                $admin_options = array(
+                    'all'       => __('Every admin page', 'chat-forms'),
+                    'dashboard' => __('Dashboard only', 'chat-forms'),
+                    'plugins'   => __('Plugins screen', 'chat-forms'),
+                    'users'     => __('Users screen', 'chat-forms'),
+                    'tools'     => __('Tools screen', 'chat-forms'),
+                );
+                // Saved values → chips: rule keys, or post IDs (pages, posts, products…).
+                $em_cf_chip = function ($val, $rules) {
+                    if (isset($rules[$val])) return array('value' => $val, 'label' => $rules[$val], 'type' => __('Rule', 'chat-forms'));
+                    $p = ctype_digit((string) $val) ? get_post((int) $val) : null;
+                    if (!$p) return null;
+                    $pto = get_post_type_object($p->post_type);
+                    return array('value' => (string) $p->ID, 'label' => get_the_title($p) ?: __('(no title)', 'chat-forms'),
+                                 'type' => $pto ? $pto->labels->singular_name : $p->post_type);
+                };
+                $em_cf_pickers = array(
+                    array('key' => 'frontend', 'label' => __('Show on Frontend Pages:', 'chat-forms'), 'rules' => $frontend_options, 'values' => $pages_frontend,
+                          'placeholder' => __('Search pages, posts & products…', 'chat-forms'), 'remote' => true,
+                          'help' => __('"Every page" overrides everything else.', 'chat-forms')),
+                    array('key' => 'admin', 'label' => __('Show on Admin Pages:', 'chat-forms'), 'rules' => $admin_options, 'values' => $pages_admin,
+                          'placeholder' => __('Search admin screens…', 'chat-forms'), 'remote' => false, 'help' => ''),
+                );
+                foreach ($em_cf_pickers as $pk):
+                    $rule_rows = array();
+                    foreach ($pk['rules'] as $rv => $rl) $rule_rows[] = array('value' => $rv, 'label' => $rl, 'type' => __('Rule', 'chat-forms'));
+                ?>
+                <div class="em-cf-pagepick" data-pp data-name="chat_form_widget_pages_<?php echo esc_attr($pk['key']); ?>[]"
+                     data-remote="<?php echo $pk['remote'] ? '1' : ''; ?>" data-rules="<?php echo esc_attr(wp_json_encode($rule_rows)); ?>">
+                    <p style="margin:14px 0 6px;"><strong><?php echo esc_html($pk['label']); ?></strong></p>
+                    <div class="em-cf-pagepick-chips" data-pp-chips><?php
+                        foreach ($pk['values'] as $v) {
+                            $c = $em_cf_chip((string) $v, $pk['rules']);
+                            if (!$c) continue; ?>
+                        <span class="em-cf-pagepick-chip" data-value="<?php echo esc_attr($c['value']); ?>">
+                            <input type="hidden" name="chat_form_widget_pages_<?php echo esc_attr($pk['key']); ?>[]" value="<?php echo esc_attr($c['value']); ?>" />
+                            <span><?php echo esc_html($c['label']); ?></span><em><?php echo esc_html($c['type']); ?></em>
+                            <button type="button" data-pp-remove aria-label="<?php esc_attr_e('Remove', 'chat-forms'); ?>">&times;</button>
+                        </span><?php } ?></div>
+                    <div class="em-cf-pagepick-searchwrap">
+                        <input type="search" class="em-cf-pagepick-search" data-pp-search autocomplete="off" placeholder="<?php echo esc_attr($pk['placeholder']); ?>" />
+                        <div class="em-cf-pagepick-results" data-pp-results hidden></div>
+                    </div>
+                    <?php if ($pk['help']) : ?><p class="description"><?php echo esc_html($pk['help']); ?></p><?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+                <style>
+                    .em-cf-pagepick [hidden] { display: none !important; }
+                    .em-cf-pagepick-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+                    .em-cf-pagepick-chips:not(:empty) { margin-bottom: 8px; }
+                    .em-cf-pagepick-chip {
+                        display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 5px 4px 10px; border-radius: 999px;
+                        background: rgba(99,102,241,.18); border: 1px solid rgba(129,140,248,.4); color: #e0e7ff; font-size: 12.5px; font-weight: 600;
+                    }
+                    .em-cf-pagepick-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .em-cf-pagepick-chip em { font-style: normal; font-weight: 500; font-size: 10.5px; color: #a5b4fc; text-transform: uppercase; letter-spacing: .04em; }
+                    .em-cf-pagepick-chip button {
+                        flex-shrink: 0; width: 18px; height: 18px; border-radius: 999px; border: 0; padding: 0; cursor: pointer;
+                        background: rgba(15,23,42,.7); color: #c7d2fe; font-size: 13px; line-height: 18px;
+                    }
+                    .em-cf-pagepick-chip button:hover { background: rgba(239,68,68,.6); color: #fff; }
+                    .em-cf-pagepick-searchwrap { position: relative; }
+                    .em-cf-pagepick-search {
+                        width: 100%; padding: 9px 12px; border-radius: 10px;
+                        background: rgba(2,6,23,.65); color: #e2e8f0; border: 1px solid rgba(125,211,252,.22);
+                    }
+                    .em-cf-pagepick-search::placeholder { color: #94a3b8; }
+                    .em-cf-pagepick-search:focus { outline: none; border-color: rgba(129,140,248,.6); box-shadow: 0 0 0 3px rgba(129,140,248,.2); }
+                    .em-cf-pagepick-results {
+                        position: absolute; left: 0; right: 0; z-index: 40; margin-top: 6px; max-height: 280px; overflow-y: auto; padding: 6px;
+                        background: #050915 !important; border: 1px solid rgba(125,211,252,.25); border-radius: 12px; box-shadow: 0 24px 60px rgba(0,0,0,.55);
+                    }
+                    .em-cf-pagepick-row {
+                        display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left;
+                        padding: 8px 10px; margin: 1px 0; border-radius: 8px; border: 0; background: transparent; color: #f1f5f9; font-size: 13px; cursor: pointer;
+                    }
+                    .em-cf-pagepick-row:hover, .em-cf-pagepick-row:focus { background: rgba(99,102,241,.2); outline: none; }
+                    .em-cf-pagepick-row small { flex-shrink: 0; color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+                    .em-cf-pagepick-head { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 6px 10px 2px; }
+                    .em-cf-pagepick-muted { color: #94a3b8; font-size: 12.5px; padding: 6px 10px; }
+                </style>
+                <script>
+                jQuery(function ($) {
+                    var nonce = <?php echo wp_json_encode(wp_create_nonce('em_cf_content_search')); ?>;
+                    $('[data-pp]').each(function () {
+                        var $pp = $(this), $chips = $pp.find('[data-pp-chips]'), $search = $pp.find('[data-pp-search]'),
+                            $results = $pp.find('[data-pp-results]'), rules = $pp.data('rules') || [], name = $pp.attr('data-name'),
+                            remote = !!$pp.attr('data-remote'), timer = null, req = null;
 
-                <p style="margin:14px 0 6px;"><strong><?php _e('Show on Admin Pages:', 'chat-forms'); ?></strong></p>
-                <select name="chat_form_widget_pages_admin[]" multiple class="widefat" style="height:80px;">
-                    <?php
-                    $admin_options = array(
-                        'all'       => __('Every admin page', 'chat-forms'),
-                        'dashboard' => __('Dashboard only', 'chat-forms'),
-                        'plugins'   => __('Plugins screen', 'chat-forms'),
-                        'users'     => __('Users screen', 'chat-forms'),
-                        'tools'     => __('Tools screen', 'chat-forms'),
-                    );
-                    foreach ($admin_options as $val => $label):
-                        $sel = in_array($val, $pages_admin, true) ? 'selected' : '';
-                    ?>
-                        <option value="<?php echo esc_attr($val); ?>" <?php echo $sel; ?>><?php echo esc_html($label); ?></option>
-                    <?php endforeach; ?>
-                </select>
+                        function chosen() { return $chips.children().map(function () { return $(this).attr('data-value'); }).get(); }
+                        function addChip(item) {
+                            if (chosen().indexOf(String(item.value)) !== -1) { return; }
+                            $('<span class="em-cf-pagepick-chip">').attr('data-value', item.value)
+                                .append($('<input type="hidden">').attr({ name: name, value: item.value }))
+                                .append($('<span>').text(item.label)).append($('<em>').text(item.type))
+                                .append($('<button type="button" data-pp-remove aria-label="Remove">&times;</button>'))
+                                .appendTo($chips);
+                        }
+                        function rows(title, items) {
+                            var have = chosen();
+                            items = items.filter(function (i) { return have.indexOf(String(i.value)) === -1; });
+                            if (!items.length) { return; }
+                            if (title) { $('<div class="em-cf-pagepick-head">').text(title).appendTo($results); }
+                            items.forEach(function (i) {
+                                $('<button type="button" class="em-cf-pagepick-row">').data('item', i)
+                                    .append($('<span>').text(i.label)).append($('<small>').text(i.type)).appendTo($results);
+                            });
+                        }
+                        function render(content) {
+                            var q = $.trim($search.val()).toLowerCase();
+                            $results.empty().prop('hidden', false);
+                            rows(remote ? 'Rules' : '', rules.filter(function (r) { return !q || r.label.toLowerCase().indexOf(q) !== -1; }));
+                            if (remote) {
+                                if (content === null) { $('<div class="em-cf-pagepick-muted">').text('Searching…').appendTo($results); }
+                                else { rows(q ? 'Matching content' : 'Recent content', content); }
+                            }
+                            if (!$results.children().length) { $('<div class="em-cf-pagepick-muted">').text('No matches.').appendTo($results); }
+                        }
+                        function search() {
+                            render(remote ? null : []);
+                            if (!remote) { return; }
+                            if (req) { req.abort(); }
+                            req = $.post(ajaxurl, { action: 'em_cf_content_search', nonce: nonce, q: $search.val() })
+                                .done(function (res) { render((res && res.success && res.data.items) || []); })
+                                .fail(function (x) { if (x.statusText !== 'abort') { render([]); } });
+                        }
+
+                        $search.on('focus input', function () { clearTimeout(timer); timer = setTimeout(search, 200); });
+                        $search.on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); } });
+                        $results.on('click', '.em-cf-pagepick-row', function () {
+                            addChip($(this).data('item'));
+                            $(this).remove();
+                            if (!$results.find('.em-cf-pagepick-row').length) { $results.prop('hidden', true); }
+                        });
+                        $chips.on('click', '[data-pp-remove]', function () { $(this).closest('.em-cf-pagepick-chip').remove(); });
+                        $(document).on('click', function (e) {
+                            if (!$(e.target).closest($pp.find('.em-cf-pagepick-searchwrap')).length) { $results.prop('hidden', true); }
+                        });
+                    });
+                });
+                </script>
             </div>
 
             <hr style="margin:14px 0;border:0;border-top:1px solid #eee;" />
@@ -1744,37 +2237,52 @@ class Chat_Forms_Admin
             // avatar URL) so the whole front-end pipeline stays untouched.
             $cf_bot_agent_id = (int) get_post_meta($post->ID, '_chat_form_bot_agent_id', true);
             $cf_bot_agent    = $cf_bot_agent_id ? get_userdata($cf_bot_agent_id) : null;
+            // Separately hosted sites pick a gend.me agent that has no local
+            // user — its name + avatar are stored on the flow instead.
+            $cf_hub_agent_id = (int) get_post_meta($post->ID, '_chat_form_bot_agent_hub_id', true);
+            $cf_sel_name     = $cf_bot_agent ? $cf_bot_agent->display_name : ($cf_hub_agent_id ? (string) get_post_meta($post->ID, '_chat_form_bot_agent_name', true) : '');
+            $cf_sel_avatar   = $cf_bot_agent ? get_avatar_url($cf_bot_agent->ID, array('size' => 96)) : ($cf_hub_agent_id ? (string) get_post_meta($post->ID, '_chat_form_bot_avatar', true) : '');
+            $cf_has_agent    = $cf_sel_name !== '';
             ?>
             <div class="em-cf-agentpick" id="em-cf-agentpick"
                  data-nonce="<?php echo esc_attr(wp_create_nonce('em_cf_agent_search')); ?>">
                 <input type="hidden" name="chat_form_bot_agent" id="chat-form-bot-agent"
-                       value="<?php echo esc_attr($cf_bot_agent_id ?: ''); ?>" />
-                <div class="em-cf-agentpick-selected" data-ap-selected <?php echo $cf_bot_agent ? '' : 'hidden'; ?>>
-                    <img data-ap-sel-avatar src="<?php echo esc_url($cf_bot_agent ? get_avatar_url($cf_bot_agent->ID, array('size' => 96)) : ''); ?>" alt="" />
-                    <strong data-ap-sel-name><?php echo esc_html($cf_bot_agent ? $cf_bot_agent->display_name : ''); ?></strong>
+                       value="<?php echo esc_attr($cf_has_agent ? ($cf_bot_agent ? $cf_bot_agent_id : $cf_hub_agent_id) : ''); ?>" />
+                <input type="hidden" name="chat_form_bot_agent_name" data-ap-name-field value="<?php echo esc_attr($cf_sel_name); ?>" />
+                <input type="hidden" name="chat_form_bot_agent_avatar" data-ap-avatar-field value="<?php echo esc_attr($cf_sel_avatar); ?>" />
+                <div class="em-cf-agentpick-selected" data-ap-selected <?php echo $cf_has_agent ? '' : 'hidden'; ?>>
+                    <span class="em-cf-agentpick-av" data-ap-sel-av>
+                        <?php if ($cf_sel_avatar !== '') : ?><img data-ap-sel-avatar src="<?php echo esc_attr($cf_sel_avatar); ?>" alt="" /><?php else : ?><?php echo esc_html(strtoupper(mb_substr($cf_sel_name, 0, 1))); ?><?php endif; ?>
+                    </span>
+                    <strong data-ap-sel-name><?php echo esc_html($cf_sel_name); ?></strong>
                     <button type="button" class="em-cf-agentpick-x" data-ap-clear aria-label="<?php esc_attr_e('Unlink agent', 'chat-forms'); ?>">&times;</button>
                 </div>
-                <div class="em-cf-agentpick-searchwrap" data-ap-searchwrap <?php echo $cf_bot_agent ? 'hidden' : ''; ?>>
+                <div class="em-cf-agentpick-searchwrap" data-ap-searchwrap <?php echo $cf_has_agent ? 'hidden' : ''; ?>>
                     <input type="search" class="em-cf-agentpick-search" data-ap-search autocomplete="off"
-                           placeholder="<?php esc_attr_e('Search connected agents…', 'chat-forms'); ?>" />
+                           placeholder="<?php esc_attr_e('Search your gend.me group\'s agents…', 'chat-forms'); ?>" />
                     <div class="em-cf-agentpick-results" data-ap-results hidden></div>
                 </div>
+                <a class="em-cf-agentpick-new" data-ap-new href="#" target="_blank" rel="noopener" hidden><?php _e('+ Add New Agent', 'chat-forms'); ?></a>
             </div>
-            <p class="description"><?php _e('The web app agent this chatflow speaks as — their avatar shows next to every bot message. User responses use their WP profile photo automatically.', 'chat-forms'); ?></p>
+            <p class="description"><?php _e('The gend.me group agent this chatflow speaks as — their avatar shows next to every bot message. Unless the display mode is "Shortcode only", a launched chatflow also arrives as private messages from this agent. User responses use their WP profile photo automatically.', 'chat-forms'); ?></p>
 
-            <?php if (function_exists('messages_new_message') || (function_exists('bp_is_active') && bp_is_active('messages'))) : ?>
-                <hr style="margin:14px 0;border:0;border-top:1px solid #eee;" />
-                <p style="margin:0 0 6px;"><strong><?php _e('Run through Agent Messages:', 'chat-forms'); ?></strong></p>
-                <label style="display:flex;gap:8px;align-items:flex-start;">
-                    <input type="checkbox" name="chat_form_agent_messages" value="1" style="margin-top:3px;"
-                        <?php checked('1', get_post_meta($post->ID, '_chat_form_agent_messages', true)); ?> />
-                    <span><?php _e('Deliver this chatflow as profile messages from the Bot Agent', 'chat-forms'); ?></span>
-                </label>
-                <p class="description"><?php _e('When triggered, each question arrives as a private message from the agent above; the member replies in Messages (or the bottom-right chat widget) and every reply advances the flow. Completion records a submission and fires the same notifications, launch triggers and list joins as the chat UI. Requires a Bot Agent.', 'chat-forms'); ?></p>
-            <?php endif; ?>
             <style>
                 @property --emcfang { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
                 #em-cf-agentpick { position: relative; }
+                #em-cf-agentpick [hidden] { display: none !important; }
+                #em-cf-agentpick .em-cf-agentpick-av {
+                    flex-shrink: 0; width: 32px; height: 32px; border-radius: 999px; overflow: hidden;
+                    display: inline-flex; align-items: center; justify-content: center;
+                    background: linear-gradient(135deg, #7c5cff, #38bdf8); color: #fff; font-weight: 700; font-size: 14px;
+                }
+                #em-cf-agentpick .em-cf-agentpick-av img { width: 100%; height: 100%; }
+                #em-cf-agentpick .em-cf-agentpick-row small { display: block; color: #94a3b8; font-size: 11.5px; font-weight: 400; }
+                #em-cf-agentpick .em-cf-agentpick-new {
+                    display: flex; align-items: center; justify-content: center; margin-top: 8px; height: 38px; border-radius: 10px;
+                    background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff !important; font-weight: 600; font-size: 13px;
+                    text-decoration: none; box-shadow: 0 8px 20px rgba(99,102,241,.3);
+                }
+                #em-cf-agentpick .em-cf-agentpick-new:hover { filter: brightness(1.1); }
                 #em-cf-agentpick .em-cf-agentpick-search {
                     width: 100%; padding: 9px 12px; border-radius: 10px;
                     background: rgba(2,6,23,.65); color: #e2e8f0;
@@ -1848,24 +2356,49 @@ class Chat_Forms_Admin
                 var $sw = $wrap.find('[data-ap-searchwrap]');
                 var $search = $wrap.find('[data-ap-search]');
                 var $results = $wrap.find('[data-ap-results]');
-                var timer = null;
+                var $new = $wrap.find('[data-ap-new]');
+                var $nameField = $wrap.find('[data-ap-name-field]'), $avField = $wrap.find('[data-ap-avatar-field]');
+                var timer = null, req = null;
                 function escT(s) { return $('<i>').text(s == null ? '' : String(s)).html(); }
+                // Avatar bubble: the image, or the agent's initial when there is none.
+                function avatar(url, name) {
+                    var $av = $('<span class="em-cf-agentpick-av">');
+                    if (url) { $av.append($('<img alt="">').attr('src', url).on('error', function () { $(this).replaceWith(document.createTextNode((name || '?').charAt(0).toUpperCase())); })); }
+                    else { $av.text((name || '?').charAt(0).toUpperCase()); }
+                    return $av;
+                }
                 function run(q) {
+                    if (req) { req.abort(); }
                     $results.removeAttr('hidden').html('<div class="em-cf-agentpick-muted"><?php echo esc_js(__('Searching…', 'chat-forms')); ?></div>');
-                    $.post(ajaxurl, { action: 'em_cf_agent_search', nonce: nonce, q: q }, function (resp) {
-                        var rows = (resp && resp.success && resp.data && resp.data.agents) || [];
-                        if (!rows.length) {
-                            $results.html('<div class="em-cf-agentpick-muted"><?php echo esc_js(__('No agents match.', 'chat-forms')); ?></div>');
+                    req = $.post(ajaxurl, { action: 'em_cf_agent_search', nonce: nonce, q: q }, function (resp) {
+                        if (!resp || !resp.success) {
+                            $results.empty().append($('<div class="em-cf-agentpick-muted">').text((resp && resp.data && resp.data.message) || '<?php echo esc_js(__('Could not load agents.', 'chat-forms')); ?>'));
                             return;
                         }
-                        $results.html(rows.map(function (a) {
-                            return '<button type="button" class="em-cf-agentpick-row" data-id="' + parseInt(a.id, 10) + '"'
-                                + ' data-avatar="' + escT(a.avatar) + '" data-name="' + escT(a.name) + '">'
-                                + '<img src="' + escT(a.avatar) + '" alt="" /><strong>' + escT(a.name) + '</strong>'
-                                + '</button>';
-                        }).join(''));
+                        var data = resp.data, rows = data.agents || [];
+                        if (data.group && data.group.new_agent_url) { $new.attr('href', data.group.new_agent_url).removeAttr('hidden'); }
+                        $results.empty();
+                        if (data.group && data.group.name) {
+                            $('<div class="em-cf-agentpick-muted">').text('<?php echo esc_js(__('Agents in', 'chat-forms')); ?> ' + data.group.name).appendTo($results);
+                        }
+                        if (!rows.length) {
+                            $('<div class="em-cf-agentpick-muted">').text(q ? '<?php echo esc_js(__('No agents match.', 'chat-forms')); ?>' : '<?php echo esc_js(__('This group has no agents yet — add one with the button below.', 'chat-forms')); ?>').appendTo($results);
+                            return;
+                        }
+                        rows.forEach(function (a) {
+                            $('<button type="button" class="em-cf-agentpick-row">')
+                                .attr({ 'data-id': parseInt(a.id, 10), 'data-avatar': a.avatar || '', 'data-name': a.name || '' })
+                                .append(avatar(a.avatar, a.name))
+                                .append($('<strong>').text(a.name).append(a.title ? $('<small>').text(a.title) : ''))
+                                .appendTo($results);
+                        });
                     });
                 }
+                // Learn the group's "+ Add New Agent" link up front.
+                $.post(ajaxurl, { action: 'em_cf_agent_search', nonce: nonce, q: '' }, function (resp) {
+                    var g = resp && resp.success && resp.data && resp.data.group;
+                    if (g && g.new_agent_url) { $new.attr('href', g.new_agent_url).removeAttr('hidden'); }
+                });
                 $search.on('input focus', function () {
                     var q = $search.val() || '';
                     clearTimeout(timer);
@@ -1877,7 +2410,9 @@ class Chat_Forms_Admin
                 $results.on('click', '.em-cf-agentpick-row', function () {
                     var $b = $(this);
                     $hidden.val($b.attr('data-id'));
-                    $sel.find('[data-ap-sel-avatar]').attr('src', $b.attr('data-avatar'));
+                    $nameField.val($b.attr('data-name'));
+                    $avField.val($b.attr('data-avatar'));
+                    $sel.find('[data-ap-sel-av]').replaceWith(avatar($b.attr('data-avatar'), $b.attr('data-name')).attr('data-ap-sel-av', ''));
                     $sel.find('[data-ap-sel-name]').text($b.attr('data-name'));
                     $sel.removeAttr('hidden');
                     $sw.attr('hidden', 'hidden');
@@ -1885,6 +2420,8 @@ class Chat_Forms_Admin
                 });
                 $wrap.on('click', '[data-ap-clear]', function () {
                     $hidden.val('');
+                    $nameField.val('');
+                    $avField.val('');
                     $sel.attr('hidden', 'hidden');
                     $sw.removeAttr('hidden');
                     $search.val('').trigger('focus');
@@ -1901,7 +2438,9 @@ class Chat_Forms_Admin
                     this.style.transform = '';
                 });
             });
-            </script>order:0;border-top:1px solid #eee;" />
+            </script>
+
+            <hr style="margin:14px 0;border:0;border-top:1px solid #eee;" />
 
             <p style="margin:0 0 6px;"><strong><?php _e('Standard Shortcode:', 'chat-forms'); ?></strong></p>
             <input type="text" readonly value="[chat_form id='<?php echo esc_attr($post->ID); ?>']" class="widefat" onclick="this.select()">
@@ -1988,32 +2527,495 @@ class Chat_Forms_Admin
 }
 
 
-// ─── Chatflow "Bot Agent" AJAX search (connected ai_agent users) ─────────────
+// ─── Chatflow "Bot Agent" AJAX search (the gend.me group's agents) ──────────
+// Sub-sites read the group's roster directly; separately hosted sites ask
+// gend.me's em/v1/group-agents. Sites with no group keep the old site-wide
+// ai_agent search.
 add_action('wp_ajax_em_cf_agent_search', 'em_cf_agent_search_ajax');
 function em_cf_agent_search_ajax()
 {
     check_ajax_referer('em_cf_agent_search', 'nonce');
     if (!current_user_can('edit_posts')) wp_send_json_error(array('message' => 'forbidden'), 403);
-    $q = isset($_POST['q']) ? sanitize_text_field((string) wp_unslash($_POST['q'])) : '';
-    $args = array(
-        'role'    => 'ai_agent',
-        'number'  => 20,
-        'orderby' => 'display_name',
-        'order'   => 'ASC',
-    );
+    $q = isset($_POST['q']) ? strtolower(trim(sanitize_text_field((string) wp_unslash($_POST['q'])))) : '';
+    $match = function ($a) use ($q) {
+        return $q === '' || strpos(strtolower($a['name'] . ' ' . ($a['title'] ?? '')), $q) !== false;
+    };
+
+    $gid = em_cf_site_group_id();
+    if ($gid) {
+        if (is_multisite() && function_exists('groups_get_group')) {
+            $g = groups_get_group($gid);
+            if ($g && !empty($g->id)) {
+                $summary = em_cf_group_summary($gid);
+                wp_send_json_success(array(
+                    'group'  => array('id' => $gid, 'name' => $summary['name'], 'new_agent_url' => $summary['new_agent_url']),
+                    'agents' => array_values(array_filter(em_cf_group_agents($gid), $match)),
+                    'source' => 'network',
+                ));
+            }
+        }
+        $body = em_cf_hub_fetch('group-agents', $gid);
+        if (is_wp_error($body)) wp_send_json_error(array('message' => $body->get_error_message()));
+        $agents = array();
+        foreach ((array) ($body['agents'] ?? array()) as $a) {
+            if (!is_array($a)) continue;
+            $agents[] = array(
+                'id'     => (int) ($a['id'] ?? 0),
+                'name'   => sanitize_text_field((string) ($a['name'] ?? '')),
+                'title'  => sanitize_text_field((string) ($a['title'] ?? '')),
+                'avatar' => em_cf_clean_avatar((string) ($a['avatar'] ?? '')),
+            );
+        }
+        wp_send_json_success(array(
+            'group'  => $body['group'],
+            'agents' => array_values(array_filter($agents, $match)),
+            'source' => 'remote',
+        ));
+    }
+
+    $args = array('role' => 'ai_agent', 'number' => 20, 'orderby' => 'display_name', 'order' => 'ASC');
     if ($q !== '') {
         $args['search'] = '*' . $q . '*';
         $args['search_columns'] = array('display_name', 'user_login', 'user_nicename', 'user_email');
     }
     $out = array();
     foreach (get_users($args) as $u) {
-        $out[] = array(
-            'id'     => (int) $u->ID,
-            'name'   => (string) $u->display_name,
-            'avatar' => get_avatar_url($u->ID, array('size' => 64)),
+        $out[] = array('id' => (int) $u->ID, 'name' => (string) $u->display_name, 'title' => '',
+                       'avatar' => get_avatar_url($u->ID, array('size' => 64)));
+    }
+    wp_send_json_success(array('group' => null, 'agents' => $out, 'source' => 'site'));
+}
+
+
+// ─── Talk Flows → Chatflows list: Delete column (moves the flow to the Trash) ─
+add_action('wp_ajax_em_cf_delete_chatflow', 'em_cf_delete_chatflow_ajax');
+function em_cf_delete_chatflow_ajax()
+{
+    check_ajax_referer('em_cf_delete_chatflow', 'nonce');
+    $id   = isset($_POST['id']) ? (int) $_POST['id'] : 0;
+    $post = $id ? get_post($id) : null;
+    if (!$post || $post->post_type !== 'chat_form') {
+        wp_send_json_error(array('message' => __('Chatflow not found.', 'chat-forms')), 404);
+    }
+    if (!current_user_can('delete_post', $id)) {
+        wp_send_json_error(array('message' => __('You are not allowed to delete this chatflow.', 'chat-forms')), 403);
+    }
+    if (!wp_trash_post($id)) {
+        wp_send_json_error(array('message' => __('Could not delete this chatflow.', 'chat-forms')));
+    }
+    wp_send_json_success(array('id' => $id));
+}
+
+// ─── Display & Widget metabox: content search for "Show on Frontend Pages" ───
+add_action('wp_ajax_em_cf_content_search', 'em_cf_content_search_ajax');
+function em_cf_content_search_ajax()
+{
+    check_ajax_referer('em_cf_content_search', 'nonce');
+    if (!current_user_can('edit_posts')) wp_send_json_error(array('message' => 'forbidden'), 403);
+    $q     = isset($_POST['q']) ? sanitize_text_field((string) wp_unslash($_POST['q'])) : '';
+    $types = array_values(array_filter(array('page', 'post', 'product'), 'post_type_exists'));
+    $args  = array(
+        'post_type'              => $types,
+        'post_status'            => 'publish',
+        'posts_per_page'         => 20,
+        'no_found_rows'          => true,
+        'update_post_meta_cache' => false,
+        'update_post_term_cache' => false,
+    );
+    if ($q !== '') {
+        $args['s'] = $q;
+    } else {
+        $args['orderby'] = 'modified';
+    }
+    $items = array();
+    foreach ((new WP_Query($args))->posts as $p) {
+        $pto = get_post_type_object($p->post_type);
+        $items[] = array(
+            'value' => (string) $p->ID,
+            'label' => get_the_title($p) ?: __('(no title)', 'chat-forms'),
+            'type'  => $pto ? $pto->labels->singular_name : $p->post_type,
         );
     }
-    wp_send_json_success(array('agents' => $out));
+    wp_send_json_success(array('items' => $items));
+}
+
+// ─── Email Logic metabox: email list AJAX search ─────────────────────────────
+add_action('wp_ajax_em_cf_list_search', 'em_cf_list_search_ajax');
+function em_cf_list_search_ajax()
+{
+    check_ajax_referer('em_cf_list_search', 'nonce');
+    if (!current_user_can('edit_posts')) wp_send_json_error(array('message' => 'forbidden'), 403);
+    $q   = isset($_POST['q']) ? strtolower(trim(sanitize_text_field((string) wp_unslash($_POST['q'])))) : '';
+    $out = array();
+    foreach (function_exists('em_get_all_lists') ? em_get_all_lists() : array() as $list) {
+        if ($q !== '' && strpos(strtolower((string) $list['name']), $q) === false) continue;
+        $out[] = array(
+            'id'    => (int) $list['id'],
+            'name'  => (string) $list['name'],
+            'count' => (int) $list['subscriber_count'],
+        );
+        if (count($out) >= 25) break;
+    }
+    wp_send_json_success(array('lists' => $out));
+}
+
+// ─── Add every submitter to the form's selected email lists ──────────────────
+// Fires for both the chat UI and Agent Messages completions.
+add_action('chat_form_submission', 'em_cf_join_email_lists', 10, 3);
+function em_cf_join_email_lists($form_id, $answers, $submission_id)
+{
+    $list_ids = array_filter(array_map('intval', (array) get_post_meta($form_id, '_chat_form_email_lists', true)));
+    if (!$list_ids || !function_exists('em_add_subscriber')) return;
+
+    $email = class_exists('EM_Applications') ? EM_Applications::extract_email_from_submission($answers) : '';
+    $name  = class_exists('EM_Applications') ? EM_Applications::extract_name_from_submission($answers) : '';
+
+    // Registration steps store {"email": …} as a JSON answer.
+    if (!$email && is_array($answers)) {
+        foreach ($answers as $val) {
+            $raw  = is_array($val) ? ($val['answer'] ?? '') : $val;
+            $json = is_string($raw) ? json_decode($raw, true) : null;
+            if (is_array($json) && !empty($json['email']) && is_email($json['email'])) {
+                $email = sanitize_email($json['email']);
+                break;
+            }
+        }
+    }
+
+    // Fall back to the submitter's account.
+    $user = null;
+    $author_id = (int) get_post_field('post_author', $submission_id);
+    if ($author_id) $user = get_userdata($author_id);
+    if (!$user && is_user_logged_in()) $user = wp_get_current_user();
+    if (!$email && $user) $email = $user->user_email;
+    if (!$email || !is_email($email)) return;
+
+    $first = $user ? (string) $user->first_name : '';
+    $last  = $user ? (string) $user->last_name : '';
+    if ($name !== '') {
+        $parts = preg_split('/\s+/', trim($name), 2);
+        $first = $parts[0];
+        $last  = $parts[1] ?? $last;
+    } elseif ($first === '' && $user) {
+        $first = (string) $user->display_name;
+    }
+
+    // em_add_subscriber() overwrites name + status on existing subscribers —
+    // keep theirs so an unsubscribed address isn't silently resubscribed.
+    $status = 'subscribed';
+    if (function_exists('em_get_subscriber') && ($existing = em_get_subscriber($email))) {
+        if (!empty($existing->first_name) || !empty($existing->last_name)) {
+            $first = (string) $existing->first_name;
+            $last  = (string) $existing->last_name;
+        }
+        if (!empty($existing->status)) $status = (string) $existing->status;
+    }
+
+    em_add_subscriber($email, $first, $last, $list_ids, $status);
+}
+
+
+// ─── Success Message metabox: sequence (Launch Trigger) search ───────────────
+// Sequences live on gend.me as BuddyPress groupmeta `_psoo_sequence_workspaces`
+// of the group this site belongs to; each workspace's triggers carry the
+// LT- codes Chat_Forms_Launch fires. Sub-sites on the gend.me network read
+// the groupmeta directly; separately hosted sites ask gend.me's
+// em/v1/group-sequences route with the admin's gend.me OAuth token.
+
+/** The gend.me group this site belongs to (0 when it isn't linked). */
+function em_cf_site_group_id()
+{
+    $blog_id = get_current_blog_id();
+    $gid = 0;
+    if (function_exists('wu_get_site')) {
+        try {
+            $wu_site = wu_get_site($blog_id);
+            if ($wu_site) $gid = (int) $wu_site->get_meta('gdc_bp_group_id', 0);
+        } catch (\Throwable $e) {}
+    }
+    if (!$gid) $gid = (int) get_option('gdc_bp_group_id', 0);
+    if (!$gid && is_multisite()) $gid = (int) get_metadata('blog', $blog_id, 'gdc_bp_group_id', true);
+    // Separately hosted apps linked through contracts-and-payments.
+    if (!$gid && class_exists('Gend_CP_App_Identity')) {
+        $linked = Gend_CP_App_Identity::linked_group();
+        if (!$linked && method_exists('Gend_CP_App_Identity', 'fetch_binding_from_gendme')) {
+            $linked = Gend_CP_App_Identity::fetch_binding_from_gendme();
+        }
+        if (is_array($linked) && !empty($linked['id'])) $gid = (int) $linked['id'];
+    }
+    return $gid;
+}
+
+/** Every trigger with a launch code in a group's sequence workspaces (read where the groupmeta lives). */
+function em_cf_group_sequence_triggers($group_id)
+{
+    $out = array();
+    if (!function_exists('groups_get_groupmeta')) return $out;
+    foreach ((array) groups_get_groupmeta((int) $group_id, '_psoo_sequence_workspaces', true) as $ws) {
+        $ws = (array) $ws;
+        if (!empty($ws['deleted'])) continue;
+        $ws_name  = sanitize_text_field((string) ($ws['name'] ?? ''));
+        $seq_name = sanitize_text_field((string) ($ws['sequenceName'] ?? ''));
+        foreach ((array) ($ws['triggers'] ?? array()) as $tr) {
+            $tr = (array) $tr;
+            $code = sanitize_text_field((string) ($tr['code'] ?? ''));
+            if ($code === '') continue;
+            $out[] = array(
+                'code'      => $code,
+                'name'      => sanitize_text_field((string) ($tr['name'] ?? '')),
+                'type'      => sanitize_key((string) ($tr['type'] ?? 'manual')),
+                'enabled'   => !empty($tr['enabled']),
+                'workspace' => $ws_name,
+                'sequence'  => $seq_name !== '' ? $seq_name : $ws_name,
+            );
+        }
+    }
+    usort($out, function ($a, $b) {
+        return strcasecmp($a['sequence'] . ' ' . $a['name'], $b['sequence'] . ' ' . $b['name']);
+    });
+    return $out;
+}
+
+/** Group id + display name, read locally. */
+function em_cf_group_summary($group_id)
+{
+    $name = '';
+    $new_url = '';
+    $new_agent_url = '';
+    if (function_exists('groups_get_group')) {
+        $g = groups_get_group((int) $group_id);
+        if ($g && !empty($g->id)) {
+            $name = (string) $g->name;
+            // Members Hub → Sequences → "+ New Workspace" (deep link handled
+            // by projects/assets/psoo-group-members-tabs.js).
+            if (function_exists('bp_get_group_permalink')) {
+                $hub_url = trailingslashit(bp_get_group_permalink($g)) . 'members-hub/';
+                $new_url = add_query_arg(array('gm_tab' => 'sequences', 'gm_new' => 'workspace'), $hub_url);
+                $new_agent_url = add_query_arg(array('gm_tab' => 'groups', 'gm_new' => 'agent'), $hub_url);
+            }
+        }
+    }
+    return array('id' => (int) $group_id, 'name' => $name, 'new_url' => $new_url, 'new_agent_url' => $new_agent_url);
+}
+
+add_action('wp_ajax_em_cf_seq_search', 'em_cf_seq_search_ajax');
+function em_cf_seq_search_ajax()
+{
+    check_ajax_referer('em_cf_seq_search', 'nonce');
+    if (!current_user_can('edit_posts')) wp_send_json_error(array('message' => 'forbidden'), 403);
+
+    $gid = em_cf_site_group_id();
+    if (!$gid) {
+        wp_send_json_error(array('message' => __('This site isn\'t linked to a gend.me group yet, so there are no sequences to pick. You can still paste a launch code below.', 'chat-forms')));
+    }
+
+    // Sub-site on the gend.me network: the group's meta is right here.
+    if (is_multisite() && function_exists('groups_get_group')) {
+        $g = groups_get_group($gid);
+        if ($g && !empty($g->id)) {
+            wp_send_json_success(array(
+                'group'    => em_cf_group_summary($gid),
+                'triggers' => em_cf_group_sequence_triggers($gid),
+                'source'   => 'network',
+            ));
+        }
+    }
+
+    // Separately hosted: ask gend.me with this admin's gend.me token.
+    $uid   = get_current_user_id();
+    $token = class_exists('EM_Leo_OAuth') ? (string) EM_Leo_OAuth::resolve_user_token($uid) : '';
+    if ($token === '' && class_exists('Gend_CP_OAuth_Client') && method_exists('Gend_CP_OAuth_Client', 'bearer_for')) {
+        $token = (string) Gend_CP_OAuth_Client::bearer_for($uid);
+    }
+    if ($token === '') {
+        wp_send_json_error(array('message' => __('Connect this site to your gend.me account (Talk Flows → Leo settings) to load your group\'s sequences. You can still paste a launch code below.', 'chat-forms')));
+    }
+
+    $hub = class_exists('EM_Leo_OAuth') ? EM_Leo_OAuth::hub_url() : 'https://gend.me';
+    $r = wp_remote_get(add_query_arg('group_id', $gid, rtrim($hub, '/') . '/wp-json/em/v1/group-sequences'), array(
+        'timeout' => 12,
+        'headers' => array('Authorization' => 'Bearer ' . $token, 'Accept' => 'application/json'),
+    ));
+    if (is_wp_error($r)) {
+        wp_send_json_error(array('message' => sprintf(__('Couldn\'t reach gend.me: %s', 'chat-forms'), $r->get_error_message())));
+    }
+    $code = (int) wp_remote_retrieve_response_code($r);
+    $body = json_decode(wp_remote_retrieve_body($r), true);
+    if ($code === 401) {
+        wp_send_json_error(array('message' => __('Your gend.me connection has expired. Reconnect in Talk Flows → Leo settings, then try again.', 'chat-forms')));
+    }
+    if ($code !== 200 || !is_array($body) || !isset($body['triggers'])) {
+        $msg = is_array($body) && !empty($body['message']) ? (string) $body['message'] : sprintf(__('gend.me returned an error (%d).', 'chat-forms'), $code);
+        wp_send_json_error(array('message' => $msg));
+    }
+    wp_send_json_success(array(
+        'group'    => array(
+            'id'      => $gid,
+            'name'    => sanitize_text_field((string) ($body['group']['name'] ?? '')),
+            'new_url' => (function ($url) use ($hub) {
+                $url = esc_url_raw((string) $url);
+                return ($url !== '' && wp_parse_url($url, PHP_URL_HOST) === wp_parse_url($hub, PHP_URL_HOST)) ? $url : '';
+            })($body['group']['new_url'] ?? ''),
+        ),
+        'triggers' => array_values(array_map(function ($t) {
+            return array(
+                'code'      => sanitize_text_field((string) ($t['code'] ?? '')),
+                'name'      => sanitize_text_field((string) ($t['name'] ?? '')),
+                'type'      => sanitize_key((string) ($t['type'] ?? 'manual')),
+                'enabled'   => !empty($t['enabled']),
+                'workspace' => sanitize_text_field((string) ($t['workspace'] ?? '')),
+                'sequence'  => sanitize_text_field((string) ($t['sequence'] ?? '')),
+            );
+        }, array_filter((array) $body['triggers'], 'is_array'))),
+        'source'   => 'remote',
+    ));
+}
+
+// gend.me side: GET em/v1/group-sequences?group_id= for separately hosted
+// sites. Auth is the logged-in session or a gend.me OAuth bearer token; the
+// caller must belong to the group (same gate as psoo-pm sequence-workspaces).
+add_action('rest_api_init', function () {
+    register_rest_route('em/v1', '/group-sequences', array(
+        'methods'             => 'GET',
+        'callback'            => 'em_cf_rest_group_sequences',
+        'permission_callback' => '__return_true',
+        'args'                => array('group_id' => array('required' => true, 'type' => 'integer')),
+    ));
+    register_rest_route('em/v1', '/group-agents', array(
+        'methods'             => 'GET',
+        'callback'            => 'em_cf_rest_group_agents',
+        'permission_callback' => '__return_true',
+        'args'                => array('group_id' => array('required' => true, 'type' => 'integer')),
+    ));
+});
+function em_cf_rest_group_sequences(WP_REST_Request $request)
+{
+    $gid = em_cf_rest_group_gate($request);
+    if (is_wp_error($gid)) return $gid;
+    return rest_ensure_response(array(
+        'group'    => em_cf_group_summary($gid),
+        'triggers' => em_cf_group_sequence_triggers($gid),
+    ));
+}
+function em_cf_rest_group_agents(WP_REST_Request $request)
+{
+    $gid = em_cf_rest_group_gate($request);
+    if (is_wp_error($gid)) return $gid;
+    return rest_ensure_response(array(
+        'group'  => em_cf_group_summary($gid),
+        'agents' => em_cf_group_agents($gid),
+    ));
+}
+/** Signed-in (session or gend.me bearer) member of the requested group → its id. */
+function em_cf_rest_group_gate(WP_REST_Request $request)
+{
+    if (!function_exists('groups_get_group') || !function_exists('groups_get_groupmeta')) {
+        return new WP_Error('unavailable', 'Groups are not available on this site.', array('status' => 404));
+    }
+    $uid = get_current_user_id();
+    if (!$uid) {
+        $auth = (string) $request->get_header('authorization');
+        if (stripos($auth, 'Bearer ') === 0 && function_exists('gdc_self_hosted_resolve_oauth_user_id')) {
+            $token = trim(substr($auth, 7));
+            $ckey  = 'em_cf_bearer_' . md5($token);
+            $uid   = (int) get_transient($ckey);
+            if (!$uid) {
+                $uid = (int) gdc_self_hosted_resolve_oauth_user_id($token);
+                if ($uid) set_transient($ckey, $uid, 5 * MINUTE_IN_SECONDS);
+            }
+        }
+    }
+    if (!$uid) return new WP_Error('no_token', 'gend.me sign-in required.', array('status' => 401));
+
+    $gid   = (int) $request->get_param('group_id');
+    $group = $gid ? groups_get_group($gid) : null;
+    if (!$group || empty($group->id)) return new WP_Error('bad_group', 'Group not found.', array('status' => 404));
+    if (!user_can($uid, 'manage_options') && !(function_exists('groups_is_user_member') && groups_is_user_member($uid, $gid))) {
+        return new WP_Error('forbidden', 'Your gend.me account is not a member of this site\'s group.', array('status' => 403));
+    }
+    return $gid;
+}
+
+/** The AI agents that belong to a gend.me group (read where the group lives). */
+function em_cf_group_agents($group_id)
+{
+    $out = array();
+    $group_id = (int) $group_id;
+    if (function_exists('psoo_get_group_members_payload')) {
+        // Same roster the Members Hub shows: group members flagged as AI agents.
+        $payload = psoo_get_group_members_payload($group_id);
+        $rows = isset($payload['grouped']['agents']) ? (array) $payload['grouped']['agents'] : array();
+    } else {
+        $rows = array();
+        if (function_exists('groups_get_group_members')) {
+            $res = groups_get_group_members(array('group_id' => $group_id, 'per_page' => 500, 'exclude_admins_mods' => false));
+            foreach ((array) ($res['members'] ?? array()) as $m) {
+                $uid = (int) $m->ID;
+                $u = get_userdata($uid);
+                if (!$u || !(get_user_meta($uid, '_aipa_is_agent', true) || in_array('ai_agent', (array) $u->roles, true))) continue;
+                $rows[] = array('id' => $uid, 'name' => $u->display_name, 'avatar' => get_avatar_url($uid, array('size' => 96)),
+                                'title' => '', 'status' => (string) get_user_meta($uid, '_aipa_agent_status', true));
+            }
+        }
+    }
+    foreach ($rows as $a) {
+        $a = (array) $a;
+        $status = strtolower((string) ($a['status'] ?? ''));
+        if (in_array($status, array('deactivated', 'inactive', 'disabled'), true)) continue;
+        $out[] = array(
+            'id'     => (int) ($a['id'] ?? 0),
+            'name'   => sanitize_text_field((string) ($a['name'] ?? '')),
+            'title'  => sanitize_text_field((string) ($a['title'] ?? '')),
+            'avatar' => em_cf_clean_avatar((string) ($a['avatar'] ?? '')),
+        );
+    }
+    usort($out, function ($a, $b) { return strcasecmp($a['name'], $b['name']); });
+    return $out;
+}
+
+/** An avatar URL, or the roster's inline SVG placeholder; anything else → ''. */
+function em_cf_clean_avatar($url)
+{
+    $url = trim((string) $url);
+    if (strpos($url, 'data:image/svg+xml') === 0 && strpos($url, '<script') === false && strlen($url) < 4000) return $url;
+    return esc_url_raw($url);
+}
+
+/** GET a gend.me em/v1 route for this site's group with the admin's gend.me token. */
+function em_cf_hub_fetch($route, $group_id)
+{
+    $uid   = get_current_user_id();
+    $token = class_exists('EM_Leo_OAuth') ? (string) EM_Leo_OAuth::resolve_user_token($uid) : '';
+    if ($token === '' && class_exists('Gend_CP_OAuth_Client') && method_exists('Gend_CP_OAuth_Client', 'bearer_for')) {
+        $token = (string) Gend_CP_OAuth_Client::bearer_for($uid);
+    }
+    if ($token === '') {
+        return new WP_Error('not_connected', __('Connect this site to your gend.me account (Talk Flows → Leo settings) to load your group.', 'chat-forms'));
+    }
+    $hub = class_exists('EM_Leo_OAuth') ? EM_Leo_OAuth::hub_url() : 'https://gend.me';
+    $r = wp_remote_get(add_query_arg('group_id', (int) $group_id, rtrim($hub, '/') . '/wp-json/em/v1/' . $route), array(
+        'timeout' => 12,
+        'headers' => array('Authorization' => 'Bearer ' . $token, 'Accept' => 'application/json'),
+    ));
+    if (is_wp_error($r)) {
+        return new WP_Error('unreachable', sprintf(__('Couldn\'t reach gend.me: %s', 'chat-forms'), $r->get_error_message()));
+    }
+    $code = (int) wp_remote_retrieve_response_code($r);
+    $body = json_decode(wp_remote_retrieve_body($r), true);
+    if ($code === 401) {
+        return new WP_Error('expired', __('Your gend.me connection has expired. Reconnect in Talk Flows → Leo settings, then try again.', 'chat-forms'));
+    }
+    if ($code !== 200 || !is_array($body)) {
+        $msg = is_array($body) && !empty($body['message']) ? (string) $body['message'] : sprintf(__('gend.me returned an error (%d).', 'chat-forms'), $code);
+        return new WP_Error('hub_error', $msg);
+    }
+    $new_agent = (string) ($body['group']['new_agent_url'] ?? '');
+    $body['group'] = array(
+        'id'            => (int) $group_id,
+        'name'          => sanitize_text_field((string) ($body['group']['name'] ?? '')),
+        'new_agent_url' => ($new_agent !== '' && wp_parse_url($new_agent, PHP_URL_HOST) === wp_parse_url($hub, PHP_URL_HOST)) ? esc_url_raw($new_agent) : '',
+    );
+    return $body;
 }
 
 

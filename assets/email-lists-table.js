@@ -44,19 +44,21 @@
                 $tbody.empty();
                 $.each(lists, function (i, list) {
                     var createdDate = list.created_at ? new Date(list.created_at).toLocaleDateString() : 'N/A';
-                    var description = list.description || '<span style="color: #94a3b8;">No description</span>';
-                    var subscriberCount = list.subscriber_count || 0;
+                    var description = list.description
+                        ? escapeHtml(list.description)
+                        : '<span class="gdc-lists-muted">No description</span>';
+                    var subscriberCount = parseInt(list.subscriber_count, 10) || 0;
 
-                    var $row = $('<tr>');
-                    $row.append('<td><strong>' + escapeHtml(list.name) + '</strong></td>');
-                    $row.append('<td>' + description + '</td>');
-                    $row.append('<td>' + subscriberCount + '</td>');
-                    $row.append('<td>' + createdDate + '</td>');
+                    var $row = $('<tr>').attr('data-search', ((list.name || '') + ' ' + (list.description || '')).toLowerCase());
+                    $row.append('<td class="gdc-lists-name"><strong>' + escapeHtml(list.name) + '</strong></td>');
+                    $row.append('<td class="gdc-lists-desc">' + description + '</td>');
+                    $row.append('<td class="gdc-lists-count"><span class="gdc-lists-pill' + (subscriberCount ? '' : ' is-zero') + '">' + subscriberCount + '</span></td>');
+                    $row.append('<td class="gdc-lists-date">' + escapeHtml(createdDate) + '</td>');
 
                     // Actions column
-                    var $actions = $('<td></td>');
-                    var $viewBtn = $('<button class="button button-small gdc-list-view-btn">View</button>').data('listId', list.id);
-                    var $deleteBtn = $('<button class="button button-small button-link-delete gdc-list-delete-btn" style="margin-left: 5px;">Delete</button>')
+                    var $actions = $('<td class="gdc-lists-actions"></td>');
+                    var $viewBtn = $('<button type="button" class="gdc-lists-btn gdc-list-view-btn">View</button>').data('listId', list.id);
+                    var $deleteBtn = $('<button type="button" class="gdc-lists-btn gdc-lists-btn--danger gdc-list-delete-btn">Delete</button>')
                         .data('listId', list.id)
                         .data('listName', list.name);
 
@@ -282,6 +284,14 @@
      */
     function bindEvents() {
         // View list button
+        // Client-side filter for the "Search subscriber lists" box.
+        $(document).on('input', '#gdc-email-lists-search', function () {
+            var q = $.trim($(this).val()).toLowerCase();
+            $('#gdc-email-lists-table tbody tr[data-search]').each(function () {
+                $(this).toggle(!q || $(this).attr('data-search').indexOf(q) !== -1);
+            });
+        });
+
         $(document).on('click', '.gdc-list-view-btn', function () {
             var listId = $(this).data('listId');
             viewList(listId);
