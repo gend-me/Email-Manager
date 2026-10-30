@@ -218,12 +218,15 @@ function em_bp_email_save_handler(WP_REST_Request $request)
     $post_id = $posts[0]->ID;
     $update  = ['ID' => $post_id];
 
-    if ($subject !== null) {
-        // BuddyPress stores the subject in post_excerpt
-        $update['post_excerpt'] = $subject;
+    // BuddyPress sends post_title as the subject, post_content as the HTML body and
+    // post_excerpt as the plain-text version (gend.me 2026-10-30: the subject used to be
+    // written into post_excerpt, which replaced every plain-text version with the subject).
+    if ($subject !== null && $subject !== '') {
+        $update['post_title'] = $subject;
     }
     if ($html !== null) {
         $update['post_content'] = $html;
+        $update['post_excerpt'] = em_bp_email_plaintext($html);
     }
 
     $result = wp_update_post($update, true);
@@ -232,6 +235,24 @@ function em_bp_email_save_handler(WP_REST_Request $request)
     }
 
     return ['success' => true, 'email_id' => $slug, 'post_id' => $post_id];
+}
+
+/**
+ * Plain-text version of a BuddyPress email body: tags dropped, links kept as "text (url)",
+ * {{tokens}} left in place for BuddyPress to fill.
+ */
+function em_bp_email_plaintext($html)
+{
+    $text = preg_replace('#<(script|style)\b[^>]*>.*?</\1>#is', '', (string) $html);
+    $text = preg_replace_callback('#<a\b[^>]*href=(["\'])(.*?)\1[^>]*>(.*?)</a>#is', function ($m) {
+        $label = trim(wp_strip_all_tags($m[3]));
+        return ($label !== '' && $label !== $m[2]) ? $label . ' (' . $m[2] . ')' : $m[2];
+    }, $text);
+    $text = preg_replace('#<\s*(br|/p|/div|/tr|/h[1-6]|/li)\b[^>]*>#i', "\n", $text);
+    $text = html_entity_decode(wp_strip_all_tags($text), ENT_QUOTES, get_bloginfo('charset') ?: 'UTF-8');
+    $text = preg_replace("/[ \t]+/", ' ', $text);
+    $text = preg_replace("/ *\n */", "\n", $text);
+    return trim(preg_replace("/\n{3,}/", "\n\n", $text));
 }
 
 // ─── Token replacement ───────────────────────────────────────────────────────
