@@ -62,6 +62,96 @@ if (!function_exists('em_get_wc_email_tokens')) {
 }
 
 /**
+ * Readable name for a BuddyPress email type (the type slug is all BuddyPress stores as its name).
+ */
+if (!function_exists('em_bp_email_label')) {
+    function em_bp_email_label($term)
+    {
+        $labels = array(
+            'core-user-activation'                        => __('Account Activated', 'email-manager'),
+            'core-user-registration'                      => __('Activate Your Account', 'email-manager'),
+            'core-user-registration-with-blog'            => __('Activate Your Account and Site', 'email-manager'),
+            'activity-comment'                            => __('Reply to an Update', 'email-manager'),
+            'activity-comment-author'                     => __('Reply to a Comment', 'email-manager'),
+            'activity-at-message'                         => __('Mentioned in an Update', 'email-manager'),
+            'groups-at-message'                           => __('Mentioned in a Group Update', 'email-manager'),
+            'friends-request'                             => __('Connection Request', 'email-manager'),
+            'friends-request-accepted'                    => __('Connection Accepted', 'email-manager'),
+            'groups-details-updated'                      => __('Group Details Updated', 'email-manager'),
+            'groups-invitation'                           => __('Group Invitation', 'email-manager'),
+            'groups-member-promoted'                      => __('Promoted in a Group', 'email-manager'),
+            'groups-membership-request'                   => __('Request to Join a Group', 'email-manager'),
+            'groups-membership-request-accepted'          => __('Group Request Accepted', 'email-manager'),
+            'groups-membership-request-rejected'          => __('Group Request Declined', 'email-manager'),
+            'groups-membership-request-accepted-by-admin' => __('Group Request Accepted by an Admin', 'email-manager'),
+            'groups-membership-request-rejected-by-admin' => __('Group Request Declined by an Admin', 'email-manager'),
+            'messages-unread'                             => __('New Private Message', 'email-manager'),
+            'settings-verify-email-change'                => __('Verify a New Email Address', 'email-manager'),
+            'bp-members-invitation'                       => __('Site Invitation', 'email-manager'),
+            'members-membership-request'                  => __('Request to Join the Site', 'email-manager'),
+            'members-membership-request-rejected'         => __('Site Request Declined', 'email-manager'),
+            'yz-admin-new-report'                         => __('Moderation: New Report', 'email-manager'),
+            'yz-admin-item-hidden'                        => __('Moderation: Item Hidden', 'email-manager'),
+            'yz-user-item-hidden'                         => __('Moderation: Your Item Is Under Review', 'email-manager'),
+            'yz-user-item-deleted'                        => __('Moderation: Your Item Was Removed', 'email-manager'),
+            'yz-user-item-restored'                       => __('Moderation: Your Item Was Restored', 'email-manager'),
+            'yz-reporter-item-deleted'                    => __('Moderation: Reported Item Removed', 'email-manager'),
+            'yz-reporter-item-restored'                   => __('Moderation: Reported Item Restored', 'email-manager'),
+            'yz-official-restrictions'                    => __('Moderation: Account Restricted', 'email-manager'),
+            'yz-temporary-restrictions'                   => __('Moderation: Temporary Restriction', 'email-manager'),
+            'yzbbm-user-blocked'                          => __('Member Blocked', 'email-manager'),
+        );
+        if (isset($labels[$term->slug])) {
+            return $labels[$term->slug];
+        }
+        return $term->name !== $term->slug ? $term->name : ucwords(str_replace(array('-', '_'), ' ', $term->slug));
+    }
+}
+
+/**
+ * Who receives a BuddyPress email type.
+ */
+if (!function_exists('em_bp_email_recipient')) {
+    function em_bp_email_recipient($slug)
+    {
+        if (in_array($slug, array('yz-admin-new-report', 'yz-admin-item-hidden', 'yzbbm-user-blocked', 'members-membership-request'), true)) {
+            return __('Site Admins', 'email-manager');
+        }
+        if ($slug === 'groups-membership-request') {
+            return __('Group Admins', 'email-manager');
+        }
+        if (in_array($slug, array('bp-members-invitation', 'core-user-registration', 'core-user-registration-with-blog'), true)) {
+            return __('Invitee / New Member', 'email-manager');
+        }
+        return __('Member', 'email-manager');
+    }
+}
+
+/**
+ * Tokens a BuddyPress email can use: the ones in its own template and BuddyPress's default
+ * template for that type, plus the ones BuddyPress adds to every email.
+ */
+if (!function_exists('em_bp_email_tokens')) {
+    function em_bp_email_tokens($slug, $post)
+    {
+        $text = $post->post_title . ' ' . $post->post_content . ' ' . $post->post_excerpt;
+        if (function_exists('bp_email_get_schema')) {
+            $schema = bp_email_get_schema();
+            if (isset($schema[$slug])) {
+                $text .= ' ' . implode(' ', array_map('strval', array_intersect_key($schema[$slug], array_flip(array('post_title', 'post_content', 'post_excerpt')))));
+            }
+        }
+        preg_match_all('/\{\{\{?[a-z0-9_.\-]+\}?\}\}/i', $text, $m);
+        $tokens = array_merge($m[0], array('{{recipient.name}}', '{{recipient.username}}', '{{site.name}}', '{{{site.url}}}', '{{site.description}}', '{{{unsubscribe}}}'));
+        $seen = array();
+        foreach ($tokens as $t) {
+            $seen[trim($t, '{}')] = isset($seen[trim($t, '{}')]) ? $seen[trim($t, '{}')] : $t;
+        }
+        return array_values($seen);
+    }
+}
+
+/**
  * Render a single system email table row with a popup Configure button.
  */
 if (!function_exists('em_render_system_email_row')) {
@@ -228,12 +318,13 @@ function em_render_email_manager_page()
                     $post = $bp_posts[0];
                     $gdc_bp_emails[] = array(
                         'id'          => $post->post_name,
-                        'title'       => $term->name,
-                        'description' => trim($post->post_title),
-                        'recipient'   => __('Member', 'email-manager'),
+                        'title'       => em_bp_email_label($term),
+                        'description' => $term->description !== '' ? $term->description : trim($post->post_title),
+                        'recipient'   => em_bp_email_recipient($term->slug),
                         'section'     => 'community',
                         'subject'     => trim($post->post_title),
                         'html'        => $post->post_content,
+                        'tokens'      => em_bp_email_tokens($term->slug, $post),
                     );
                 }
             }
@@ -711,15 +802,7 @@ function em_render_email_manager_page()
                                             'description' => $e['description'],
                                             'html'        => isset($e['html']) ? $e['html'] : '',
                                             'is_enabled'  => true,
-                                            'tokens'      => array(
-                                                '{{sender.name}}', '{{sender.username}}',
-                                                '{{recipient.name}}', '{{recipient.username}}',
-                                                '{{site.name}}', '{{site.url}}',
-                                                '{{group.name}}', '{{group.url}}',
-                                                '{{activity.content}}', '{{comment.content}}',
-                                                '{{thread.subject}}', '{{message.content}}',
-                                                '{{friendship.initiator.name}}',
-                                            ),
+                                            'tokens'      => $e['tokens'],
                                         ));
                                     }
                                 }); ?>
