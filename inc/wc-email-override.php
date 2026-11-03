@@ -342,7 +342,7 @@ function em_wc_all_tokens()
  */
 function em_get_wc_email_tokens($email)
 {
-    return em_wc_all_tokens();
+    return apply_filters('em_wc_email_tokens', em_wc_all_tokens(), $email);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
