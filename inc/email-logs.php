@@ -276,9 +276,13 @@ new EM_Email_Logs();
 // AJAX for log body
 add_action('wp_ajax_em_get_log_body', function () {
     check_ajax_referer('em_log_nonce', 'nonce');
+    // Security 2026-11-02: only email logs, only for site managers (this returned any post's content).
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(null, 403);
+    }
     $id = absint($_GET['id']);
     $post = get_post($id);
-    if ($post) {
+    if ($post && $post->post_type === 'em_email_log') {
         wp_send_json_success(['body' => $post->post_content]);
     }
     wp_send_json_error();

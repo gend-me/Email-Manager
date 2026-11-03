@@ -178,12 +178,12 @@ class Chat_Forms_Launch
             array(
                 'methods'             => 'GET',
                 'callback'            => array($this, 'list_chatflows'),
-                'permission_callback' => array($this, 'require_edit_posts'),
+                'permission_callback' => array($this, 'require_chatflow_read'),
             ),
             array(
                 'methods'             => 'POST',
                 'callback'            => array($this, 'create_chatflow'),
-                'permission_callback' => array($this, 'require_edit_posts'),
+                'permission_callback' => array($this, 'require_chatflow_write'),
             ),
         ));
         // No extra 'id' arg validation here — the route's own \d+ regex
@@ -217,17 +217,17 @@ class Chat_Forms_Launch
         register_rest_route('em/v1', '/chatflows/launch', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'launch_tracked_instance'),
-            'permission_callback' => array($this, 'require_edit_posts'),
+            'permission_callback' => array($this, 'require_chatflow_run'),
         ));
         register_rest_route('em/v1', '/launch-bind', array(
             'methods'             => 'POST',
             'callback'            => array($this, 'bind_launch_code'),
-            'permission_callback' => array($this, 'require_edit_posts'),
+            'permission_callback' => array($this, 'require_chatflow_write'),
         ));
         register_rest_route('em/v1', '/launch-targets', array(
             'methods'             => 'GET',
             'callback'            => array($this, 'list_launch_targets'),
-            'permission_callback' => array($this, 'require_edit_posts'),
+            'permission_callback' => array($this, 'require_chatflow_read'),
         ));
         register_rest_route('em/v1', '/chatflows/launched', array(
             'methods'             => 'GET',
@@ -372,6 +372,58 @@ class Chat_Forms_Launch
         }
         switch_to_blog($site_id);
         return true;
+    }
+
+    /**
+     * Security 2026-11-02: hub members hold edit_posts, and ?group_id= switches to that group's site, so these
+     * routes check the caller against the group they name (or, without one, against the current site).
+     */
+    private function group_access(WP_REST_Request $request, $write)
+    {
+        $uid = get_current_user_id();
+        $gid = (int) $request->get_param('group_id');
+        if ($uid <= 0) {
+            return false;
+        }
+        if (is_super_admin($uid)) {
+            return true;
+        }
+        if ($gid > 0) {
+            if (!function_exists('groups_is_user_admin')) {
+                return false;
+            }
+            if (groups_is_user_admin($uid, $gid) || groups_is_user_mod($uid, $gid)) {
+                return true;
+            }
+            return !$write && groups_is_user_member($uid, $gid);
+        }
+        return current_user_can($write ? 'manage_options' : 'edit_others_posts');
+    }
+
+    private function access_result($allowed)
+    {
+        return $allowed
+            ? true
+            : new WP_Error('em_launch_forbidden', 'You do not have permission to manage chatflows.', array('status' => 403));
+    }
+
+    public function require_chatflow_read(WP_REST_Request $request)
+    {
+        return $this->access_result($this->group_access($request, false));
+    }
+
+    public function require_chatflow_write(WP_REST_Request $request)
+    {
+        return $this->access_result($this->group_access($request, true));
+    }
+
+    // Launching only records the caller's own run, so without a group any member may start one, as before.
+    public function require_chatflow_run(WP_REST_Request $request)
+    {
+        if ((int) $request->get_param('group_id') > 0) {
+            return $this->access_result($this->group_access($request, false));
+        }
+        return $this->require_edit_posts();
     }
 
     public function require_edit_posts()
@@ -667,7 +719,7 @@ class Chat_Forms_Launch
     {
         $id = (int) $request->get_param('id');
         $post = get_post($id);
-        if (!$post || $post->post_type !== 'chat_form') {
+        if (!$post || !in_array($post->post_type, array('chat_form', 'basic_form'), true)) {
             return new WP_Error('em_launch_not_found', 'Chatflow not found.', array('status' => 404));
         }
         if (!current_user_can('edit_post', $id)) {
@@ -690,7 +742,7 @@ class Chat_Forms_Launch
     {
         $id = (int) $request->get_param('id');
         $post = get_post($id);
-        if (!$post || $post->post_type !== 'chat_form') {
+        if (!$post || !in_array($post->post_type, array('chat_form', 'basic_form'), true)) {
             return new WP_Error('em_launch_not_found', 'Chatflow not found.', array('status' => 404));
         }
         if (!current_user_can('edit_post', $id)) {
@@ -724,11 +776,16 @@ class Chat_Forms_Launch
      * list (every question it loaded via GET, edited or not) or fields it
      * didn't touch will be silently dropped, same as the wp-admin editor.
      */
+    private function clean_kept_field($value)
+    {
+        return is_array($value) ? array_map(array($this, 'clean_kept_field'), $value) : wp_kses_post((string) $value);
+    }
+
     public function save_chatflow(WP_REST_Request $request)
     {
         $id = (int) $request->get_param('id');
         $post = get_post($id);
-        if (!$post || $post->post_type !== 'chat_form') {
+        if (!$post || !in_array($post->post_type, array('chat_form', 'basic_form'), true)) {
             return new WP_Error('em_launch_not_found', 'Chatflow not found.', array('status' => 404));
         }
         if (!current_user_can('edit_post', $id)) {
@@ -769,6 +826,25 @@ class Chat_Forms_Launch
 
                 if (isset($question_data['content'])) {
                     $sanitized_question['content'] = wp_kses_post($question_data['content']);
+                }
+
+                // Same as the wp-admin save, which this route dropped (chat tools round-trip whole flows).
+                if (isset($question_data['terms']) && is_array($question_data['terms'])) {
+                    $sanitized_question['terms'] = array_map(array($this, 'clean_kept_field'), $question_data['terms']);
+                }
+                if (isset($question_data['priority'])) {
+                    $em_pr = sanitize_key($question_data['priority']);
+                    $sanitized_question['priority'] = in_array($em_pr, array('low', 'normal', 'high'), true) ? $em_pr : 'normal';
+                }
+                if (isset($question_data['run_target'])) {
+                    $rt = sanitize_text_field($question_data['run_target']);
+                    $sanitized_question['run_target'] = $rt === '' ? 'gendme' : $rt;
+                    $sanitized_question['run_integration'] = isset($question_data['run_integration']) ? sanitize_text_field($question_data['run_integration']) : '';
+                    $sanitized_question['run_model'] = isset($question_data['run_model']) ? sanitize_text_field($question_data['run_model']) : '';
+                }
+                if (isset($question_data['ai_model'])) {
+                    $am = sanitize_text_field($question_data['ai_model']);
+                    $sanitized_question['ai_model'] = function_exists('em_cf_is_valid_ai_model_pick') && em_cf_is_valid_ai_model_pick($am) ? $am : '';
                 }
 
                 if (isset($question_data['prompt'])) {
