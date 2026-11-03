@@ -44,6 +44,14 @@ class Chat_Forms_Ajax
             wp_send_json_error('Please enter your username and password.');
         }
 
+        // Failed tries count, per visitor and per visitor + account.
+        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $rl_ip = 'em_login_rl_' . md5($ip);
+        $rl_user = 'em_login_rl_' . md5($ip . '|' . strtolower($username));
+        if ((int) get_transient($rl_ip) >= 20 || (int) get_transient($rl_user) >= 6) {
+            wp_send_json_error('Too many attempts. Please wait a while and try again.');
+        }
+
         $creds = array(
             'user_login'    => $username,
             'user_password' => $password,
@@ -53,6 +61,8 @@ class Chat_Forms_Ajax
         $user = wp_signon($creds, is_ssl());
 
         if (is_wp_error($user)) {
+            set_transient($rl_ip, (int) get_transient($rl_ip) + 1, 15 * MINUTE_IN_SECONDS);
+            set_transient($rl_user, (int) get_transient($rl_user) + 1, 15 * MINUTE_IN_SECONDS);
             wp_send_json_error('Invalid username or password. Please try again.');
         }
 
