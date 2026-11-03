@@ -166,9 +166,9 @@ if (!function_exists('em_render_system_email_row')) {
             <td><?php echo esc_html($recipient); ?></td>
             <td>
                 <?php if ($enabled): ?>
-                    <span style="color:#00a32a;font-weight:600;"><?php esc_html_e('Enabled', 'email-manager'); ?></span>
+                    <span class="em-sys-status is-on" style="color:#00a32a;font-weight:600;"><?php esc_html_e('Enabled', 'email-manager'); ?></span>
                 <?php else: ?>
-                    <span style="color:#d63638;font-weight:600;"><?php esc_html_e('Disabled', 'email-manager'); ?></span>
+                    <span class="em-sys-status is-off" style="color:#d63638;font-weight:600;"><?php esc_html_e('Disabled', 'email-manager'); ?></span>
                 <?php endif; ?>
             </td>
             <td>
@@ -782,7 +782,7 @@ function em_render_email_manager_page()
                                                 'send_to_customer' => $em_is_customer_email,
                                                 'wc_recipient'     => $em_display_recip,
                                                 'is_enabled'       => $email->is_enabled(),
-                                                'tokens'           => function_exists('em_wc_all_tokens') ? em_wc_all_tokens() : (function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array()),
+                                                'tokens'           => function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array(),
                                             )
                                         );
                                     }
