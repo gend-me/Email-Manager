@@ -19,13 +19,13 @@ class Chat_Forms_Submissions
 
     public function get_submission_details()
     {
-        // Verify nonce usually, but for admin ajax we rely on capability check
-        if (!current_user_can('edit_posts')) {
+        // Security 2026-11-02: submissions hold personal data, and hub members all have edit_posts.
+        if (!current_user_can('manage_options')) {
             wp_send_json_error('Unauthorized');
         }
 
         $post_id = isset($_POST['submission_id']) ? intval($_POST['submission_id']) : 0;
-        if (!$post_id) {
+        if (!$post_id || get_post_type($post_id) !== 'chat_submission') {
             wp_send_json_error('Invalid ID');
         }
 
