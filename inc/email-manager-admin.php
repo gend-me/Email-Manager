@@ -770,7 +770,7 @@ function em_render_email_manager_page()
                                         em_render_system_email_row(
                                             $email->get_title(),
                                             $email->get_description(),
-                                            $em_display_recip,
+                                            function_exists('em_wc_recipient_label') ? em_wc_recipient_label($email->id, $em_display_recip) : $em_display_recip,
                                             $email->is_enabled(),
                                             array(
                                                 'section'          => 'store',
@@ -781,6 +781,8 @@ function em_render_email_manager_page()
                                                 'html'             => $body,
                                                 'send_to_customer' => $em_is_customer_email,
                                                 'wc_recipient'     => $em_display_recip,
+                                                'deliver_primary'  => !function_exists('em_wc_recipients') || em_wc_recipients($email->id)['primary'],
+                                                'extra_recipients' => function_exists('em_wc_recipients') ? em_wc_recipients($email->id)['extra'] : array(),
                                                 'is_enabled'       => $email->is_enabled(),
                                                 'tokens'           => function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array(),
                                             )

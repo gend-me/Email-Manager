@@ -395,6 +395,21 @@ function em_wc_email_save_handler(WP_REST_Request $request)
     if ($heading !== null) $wc_opts['heading']  = $heading;
     update_option($wc_key, $wc_opts);
 
+    // Who gets it, when the popup sent recipients (WordPress account emails have none)
+    $saved_extra = null;
+    if (isset($body['send_primary']) || isset($body['extra_recipients'])) {
+        $primary = !isset($body['send_primary']) || (bool) $body['send_primary'];
+        $extra   = isset($body['extra_recipients']) && is_array($body['extra_recipients']) ? $body['extra_recipients'] : array();
+        // Validate before cleaning: sanitize_email() would squash "a@b.ca,c@d.ca" into one wrong address.
+        $extra   = array_filter(array_filter($extra, 'is_string'), 'is_email');
+        $saved_extra = array_slice(array_values(array_unique(array_map('strtolower', array_map('sanitize_email', $extra)))), 0, 10);
+        if ($primary && !$saved_extra) {
+            delete_option('em_wc_email_recipients_' . $id);
+        } else {
+            update_option('em_wc_email_recipients_' . $id, array('primary' => $primary, 'extra' => $saved_extra), false);
+        }
+    }
+
     // Persist full body HTML to our override option
     if ($html !== null) {
         if ($html === '') {
@@ -405,10 +420,14 @@ function em_wc_email_save_handler(WP_REST_Request $request)
         }
     }
 
-    return array(
+    $result = array(
         'success'  => true,
         'email_id' => $id,
     );
+    if ($saved_extra !== null) {
+        $result['extra_recipients'] = $saved_extra;
+    }
+    return $result;
 }
 
 // Handler Functions

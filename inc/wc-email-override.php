@@ -66,6 +66,67 @@ function em_wc_apply_email_override($content, $email = null)
 }
 
 
+// ─── Who gets a store email ──────────────────────────────────────────────────
+
+/**
+ * A store email's recipient settings from Configure.
+ *
+ * @param string $email_id Email id.
+ * @return array{primary:bool, extra:string[]} primary: its usual recipient (customer or admin) gets it.
+ */
+function em_wc_recipients($email_id)
+{
+    $saved = get_option('em_wc_email_recipients_' . $email_id, array());
+    return array(
+        'primary' => !is_array($saved) || !isset($saved['primary']) || (bool) $saved['primary'],
+        'extra'   => is_array($saved) && !empty($saved['extra']) ? array_values((array) $saved['extra']) : array(),
+    );
+}
+
+/**
+ * Who a store email goes to, for the email tables.
+ *
+ * @param string $email_id Email id.
+ * @param string $primary  How its usual recipient reads.
+ * @return string
+ */
+function em_wc_recipient_label($email_id, $primary)
+{
+    $recipients = em_wc_recipients($email_id);
+    $parts = $recipients['primary'] ? array_merge(array($primary), $recipients['extra']) : $recipients['extra'];
+    return $parts ? implode(', ', $parts) : __('No one', 'email-manager');
+}
+
+/**
+ * Apply the recipient settings when WooCommerce sends. Extra recipients get their own copy, so they and the customer
+ * don't see each other's addresses. The result is the usual recipient's when they get one, so a failed send to them
+ * still counts as failed.
+ */
+add_filter('woocommerce_mail_callback', 'em_wc_mail_callback_recipients', 20, 2);
+
+function em_wc_mail_callback_recipients($callback, $email = null)
+{
+    if (!$email || empty($email->id)) {
+        return $callback;
+    }
+    $recipients = em_wc_recipients($email->id);
+    if ($recipients['primary'] && empty($recipients['extra'])) {
+        return $callback;
+    }
+    return static function ($to, $subject, $message, $headers = '', $attachments = array()) use ($callback, $recipients) {
+        $usual = array_map('strtolower', array_map('trim', is_array($to) ? $to : explode(',', (string) $to)));
+        $sent = false;
+        foreach (array_diff($recipients['extra'], $usual) as $extra) {
+            $sent = (bool) $callback($extra, $subject, $message, $headers, $attachments) || $sent;
+        }
+        if ($recipients['primary']) {
+            $sent = (bool) $callback($to, $subject, $message, $headers, $attachments);
+        }
+        return $sent;
+    };
+}
+
+
 // ─── WordPress Core Account Email Overrides ──────────────────────────────────
 
 /**

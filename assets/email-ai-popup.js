@@ -14,6 +14,7 @@
         sendMode: 'immediate', // 'immediate' or 'schedule'
         scheduleDate: null,
         scheduleTime: '09:00',
+        savedRecipients: {},
         storeRecipients: {
             sendToCustomer: true,
             extraEmails: []
@@ -967,10 +968,12 @@
             $('#gdc-email-status-save-msg').text('').removeClass('saving saved error');
             $('.gdc-email-ai-status-field').show();
 
-            // Recipients: send_to_customer
+            // Recipients: send_to_customer says whose email it is; deliver_primary is the saved switch
+            var savedRecipients = state.savedRecipients[emailData.id] || emailData;
             var sendToCustomer = emailData.send_to_customer === true;
-            state.storeRecipients.sendToCustomer = sendToCustomer;
-            $('#gdc-email-send-to-customer').prop('checked', sendToCustomer);
+            var deliverPrimary = savedRecipients.deliver_primary !== false;
+            state.storeRecipients.sendToCustomer = deliverPrimary;
+            $('#gdc-email-send-to-customer').prop('checked', deliverPrimary);
             var recipientTitle = sendToCustomer ? 'Send to customer' : 'Send to admin';
             var recipientDesc = sendToCustomer
                 ? 'Automatically delivered to the order purchaser'
@@ -978,11 +981,10 @@
             $('#gdc-recipient-toggle-label').html('<strong>' + recipientTitle + '</strong>' + recipientDesc);
 
             // Extra recipients
-            if (emailData.extra_recipients && Array.isArray(emailData.extra_recipients)) {
-                state.storeRecipients.extraEmails = emailData.extra_recipients.slice();
-                renderStoreExtraTags();
-            }
-            $('.gdc-email-ai-store-recipients').show();
+            state.storeRecipients.extraEmails = Array.isArray(savedRecipients.extra_recipients) ? savedRecipients.extra_recipients.slice() : [];
+            renderStoreExtraTags();
+            // WordPress account emails come without send_to_customer: they always go to their own recipient.
+            $('.gdc-email-ai-store-recipients').toggle(typeof emailData.send_to_customer === 'boolean');
 
             // ── Force Code (raw HTML) tab for store/community emails ──────────
             // The visual editor is a contenteditable div; setting .html() on it
@@ -1602,6 +1604,17 @@
             var saveEndpoint = (config.wcEmailSaveEndpoint)
                 || ((config.root || '/wp-json/') + 'em/v1/wc-email-save');
 
+            var savePayload = {
+                email_id:           state.currentEmail.id,
+                subject:            data.subject,
+                heading:            data.preheader,
+                additional_content: data.html
+            };
+            if (typeof state.currentEmail.send_to_customer === 'boolean') {
+                savePayload.send_primary = state.storeRecipients.sendToCustomer;
+                savePayload.extra_recipients = state.storeRecipients.extraEmails;
+            }
+
             $.ajax({
                 url: saveEndpoint,
                 method: 'POST',
@@ -1609,15 +1622,17 @@
                 beforeSend: function (xhr) {
                     xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
                 },
-                data: JSON.stringify({
-                    email_id:           state.currentEmail.id,
-                    subject:            data.subject,
-                    heading:            data.preheader,
-                    additional_content: data.html
-                })
+                data: JSON.stringify(savePayload)
             })
             .done(function (response) {
                 if (response && response.success) {
+                    // The row's data is from page load: a re-open must show what was just saved
+                    if (response.extra_recipients) {
+                        state.savedRecipients[savePayload.email_id] = {
+                            deliver_primary: savePayload.send_primary,
+                            extra_recipients: response.extra_recipients
+                        };
+                    }
                     // Update the in-memory state so a re-open shows the saved values
                     if (state.currentEmail) {
                         state.currentEmail.subject   = data.subject;
