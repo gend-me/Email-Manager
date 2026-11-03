@@ -31,7 +31,7 @@ class Chat_Forms_Admin
                     wp_enqueue_editor();
                 }
 
-                wp_enqueue_script('chat-forms-admin-js', EMAIL_MANAGER_URL . 'assets/forms/admin.js', array('jquery', 'jquery-ui-sortable'), '2.1', true);
+                wp_enqueue_script('chat-forms-admin-js', EMAIL_MANAGER_URL . 'assets/forms/admin.js', array('jquery', 'jquery-ui-sortable'), '2.2', true);
                 wp_localize_script('chat-forms-admin-js', 'chatFormsAjax', array(
                     'ajax_url' => admin_url('admin-ajax.php'),
                     'nonce' => wp_create_nonce('chat_forms_nonce')
@@ -43,13 +43,14 @@ class Chat_Forms_Admin
                     'exchangeUrl' => rest_url('em/v1/oauth/exchange'),
                     'revokeUrl'   => rest_url('em/v1/oauth/revoke'),
                     'balanceUrl'  => rest_url('em/v1/oauth/balance'),
+                    'oauthFlow'   => class_exists('EM_Leo_OAuth') ? EM_Leo_OAuth::public_flow() : null, // null = legacy server
                 ));
 
                 // Live-preview support — load the public chat assets on the edit page
                 // so the "Test This Chatflow" button can mount the actual chat widget.
                 wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
                 wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
-                wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.10', true);
+                wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.11', true);
                 wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
 
                 $cu = wp_get_current_user();

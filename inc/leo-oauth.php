@@ -75,6 +75,8 @@ class EM_Leo_OAuth
 
     public static function client_id()
     {
+        $flow = self::hydra_flow();
+        if ($flow) return $flow['client_id'];
         if (class_exists('AIPA_GenD_OAuth')) return AIPA_GenD_OAuth::client_id();
         $shared = (string) get_site_option('aipa_oauth_client_id', '');
         if ($shared !== '') return $shared;
@@ -88,6 +90,38 @@ class EM_Leo_OAuth
         if ($shared !== '') return $shared;
         $settings = class_exists('EM_Leo') ? EM_Leo::get_settings() : [];
         return isset($settings['oauth_client_secret']) ? (string) $settings['oauth_client_secret'] : '';
+    }
+
+    /**
+     * Sign-in settings for gend.me's own OAuth server (Ory Hydra at auth.gend.me), or [] while this site still signs in
+     * through the hub's legacy server. Same answer as Leo's AIPA_GenD_OAuth::hydra_flow(): the provider is
+     * Society-Core's per-site switch, so wp-login, Leo and Email Manager always move together. Hydra uses one shared
+     * public client with PKCE and no secret.
+     */
+    public static function hydra_flow()
+    {
+        if (class_exists('AIPA_GenD_OAuth') && method_exists('AIPA_GenD_OAuth', 'hydra_flow')) {
+            return AIPA_GenD_OAuth::hydra_flow();
+        }
+        if (!function_exists('gend_society_oauth_provider') || 'hydra' !== gend_society_oauth_provider()) {
+            return [];
+        }
+        $hydra = function_exists('gend_society_oauth_hydra_url') ? gend_society_oauth_hydra_url() : 'https://auth.gend.me';
+        return [
+            'authorize_url' => $hydra . '/oauth2/auth',
+            'token_url'     => $hydra . '/oauth2/token',
+            'userinfo_url'  => $hydra . '/userinfo',
+            'redirect_uri'  => self::hub_url() . '/oauth2-bridge/callback',
+            'scope'         => 'openid profile email offline_access',
+            'client_id'     => 'gend-sites',
+        ];
+    }
+
+    /** The part of hydra_flow() the browser needs (null = legacy server). */
+    public static function public_flow()
+    {
+        $f = self::hydra_flow();
+        return $f ? ['authorize_url' => $f['authorize_url'], 'redirect_uri' => $f['redirect_uri'], 'scope' => $f['scope']] : null;
     }
 
     /** Whether the LEO plugin (and therefore the canonical OAuth helpers) is loaded. */
@@ -192,6 +226,8 @@ class EM_Leo_OAuth
             update_user_meta($uid, self::USER_META_TOKEN, $access_token);
             if ($refresh_token !== '') {
                 update_user_meta($uid, self::USER_META_REFRESH, $refresh_token);
+            } elseif (self::hydra_flow()) {
+                delete_user_meta($uid, self::USER_META_REFRESH); // a leftover old-server refresh token is invalid at Hydra
             }
         } else {
             update_site_option(self::SITE_TOKEN_OPT, $access_token);
@@ -227,6 +263,7 @@ class EM_Leo_OAuth
             'user_id'    => get_current_user_id(),
             'configured' => self::client_id() !== '',
             'native'     => self::leo_native(),
+            'oauth_flow' => self::public_flow(), // null = legacy server; else the Hydra popup settings
         ], 200);
     }
 
@@ -251,11 +288,20 @@ class EM_Leo_OAuth
 
         $client_id     = self::client_id();
         $client_secret = self::client_secret();
+        $flow          = self::hydra_flow();
+        if ($flow) {
+            // gend.me's own OAuth server: shared public client, PKCE mandatory, no secret, fixed redirect_uri.
+            if ($code_verifier === '') {
+                return new WP_Error('missing_verifier', 'PKCE verifier is required.', ['status' => 400]);
+            }
+            $client_secret = '';
+            $redirect_uri  = $flow['redirect_uri'];
+        }
         if ($client_id === '') {
             return new WP_Error('missing_config', 'OAuth Client ID is not configured.', ['status' => 500]);
         }
 
-        $token_url = self::hub_url() . '/oauth/token';
+        $token_url = $flow ? $flow['token_url'] : self::hub_url() . '/oauth/token';
         $body = [
             'grant_type'    => 'authorization_code',
             'code'          => $code,
@@ -263,6 +309,9 @@ class EM_Leo_OAuth
             'client_id'     => $client_id,
             'client_secret' => $client_secret,
         ];
+        if ($flow) {
+            unset($body['client_secret']); // public client
+        }
         if ($code_verifier !== '') {
             $body['code_verifier'] = $code_verifier;
         }
