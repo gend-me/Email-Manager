@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Community Emails
  * Description: Automate high-touch communication and keep your users engaged with targeted community updates.
- * Version:     1.0.1
+ * Version:     1.0.2
  * Author:      By GenD
  * Author URI:  https://gend.me/
  * Text Domain: email-manager

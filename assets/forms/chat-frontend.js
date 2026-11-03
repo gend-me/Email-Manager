@@ -153,7 +153,8 @@ jQuery(document).ready(function ($) {
             $.get('/wp-json/em/v1/oauth/status').done(function (s) {
                 if (!s.configured || !s.client_id) { alert('LEO is not configured for this site.'); return; }
                 var hub = s.hub_url || 'https://gend.me';
-                var redirectUri = 'https://gend.me/oauth-bridge/';
+                var flow = s.oauth_flow || null; // gend.me's own OAuth server (Hydra), else the hub's legacy one
+                var redirectUri = flow ? flow.redirect_uri : 'https://gend.me/oauth-bridge/';
                 var b64url = function (bytes) {
                     var x = ''; bytes.forEach(function (b) { x += String.fromCharCode(b); });
                     return btoa(x).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -174,12 +175,13 @@ jQuery(document).ready(function ($) {
                         code_challenge: challenge,
                         code_challenge_method: 'S256'
                     });
-                    var win = window.open(hub + '/oauth/authorize?' + params.toString(), 'GenDLogin', 'width=600,height=700');
+                    if (flow) params.set('scope', flow.scope);
+                    var win = window.open((flow ? flow.authorize_url : hub + '/oauth/authorize') + '?' + params.toString(), 'GenDLogin', 'width=600,height=700');
                     var hubOrigin = new URL(hub).origin;
                     var onMsg = function (ev) {
                         if (ev.origin !== hubOrigin) return;
                         var d = ev.data || {};
-                        if (d.type !== 'gdc-auth' || !d.code) return;
+                        if ((d.type !== 'gdc-auth' && d.type !== 'gend_oauth') || !d.code) return;
                         window.removeEventListener('message', onMsg);
                         if (win) try { win.close(); } catch(_) {}
                         var attempt = {};
