@@ -169,6 +169,8 @@ function em_resolve_email_data_by_id( $id ) {
                         'description'      => $email->get_description(),
                         'send_to_customer' => $is_customer,
                         'wc_recipient'     => $is_customer ? 'Customer' : ( $email->get_recipient() ?: get_option('admin_email') ),
+                        'deliver_primary'  => !function_exists('em_wc_recipients') || em_wc_recipients($email->id)['primary'],
+                        'extra_recipients' => function_exists('em_wc_recipients') ? em_wc_recipients($email->id)['extra'] : array(),
                         'is_enabled'       => $email->is_enabled(),
                         'tokens'           => function_exists('em_get_wc_email_tokens') ? em_get_wc_email_tokens($email) : array(),
                     );
