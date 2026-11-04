@@ -354,6 +354,8 @@ class Chat_Forms_Public
             if ($type === 'text' || $type === 'email' || $type === 'telephone') {
                 $input_type = $type === 'telephone' ? 'tel' : $type;
                 $fields_html .= '<input type="' . esc_attr($input_type) . '" name="' . esc_attr($name) . '" ' . $required . ' />';
+            } elseif ($type === 'textarea') {
+                $fields_html .= '<textarea name="' . esc_attr($name) . '" rows="5" ' . $required . '></textarea>';
             } elseif ($type === 'multiple') {
                 $fields_html .= '<select name="' . esc_attr($name) . '" ' . $required . ' style="width:100%;background:transparent;border:none;border-bottom:1px solid rgba(255,255,255,0.2);padding:12px 0;color:#ffffff;font-family:inherit;">';
                 $fields_html .= '<option value="" style="color:#000;">' . __('Select an option...', 'chat-forms') . '</option>';
