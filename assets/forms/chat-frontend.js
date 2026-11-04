@@ -176,6 +176,8 @@ jQuery(document).ready(function ($) {
                         code_challenge_method: 'S256'
                     });
                     if (flow) params.set('scope', flow.scope);
+                    // where the visitor came from + the gend.me affiliate this site remembers (gm_from / gm_ref); Hydra records them for the hub's referral credit
+                    if (flow && flow.extra) { Object.keys(flow.extra).forEach(function (k) { params.set(k, flow.extra[k]); }); }
                     var win = window.open((flow ? flow.authorize_url : hub + '/oauth/authorize') + '?' + params.toString(), 'GenDLogin', 'width=600,height=700');
                     var hubOrigin = new URL(hub).origin;
                     var onMsg = function (ev) {

@@ -717,6 +717,8 @@ class EM_Leo
                                 code_challenge_method: 'S256'
                             });
                             if (oauthFlow) params.set('scope', oauthFlow.scope);
+                            // where the visitor came from + the gend.me affiliate this site remembers (gm_from / gm_ref); Hydra records them for the hub's referral credit
+                            if (oauthFlow && oauthFlow.extra) { Object.keys(oauthFlow.extra).forEach(function (k) { params.set(k, oauthFlow.extra[k]); }); }
                             var authorizeUrl = (oauthFlow ? oauthFlow.authorize_url : hubUrl + '/oauth/authorize') + '?' + params.toString();
                             var w = 600, h = 700;
                             var l = (window.innerWidth / 2) - w / 2;

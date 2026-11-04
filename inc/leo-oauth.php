@@ -114,6 +114,7 @@ class EM_Leo_OAuth
             'redirect_uri'  => self::hub_url() . '/oauth2-bridge/callback',
             'scope'         => 'openid profile email offline_access',
             'client_id'     => 'gend-sites',
+            'extra'         => function_exists('gend_society_nr_tag_args') && function_exists('gend_society_oauth_is_hub_site') && !gend_society_oauth_is_hub_site() ? gend_society_nr_tag_args() : new \stdClass(),
         ];
     }
 
@@ -121,7 +122,7 @@ class EM_Leo_OAuth
     public static function public_flow()
     {
         $f = self::hydra_flow();
-        return $f ? ['authorize_url' => $f['authorize_url'], 'redirect_uri' => $f['redirect_uri'], 'scope' => $f['scope']] : null;
+        return $f ? ['authorize_url' => $f['authorize_url'], 'redirect_uri' => $f['redirect_uri'], 'scope' => $f['scope'], 'extra' => $f['extra'] ?? new \stdClass()] : null;
     }
 
     /** Whether the LEO plugin (and therefore the canonical OAuth helpers) is loaded. */
