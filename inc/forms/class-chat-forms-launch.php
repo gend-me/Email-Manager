@@ -797,6 +797,16 @@ class Chat_Forms_Launch
             wp_update_post(array('ID' => $id, 'post_title' => sanitize_text_field($title)));
         }
 
+        // Who hears about submissions: only someone who can edit this form, so it can't send a site's leads elsewhere.
+        $notify = sanitize_email((string) $request->get_param('notification_email'));
+        if ($notify !== '') {
+            $notify_user = get_user_by('email', $notify);
+            if (!$notify_user || !user_can($notify_user, 'edit_post', $id)) {
+                return new WP_Error('em_launch_notify', 'Submissions can only be sent to someone who can edit this form.', array('status' => 400));
+            }
+            update_post_meta($id, '_chat_form_notification_email', $notify);
+        }
+
         $raw_questions = $request->get_param('questions');
         if (is_array($raw_questions)) {
             $questions = array();
