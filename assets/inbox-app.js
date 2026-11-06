@@ -77,11 +77,84 @@
     var TextareaControl = wp.components.TextareaControl;
     var FormTokenField = wp.components.FormTokenField;
 
+    // A render error inside the composer must never take the whole inbox down with it (React unmounts the tree
+    // on an uncaught render error, which left a blank pane). Contain it and say what happened.
+    var EmComponent = wp.element.Component;
+    function ComposerBoundary() { EmComponent.apply(this, arguments); this.state = { err: null }; }
+    if (EmComponent) {
+        ComposerBoundary.prototype = Object.create(EmComponent.prototype);
+        ComposerBoundary.prototype.constructor = ComposerBoundary;
+        ComposerBoundary.prototype.componentDidCatch = function (err) {
+            try { console.error('[inbox] composer crashed:', err); } catch (e) {}
+            this.setState({ err: err });
+        };
+        ComposerBoundary.prototype.render = function () {
+            if (this.state && this.state.err) {
+                var self = this, e = this.state.err;
+                var msg = (e && (e.message || e.stack)) ? String(e.message || e.stack) : String(e);
+                return html`
+                  <${Modal} title="Couldn't open the composer" onRequestClose=${function () { self.props.onClose && self.props.onClose(); }}>
+                    <p>Something went wrong opening the message composer. Please close this and try again.</p>
+                    <p style=${{ fontSize: '12px', opacity: .7, wordBreak: 'break-word' }}>${msg}</p>
+                    <${Button} variant="primary" onClick=${function () { self.props.onClose && self.props.onClose(); }}>Close<//>
+                  <//>`;
+            }
+            return this.props.children;
+        };
+    }
+    function SafeComposer(props) {
+        return html`<${ComposerBoundary} onClose=${props.onClose}><${Composer} ...${props} /><//>`;
+    }
+
     // ── REST helpers ────────────────────────────────────────────────────
     function restGet(path) {
         // path is relative to the inbox root (e.g. 'threads?inbox=foo' or 'threads/3')
         return apiFetch({ url: cfg.restRoot + path, method: 'GET' });
     }
+    // Small confirmation toast (with optional Undo) for trash actions.
+    function em_inbox_toast(message, actionLabel, onAction) {
+        var old = document.querySelector('.em-inbox-toast');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        var el = document.createElement('div');
+        el.className = 'em-inbox-toast';
+        el.setAttribute('role', 'status');
+        var span = document.createElement('span');
+        span.textContent = message;
+        el.appendChild(span);
+        var timer = null;
+        function close() { clearTimeout(timer); el.classList.remove('is-in'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 250); }
+        if (actionLabel && onAction) {
+            var b = document.createElement('button');
+            b.type = 'button'; b.textContent = actionLabel;
+            b.addEventListener('click', function () { close(); onAction(); });
+            el.appendChild(b);
+        }
+        document.body.appendChild(el);
+        setTimeout(function () { el.classList.add('is-in'); }, 10);
+        timer = setTimeout(close, 7000);
+    }
+
+    // Move threads to Trash, confirm it, and offer Undo. ids: array of thread ids.
+    function em_inbox_trash_threads(ids, refresh) {
+        ids = ids.map(Number);
+        var p = ids.length === 1
+            ? restPost('threads/' + ids[0] + '/trash', {})
+            : restPost('threads/bulk', { action: 'trash', thread_ids: ids });
+        return p.then(function () {
+            refresh && refresh();
+            em_inbox_toast(
+                (ids.length === 1 ? 'Conversation moved to Trash' : ids.length + ' conversations moved to Trash') + ' — deleted forever after 30 days.',
+                'Undo',
+                function () {
+                    var u = ids.length === 1
+                        ? restPost('threads/' + ids[0] + '/restore', {})
+                        : restPost('threads/bulk', { action: 'restore', thread_ids: ids });
+                    u.then(function () { refresh && refresh(); em_inbox_toast('Restored from Trash'); });
+                }
+            );
+        }, function () { em_inbox_toast('Could not move to Trash — please try again.'); });
+    }
+
     function restPost(path, data) {
         return apiFetch({ url: cfg.restRoot + path, method: 'POST', data: data });
     }
@@ -162,6 +235,9 @@
     // Returns true when key events should be IGNORED (because the user
     // is typing in an editable surface).
     function isTypingTarget(el) {
+        // Keys typed inside a shadow root (the chat sidebar) reach window retargeted to its host; look at what has focus.
+        var depth = 0;
+        while (el && el.shadowRoot && el.shadowRoot.activeElement && depth++ < 10) el = el.shadowRoot.activeElement;
         if (!el) return false;
         var tag = (el.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
@@ -421,6 +497,8 @@
         var form = formState[0], setForm = formState[1];
         var busyState = useState(false); var busy = busyState[0], setBusy = busyState[1];
         var msgState = useState(null);   var msg  = msgState[0],  setMsg  = msgState[1];
+        function set(k, v) { var o = {}; o[k] = v; setForm(Object.assign({}, form, o)); }
+        var isNew = form.mode === 'new_user';
 
         function submit() {
             setBusy(true); setMsg(null);
@@ -428,12 +506,13 @@
                 .then(function (res) {
                     setBusy(false);
                     if (res && res.created) {
-                        setMsg({ status: 'success', text: 'Created user (' + (res.login || '') + ') for ' + res.email + (res.invite_sent ? ' — invite email sent.' : ' — no invite sent.') });
+                        setMsg({ status: 'success', text: 'Inbox ' + res.email + ' is ready — created user ' + (res.login || '') + (res.invite_sent ? ' and sent the invite email.' : ' (no invite sent).') });
                     } else if (res && res.already_existed) {
-                        setMsg({ status: 'info', text: 'User for ' + res.email + ' already existed. Stamped em_inbox_address user_meta.' });
+                        setMsg({ status: 'success', text: 'Inbox ' + res.email + ' is ready — that user already existed, so it was linked to them.' });
                     } else {
-                        setMsg({ status: 'success', text: 'Assigned inbox ' + res.email + ' to existing user.' });
+                        setMsg({ status: 'success', text: 'Inbox ' + res.email + ' is ready — linked to the existing user.' });
                     }
+                    setForm(Object.assign({}, form, { email: '', display_name: '' }));
                     props.onCreated && props.onCreated(res);
                 })
                 .catch(function (e) {
@@ -442,50 +521,53 @@
                 });
         }
 
+        function seg(value, label, hint) {
+            return html`<button type="button" class="em-inbox-seg ${form.mode === value ? 'is-active' : ''}" onClick=${function () { set('mode', value); }}>
+                <strong>${label}</strong><span>${hint}</span></button>`;
+        }
+
         return html`
-          <${Modal} title="Add a new inbox" onRequestClose=${props.onClose} className="em-inbox-addinbox-modal">
+          <${Modal} title="Add a new inbox" onRequestClose=${props.onClose} className="em-inbox-addinbox-modal em-inbox-labels-modal">
             <p class="em-inbox-addinbox-help">
-              Creates a new WP user whose email <strong>is</strong> the inbox address (or
-              assigns the address to an existing user). The address is stamped onto
-              <code>em_inbox_address</code> user_meta, which is what threading uses to map
-              inbound messages to an owner.
+              ${isNew
+                ? 'Creates a new user whose email is the inbox address. Mail sent to it lands in that user’s inbox, and site admins can see it too.'
+                : 'Links an inbox address to a user who already has an account, such as yourself. Mail sent to the address lands in their inbox.'}
             </p>
+            <div class="em-inbox-seg-row">
+              ${seg('new_user', 'New user', 'Create an account')}
+              ${seg('existing_user', 'Existing user', 'Use an account that exists')}
+            </div>
             <${TextControl}
               label="Email address"
-              help="Becomes both the user's login email AND their inbox address."
+              help=${isNew ? 'Becomes both the new user’s login email and their inbox address.' : 'Must match the email of an existing user (for example your own).'}
               type="email"
               value=${form.email}
-              onChange=${function (v) { setForm(Object.assign({}, form, { email: v })); }}
+              onChange=${function (v) { set('email', v); }}
               __nextHasNoMarginBottom=${true} />
-            <${TextControl}
-              label="Display name (optional)"
-              value=${form.display_name}
-              onChange=${function (v) { setForm(Object.assign({}, form, { display_name: v })); }}
-              __nextHasNoMarginBottom=${true} />
-            <label class="em-inbox-rte-label">Mode</label>
-            <select value=${form.mode} onChange=${function (e) { setForm(Object.assign({}, form, { mode: e.target.value })); }}>
-              <option value="new_user">Create new WP user</option>
-              <option value="existing_user">Assign to existing WP user</option>
-            </select>
-            ${form.mode === 'new_user' && html`
-              <label class="em-inbox-rte-label" style=${{ marginTop: '12px' }}>Role</label>
-              <select value=${form.role} onChange=${function (e) { setForm(Object.assign({}, form, { role: e.target.value })); }}>
+            ${isNew && html`
+              <${TextControl}
+                label="Display name (optional)"
+                value=${form.display_name}
+                onChange=${function (v) { set('display_name', v); }}
+                __nextHasNoMarginBottom=${true} />
+              <label class="components-base-control__label em-inbox-addinbox-label">Role</label>
+              <select class="em-inbox-addinbox-select" value=${form.role} onChange=${function (e) { set('role', e.target.value); }}>
                 <option value="subscriber">Subscriber</option>
                 <option value="contributor">Contributor</option>
                 <option value="author">Author</option>
                 <option value="editor">Editor</option>
                 <option value="administrator">Administrator</option>
               </select>
-              <label class="em-inbox-track-toggle" style=${{ marginTop: '12px' }}>
-                <input type="checkbox" checked=${!!form.send_invite} onChange=${function (e) { setForm(Object.assign({}, form, { send_invite: e.target.checked })); }} />
-                <span>Send invite email (password-reset link)</span>
+              <label class="em-inbox-track-toggle em-inbox-addinbox-check">
+                <input type="checkbox" checked=${!!form.send_invite} onChange=${function (e) { set('send_invite', e.target.checked); }} />
+                <span>Send an invite email with a password-setup link</span>
               </label>
             `}
             ${msg && html`<${Notice} status=${msg.status} isDismissible=${false}>${msg.text}<//>`}
             <div class="em-inbox-composer-actions">
-              <${Button} variant="tertiary" onClick=${props.onClose} disabled=${busy}>Close<//>
+              <${Button} variant="tertiary" onClick=${props.onClose} disabled=${busy}>${msg && msg.status === 'success' ? 'Done' : 'Close'}<//>
               <${Button} variant="primary" onClick=${submit} disabled=${busy || ! form.email}>
-                ${busy ? html`<${Spinner} />` : (form.mode === 'new_user' ? 'Create inbox' : 'Assign')}
+                ${busy ? html`<${Spinner} />` : (isNew ? 'Create inbox' : 'Link inbox')}
               <//>
             </div>
           <//>
@@ -842,6 +924,7 @@
         var inputRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
         useEffect(function () { if (inputRef.current) try { inputRef.current.focus(); } catch (e) {} }, []);
         var qLower = q.trim().toLowerCase();
+        var allUnread = (props.inboxes || []).reduce(function (a, r) { return a + (Number(r.unread_count) || 0); }, 0);
         var items = (props.inboxes || []).filter(function (r) {
             if (! qLower) return true;
             var hay = (r.inbox_address || '') + ' ' + (r.owner_display_name || '');
@@ -871,6 +954,9 @@
                     <span class="em-inbox-picker-id">
                       <span class="em-inbox-picker-name">All inboxes</span>
                       <span class="em-inbox-picker-email">merged view</span>
+                    </span>
+                    <span class="em-inbox-picker-meta">
+                      ${allUnread > 0 ? html`<span class="em-inbox-picker-unread">${allUnread}</span>` : null}
                     </span>
                   </button>
                 </li>
@@ -909,6 +995,7 @@
     function emInitialInbox(rows) {
         try {
             var want = String(window.EM_INBOX_PRESELECT || '');
+            window.EM_INBOX_PRESELECT = '';   // one-shot: a popup's pick must not stick to later opens
             if (!want) {
                 var m = /[?&]em_inbox=([^&]+)/.exec(window.location.search);
                 if (m) want = decodeURIComponent(m[1]);
@@ -919,7 +1006,18 @@
                 }
             }
         } catch (e) { /* no-op */ }
-        return rows[0].inbox_address;
+        // Default view: "All inboxes" (the merged view) whenever there is more than one inbox to merge.
+        return rows.length > 1 ? '*' : rows[0].inbox_address;
+    }
+
+    // A "new email" popup in the chat widget asks to land on one specific thread (window.EM_INBOX_OPEN_THREAD).
+    // Consumed once, after the inbox list has loaded.
+    function emConsumeOpenThread(open) {
+        try {
+            var tid = parseInt(window.EM_INBOX_OPEN_THREAD, 10);
+            window.EM_INBOX_OPEN_THREAD = 0;
+            if (tid > 0) open(tid);
+        } catch (e) { /* no-op */ }
     }
 
     function App() {
@@ -1045,7 +1143,7 @@
                 }
                 if (k === 'Enter') { setOpenThreadId(focusedThreadId || actId); e.preventDefault(); return; }
                 if (k === 'e')     { restPost('threads/' + actId + '/archive', {}).then(function () { setOpenThreadId(null); bumpTick(tick + 1); }); e.preventDefault(); return; }
-                if (k === '#')     { restPost('threads/' + actId + '/trash',   {}).then(function () { setOpenThreadId(null); bumpTick(tick + 1); }); e.preventDefault(); return; }
+                if (k === '#')     { setOpenThreadId(null); em_inbox_trash_threads([actId], function () { bumpTick(tick + 1); }); e.preventDefault(); return; }
                 if (k === 's')     { restPost('threads/' + actId + '/star',    {}).then(function () { bumpTick(tick + 1); }); e.preventDefault(); return; }
                 // Slice 2jj: r/a/f only work when a thread is open in
                 // the reader (the buttons need to be in the DOM).
@@ -1070,6 +1168,7 @@
                 var rows = (b && Array.isArray(b.inboxes)) ? b.inboxes : [];
                 setInboxes(rows);
                 if (rows.length && !selected) setSelected(emInitialInbox(rows));
+                emConsumeOpenThread(setOpenThreadId);
                 if (b && Array.isArray(b.labels)) setLabels(b.labels);
                 if (b && b.vacation !== undefined) setVacationCfg(b.vacation);
                 if (b && b.grants) applyGrantsToFroms(b.grants);
@@ -1081,6 +1180,7 @@
                 restGet('inboxes').then(function (rows) {
                     setInboxes(rows || []);
                     if (rows && rows.length && !selected) setSelected(emInitialInbox(rows));
+                    emConsumeOpenThread(setOpenThreadId);
                     setLoading(false);
                 }).catch(function (e) {
                     setErr(friendlyLoadError(e));
@@ -1140,6 +1240,8 @@
                 owner_display_name: 'All inboxes',
                 owner_avatar_url: null,
                 shared: false,
+                // Total across every inbox (each inbox row carries only its own count).
+                unread_count: inboxes.reduce(function (a, r) { return a + (Number(r.unread_count) || 0); }, 0),
             };
         }
         function chooseInbox(addr) {
@@ -1333,7 +1435,7 @@
                     refreshKey=${tick} />`}
             </div>
             ${composerProps && html`
-              <${Composer}
+              <${SafeComposer}
                 initial=${composerProps}
                 availableFroms=${availableFroms}
                 onClose=${function () { setComposerProps(null); }}
@@ -1361,7 +1463,7 @@
             ${showVacation && html`<${VacationModal} onClose=${function () { setShowVacation(false); }} onChanged=${setVacationCfg} />`}
             ${showFilters && html`<${FiltersModal} labels=${labels} onClose=${function () { setShowFilters(false); }} />`}
             ${showSharing && html`<${SharingModal} onClose=${function () { setShowSharing(false); refreshGrants(); }} />`}
-            ${showAddInbox && html`<${AddInboxModal} onClose=${function () { setShowAddInbox(false); }} onCreated=${function () { setShowAddInbox(false); bumpTick(tick + 1); }} />`}
+            ${showAddInbox && html`<${AddInboxModal} onClose=${function () { setShowAddInbox(false); }} onCreated=${function () { bumpTick(tick + 1); }} />`}
             ${showRecovery && html`<${RecoveryEmailModal} initial=${recoveryData} onClose=${function () { setShowRecovery(false); }} onChanged=${setRecoveryData} />`}
           </div>
         `;
@@ -1565,6 +1667,39 @@
             restGet('signature').then(function (d) { setSig((d && d.html) || ''); });
         }, []);
 
+        var ccState = useState(initial.cc || []);                  var cc = ccState[0], setCc = ccState[1];
+        var bccState = useState(initial.bcc || []);                var bcc = bccState[0], setBcc = bccState[1];
+        var showCcBccState = useState(!!(initial.cc && initial.cc.length) || !!(initial.bcc && initial.bcc.length));
+        var showCcBcc = showCcBccState[0], setShowCcBcc = showCcBccState[1];
+        var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
+        var bodyHtmlState = useState(initial.bodyHtml || '');      var bodyHtml = bodyHtmlState[0], setBodyHtml = bodyHtmlState[1];
+        var attState = useState(initial.atts || []);               var atts = attState[0], setAtts = attState[1];
+        var trackState = useState(false);                          var track = trackState[0], setTrack = trackState[1];
+        var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
+        var errState = useState(null);                             var err = errState[0], setErr = errState[1];
+        var dragState = useState(false);                           var dragging = dragState[0], setDragging = dragState[1];
+        // Slice 2kk: draft auto-save state. draftId is the server-side
+        // row's PK once we've persisted at least once. lastSavedAt is
+        // shown as "Saved Xs ago" in the composer chrome.
+        var draftIdState = useState(initial.draftId || 0);         var draftId = draftIdState[0], setDraftId = draftIdState[1];
+        var lastSavedState = useState(null);                       var lastSaved = lastSavedState[0], setLastSaved = lastSavedState[1];
+        var saveErrState = useState(null);                         var saveErr = saveErrState[0], setSaveErr = saveErrState[1];
+        var saveTimerRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        // Slice 2pp: offline cache. Each Composer instance keeps a
+        // stable clientId (per-mount uuid) so the IDB row is upsert-able
+        // even before the server assigns an id.
+        var clientIdRef  = wp.element.useRef ? wp.element.useRef(em_inbox_idb_uuid()) : { current: em_inbox_idb_uuid() };
+        var onlineState  = useState(navigator.onLine);             var online = onlineState[0], setOnline = onlineState[1];
+        useEffect(function () {
+            function on()  { setOnline(true);  em_inbox_flush_pending_drafts(); }
+            function off() { setOnline(false); }
+            window.addEventListener('online',  on);
+            window.addEventListener('offline', off);
+            return function () { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+        }, []);
+        // (The auto-save effect lives HERE, after every state it depends on is declared: its dependency list reads
+        // atts.length / cc / subject … immediately, and above their `var`s that threw on every render, which blanked the
+        // whole inbox the moment Compose opened.)
         // Slice 2kk + 2pp: auto-save to /drafts on idle, write through
         // to IndexedDB so an offline edit isn't lost. Debounced 1500ms.
         var firstDraftRenderRef = wp.element.useRef ? wp.element.useRef(true) : { current: true };
@@ -1627,36 +1762,6 @@
             }, 1500);
             return function () { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
         }, [from, to, cc, bcc, subject, bodyHtml, track, atts.length, online]);
-        var ccState = useState(initial.cc || []);                  var cc = ccState[0], setCc = ccState[1];
-        var bccState = useState(initial.bcc || []);                var bcc = bccState[0], setBcc = bccState[1];
-        var showCcBccState = useState(!!(initial.cc && initial.cc.length) || !!(initial.bcc && initial.bcc.length));
-        var showCcBcc = showCcBccState[0], setShowCcBcc = showCcBccState[1];
-        var subjState = useState(initial.subject || '');           var subject = subjState[0], setSubject = subjState[1];
-        var bodyHtmlState = useState(initial.bodyHtml || '');      var bodyHtml = bodyHtmlState[0], setBodyHtml = bodyHtmlState[1];
-        var attState = useState(initial.atts || []);               var atts = attState[0], setAtts = attState[1];
-        var trackState = useState(false);                          var track = trackState[0], setTrack = trackState[1];
-        var sendingState = useState(false);                        var sending = sendingState[0], setSending = sendingState[1];
-        var errState = useState(null);                             var err = errState[0], setErr = errState[1];
-        var dragState = useState(false);                           var dragging = dragState[0], setDragging = dragState[1];
-        // Slice 2kk: draft auto-save state. draftId is the server-side
-        // row's PK once we've persisted at least once. lastSavedAt is
-        // shown as "Saved Xs ago" in the composer chrome.
-        var draftIdState = useState(initial.draftId || 0);         var draftId = draftIdState[0], setDraftId = draftIdState[1];
-        var lastSavedState = useState(null);                       var lastSaved = lastSavedState[0], setLastSaved = lastSavedState[1];
-        var saveErrState = useState(null);                         var saveErr = saveErrState[0], setSaveErr = saveErrState[1];
-        var saveTimerRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
-        // Slice 2pp: offline cache. Each Composer instance keeps a
-        // stable clientId (per-mount uuid) so the IDB row is upsert-able
-        // even before the server assigns an id.
-        var clientIdRef  = wp.element.useRef ? wp.element.useRef(em_inbox_idb_uuid()) : { current: em_inbox_idb_uuid() };
-        var onlineState  = useState(navigator.onLine);             var online = onlineState[0], setOnline = onlineState[1];
-        useEffect(function () {
-            function on()  { setOnline(true);  em_inbox_flush_pending_drafts(); }
-            function off() { setOnline(false); }
-            window.addEventListener('online',  on);
-            window.addEventListener('offline', off);
-            return function () { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
-        }, []);
         // Slice 2bb: scheduled send menu state. When sendAtIso is set,
         // the Send button shows the scheduled time + submits send_at to
         // the server. The dropdown is just a popover next to the Send btn.
@@ -1769,17 +1874,18 @@
               onDragOver=${onDragOver}
               onDragLeave=${onDragLeave}
               onDrop=${onDrop}>
-            <p class="em-inbox-composer-from">
-              From: ${availableFroms.length > 1
+            <div class="em-inbox-composer-from">
+              <span class="em-inbox-composer-lbl">From</span>
+              ${availableFroms.length > 1
                 ? html`<select class="em-inbox-from-select" value=${from} onChange=${function (e) { setFrom(e.target.value); }}>
                     ${availableFroms.map(function (f) { return html`<option key=${f.address} value=${f.address}>${f.label}</option>`; })}
                   </select>`
-                : html`<strong>${from || initial.from || '(no inbox)'}</strong>`}
+                : html`<span class="em-inbox-from-chip"><span class="em-inbox-from-av" aria-hidden="true">${String(from || initial.from || '?').slice(0, 1).toUpperCase()}</span>${from || initial.from || '(no inbox)'}</span>`}
               ${availableFroms.length > 1 && from && ! (availableFroms.find(function (f) { return f.address === from; }) || {}).self
                 ? html`<span class="em-inbox-from-warning"> · sending AS ${from} (audited)</span>`
                 : null}
               ${!showCcBcc && html`<button type="button" class="em-inbox-link-btn" onClick=${function () { setShowCcBcc(true); }}>Cc / Bcc</button>`}
-            </p>
+            </div>
             <${ContactTokenField}
               label="To"
               help="Type a name or email; pick from suggestions."
@@ -1799,7 +1905,7 @@
             <div class="em-inbox-composer-attachments">
               <label class="em-inbox-att-add">
                 <input type="file" multiple onChange=${function (e) { onFiles(e.target.files); e.target.value = ''; }} />
-                <span>+ Add attachment</span>
+                <span>📎 Attach files <small style=${{ opacity: .65, fontWeight: 400 }}>— or drop them anywhere on this window</small></span>
               </label>
               ${atts.length > 0 && html`
                 <ul class="em-inbox-att-list">
@@ -1986,13 +2092,18 @@
     //    is open). ─────────────────────────────────────────────────────
     function LeftRail(props) {
         var counts = props.counts || {};
-        function btn(key, label) {
+        function btn(key, icon, name, count) {
             return html`<button
                 type="button"
+                data-key=${key}
                 class="em-inbox-filter ${props.filter === key ? 'is-active' : ''}"
                 role="tab"
                 aria-selected=${props.filter === key ? 'true' : 'false'}
-                onClick=${function () { props.onFilterChange && props.onFilterChange(key); }}>${label}</button>`;
+                onClick=${function () { props.onFilterChange && props.onFilterChange(key); }}>
+                <span class="em-inbox-filter-ico" aria-hidden="true">${icon}</span>
+                <span class="em-inbox-filter-name">${name}</span>
+                ${count != null ? html`<span class="em-inbox-filter-count">${count}</span>` : null}
+              </button>`;
         }
         return html`
           <aside class="em-inbox-leftrail" aria-label="Inbox sidebar">
@@ -2014,31 +2125,41 @@
               ? html`<${CustomerCard} email=${props.otherPartyEmail} />`
               : html`
                 <div class="em-inbox-leftrail-filters">
+                  <div class="em-inbox-rail-head"><span>Mailbox</span></div>
                   <div class="em-inbox-filters em-inbox-filters--column" role="tablist" aria-label="Inbox filters">
-                    ${btn('all',       'All' + (counts.total != null ? ' · ' + counts.total : ''))}
-                    ${btn('unread',    'Unread' + (counts.unread != null ? ' · ' + counts.unread : ''))}
-                    ${btn('starred',   '★ Starred' + (counts.starred != null ? ' · ' + counts.starred : ''))}
-                    ${btn('snoozed',   '⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : ''))}
-                    ${btn('scheduled', '⏱ Scheduled')}
-                    ${btn('drafts',    '📝 Drafts')}
-                    ${btn('archived',  'Archived' + (counts.archived != null ? ' · ' + counts.archived : ''))}
-                    ${btn('trashed',   'Trash' + (counts.trashed != null ? ' · ' + counts.trashed : ''))}
+                    ${btn('all',       '📥', 'All',       counts.total)}
+                    ${btn('unread',    '✉️', 'Unread',    counts.unread)}
+                    ${btn('starred',   '⭐', 'Starred',   counts.starred)}
+                    ${btn('snoozed',   '⏰', 'Snoozed',   counts.snoozed)}
+                    ${btn('scheduled', '⏱', 'Scheduled', null)}
+                    ${btn('drafts',    '📝', 'Drafts',    null)}
+                    ${btn('archived',  '📦', 'Archived',  counts.archived)}
+                    ${btn('trashed',   '🗑', 'Trash',     counts.trashed)}
                   </div>
                   ${(props.labels && props.labels.length) || props.onManageLabels
                     ? html`
                       <div class="em-inbox-label-bar em-inbox-label-bar--column">
+                        <div class="em-inbox-rail-head">
+                          <span>Labels</span>
+                          <button type="button" class="em-inbox-label-manage" onClick=${props.onManageLabels}>Manage</button>
+                        </div>
                         <button type="button"
-                          class="em-inbox-label-pill ${props.labelFilterId === 0 ? '' : 'is-muted'}"
-                          onClick=${function () { props.onLabelFilter && props.onLabelFilter(0); }}>All labels</button>
+                          class=${'em-inbox-label-pill' + (Number(props.labelFilterId) === 0 ? ' is-active' : '')}
+                          onClick=${function () { props.onLabelFilter && props.onLabelFilter(0); }}>
+                          <i class="em-inbox-label-dot em-inbox-label-dot--all" aria-hidden="true"></i>
+                          <span class="em-inbox-label-pill-name">All labels</span>
+                        </button>
                         ${(props.labels || []).map(function (l) {
                           var active = Number(props.labelFilterId) === Number(l.id);
                           return html`<button type="button"
                             key=${l.id}
-                            class="em-inbox-label-pill ${active ? 'is-active' : ''}"
-                            style=${{ borderColor: l.color, color: active ? '#fff' : l.color, backgroundColor: active ? l.color : 'transparent' }}
-                            onClick=${function () { props.onLabelFilter && props.onLabelFilter(active ? 0 : Number(l.id)); }}>${l.name}</button>`;
+                            class=${'em-inbox-label-pill' + (active ? ' is-active' : '')}
+                            style=${{ '--lc': l.color || '#b608c9' }}
+                            onClick=${function () { props.onLabelFilter && props.onLabelFilter(active ? 0 : Number(l.id)); }}>
+                            <i class="em-inbox-label-dot" aria-hidden="true"></i>
+                            <span class="em-inbox-label-pill-name">${l.name}</span>
+                          </button>`;
                         })}
-                        <button type="button" class="em-inbox-label-manage" onClick=${props.onManageLabels}>Manage…</button>
                       </div>
                     `
                     : null}
@@ -2299,6 +2420,12 @@
 
         function bulk(action) {
             if (selIds.length === 0) return;
+            if (action === 'trash') {
+                var ids = selIds.slice();
+                setSelected({});
+                em_inbox_trash_threads(ids, function () { props.onBulkApplied && props.onBulkApplied(); });
+                return;
+            }
             restPost('threads/bulk', { action: action, thread_ids: selIds })
                 .then(function () { setSelected({}); props.onBulkApplied && props.onBulkApplied(); });
         }
@@ -2366,6 +2493,7 @@
                   `
                   : null}
               `}
+              ${filter === 'trashed' && html`<div class="em-inbox-trash-note">Conversations in Trash are deleted forever after 30 days.</div>`}
               ${selIds.length > 0 && html`
                 <div class="em-inbox-bulk-bar">
                   <span>${selIds.length} selected</span>
@@ -2596,8 +2724,7 @@
                         .then(function () { props.onMarkedUnread && props.onMarkedUnread(); });
                 }}>Mark unread<//>
                 <${Button} variant="tertiary" onClick=${function () {
-                    restPost('threads/' + state.thread.id + '/trash', {})
-                        .then(function () { props.onArchived && props.onArchived(); });
+                    em_inbox_trash_threads([state.thread.id], function () { props.onArchived && props.onArchived(); });
                 }}>Trash<//>
                 <${SnoozeButton}
                   threadId=${state.thread.id}
@@ -2621,6 +2748,46 @@
             </div>
           </section>
         `;
+    }
+
+    // Designed (HTML-styled) e-mails render in a script-less sandboxed frame so the
+    // sender's own CSS applies as sent and cannot touch the inbox UI. The CSP blocks
+    // everything but inline styles; remote images only when the user allowed them.
+    function em_inbox_rich_srcdoc(bodyHtml, allowImages) {
+        var csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data: " + (allowImages ? 'https: http:' : '') + "; font-src data:";
+        return '<!doctype html><html><head><meta charset="utf-8">' +
+            '<meta http-equiv="Content-Security-Policy" content="' + csp + '">' +
+            '<base target="_blank">' +
+            '<style>html,body{margin:0;padding:0}body{background:#fff;color:#202124;font:14px/1.5 -apple-system,"Segoe UI",Roboto,Arial,sans-serif;word-wrap:break-word;overflow-y:hidden}img{max-width:100%;height:auto}table{max-width:100%}</style>' +
+            '</head><body>' + bodyHtml + '</body></html>';
+    }
+
+    function RichMessageFrame(props) {
+        var frameRef = wp.element.useRef(null);
+        function fit() {
+            var f = frameRef.current;
+            try {
+                var d = f && f.contentDocument;
+                if (!d || !d.body) return;
+                f.style.height = (Math.max(d.documentElement.scrollHeight, d.body.scrollHeight) + 2) + 'px';
+            } catch (e) {}
+        }
+        function onLoad() {
+            fit();
+            try {
+                var imgs = frameRef.current.contentDocument.images;
+                for (var i = 0; i < imgs.length; i++) imgs[i].addEventListener('load', fit);
+            } catch (e) {}
+            setTimeout(fit, 300);
+            setTimeout(fit, 1500);
+        }
+        useEffect(function () {
+            window.addEventListener('resize', fit);
+            return function () { window.removeEventListener('resize', fit); };
+        }, []);
+        return html`<iframe class="em-inbox-message-frame" title="Email content" ref=${frameRef}
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            referrerpolicy="no-referrer" srcdoc=${em_inbox_rich_srcdoc(props.html, props.allowImages)} onLoad=${onLoad} />`;
     }
 
     function MessageCard(props) {
@@ -2694,7 +2861,9 @@
                     <button type="button" class="em-inbox-img-btn" onClick=${allowSenderImages}>Always show from ${msg.sender}</button>
                   </div>
                 `}
-                ${msg.body_html
+                ${msg.body_html_rich
+                    ? html`<${RichMessageFrame} html=${msg.body_html_rich} allowImages=${imagesUnlocked || !!msg.images_show_for_sender} />`
+                    : msg.body_html
                     ? html`<div class="em-inbox-message-body" ref=${function (n) { bodyRef.current = n; }} dangerouslySetInnerHTML=${{ __html: msg.body_html }} />`
                     : html`<pre class="em-inbox-message-plain" ref=${function (n) { bodyRef.current = n; }}>${msg.body_plain || '(no body)'}</pre>`}
                 ${msg.attachments && msg.attachments.length
