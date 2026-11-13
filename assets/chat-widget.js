@@ -142,6 +142,25 @@
     // Some server errors (PHP fatals) come back as an HTML body. Strip
     // tags so the chat panel never renders raw markup as the error
     // message — show a clean human string instead.
+    // Message excerpts/subjects arrive HTML-entity-escaped (&quot; &#039; &#x23f8;);
+    // render them as plain text instead of showing the raw entities.
+    function emDecode(str) {
+        if (!str) return '';
+        var ta = document.createElement('textarea');
+        ta.innerHTML = String(str);
+        return ta.value.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    }
+    function emShortDate(iso) {
+        if (!iso) return '';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        var now = new Date();
+        if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+        var diff = (now - d) / 86400000;
+        if (diff < 6) return d.toLocaleDateString(undefined, { weekday: 'short' });
+        return d.toLocaleDateString(undefined, d.getFullYear() === now.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: '2-digit' });
+    }
+
     function cleanError(e) {
         var m = (e && e.message) ? String(e.message) : 'Something went wrong';
         if (/<[a-z!\/][\s\S]*?>/i.test(m)) {
@@ -201,6 +220,46 @@
         `;
     }
 
+    // ── "New email" preview popups (shown over the launcher while the chat is closed) ──
+    function EmailToast(props) {
+        var it = props.it;
+        useEffect(function () {
+            var h = setTimeout(function () { props.onDismiss(it); }, 15000);
+            return function () { clearTimeout(h); };
+        }, []);
+        var initials = String(it.from_name || '?').split(/\s+/).map(function (s) { return s.charAt(0); }).join('').slice(0, 2).toUpperCase();
+        return html`
+          <div class="em-chat-toast" role="button" tabindex="0"
+            aria-label=${'New email from ' + it.from_name + ': ' + it.subject}
+            onClick=${function () { props.onOpen(it); }}
+            onKeyDown=${function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onOpen(it); } }}>
+            <span class="em-chat-toast-av">
+              ${it.avatar_url ? html`<img src=${it.avatar_url} alt="" loading="lazy" />` : html`<span>${initials}</span>`}
+              <i class="em-chat-toast-ico" aria-hidden="true">✉</i>
+            </span>
+            <span class="em-chat-toast-body">
+              <span class="em-chat-toast-kicker">New email · ${it.inbox}</span>
+              <span class="em-chat-toast-from">${it.from_name}</span>
+              <span class="em-chat-toast-subject">${it.subject || '(no subject)'}</span>
+              ${it.excerpt && html`<span class="em-chat-toast-excerpt">${it.excerpt}</span>`}
+            </span>
+            <button type="button" class="em-chat-toast-x" aria-label="Dismiss"
+              onClick=${function (e) { e.stopPropagation(); props.onDismiss(it); }}>×</button>
+          </div>
+        `;
+    }
+    function EmailToasts(props) {
+        var items = props.items || [];
+        if (! items.length) return null;
+        return html`
+          <div class="em-chat-toasts" aria-live="polite">
+            ${items.map(function (it) {
+                return html`<${EmailToast} key=${it._key} it=${it} onOpen=${props.onOpen} onDismiss=${props.onDismiss} />`;
+            })}
+          </div>
+        `;
+    }
+
     // ── Launcher button + global widget ──────────────────────────────
     function Widget() {
         var openState     = useState(false);
@@ -209,8 +268,15 @@
         var unread        = unreadState[0], setUnread = unreadState[1];
         var dockState     = useState([]);   // per-sender unread items
         var dock          = dockState[0], setDock = dockState[1];
+        var emailState    = useState({ unread: 0, items: [] });   // unread EMAIL (inbox suite), separate from chat unread
+        var email         = emailState[0], setEmail = emailState[1];
+        var toastsState   = useState([]);   // "new email" preview popups
+        var toasts        = toastsState[0], setToasts = toastsState[1];
+        var emailSeenRef  = useRef(null);   // thread_id:received_at already seen (null until the first poll sets the baseline)
+        var openRef       = useRef(false);
         var dockSeenRef   = useRef({});     // thread_id -> animation seq number
         var dockSeqRef    = useRef(0);
+        var autoSeenRef   = useRef(null);   // thread_id|last_at seen by the unread poll (null until the first poll)
         var openBoxesState= useState([]); // array of thread summaries
         var openBoxes     = openBoxesState[0], setOpenBoxes = openBoxesState[1];
         var isMobileState = useState(window.innerWidth < 720);
@@ -261,14 +327,80 @@
                     // outer end of the stack), preserving display order.
                     items.sort(function (a, b) { return a._seq - b._seq; });
                     setDock(items);
+                    // Workspace group chats (2026-11-12): a NEW message while the panel is closed opens that
+                    // workspace's chat box at the bottom. The first poll is only a baseline.
+                    if (autoSeenRef.current === null) {
+                        autoSeenRef.current = {};
+                        items.forEach(function (it) { autoSeenRef.current[it.thread_id + '|' + it.last_at] = 1; });
+                    } else {
+                        items.forEach(function (it) {
+                            var k = it.thread_id + '|' + it.last_at;
+                            if (autoSeenRef.current[k]) return;
+                            autoSeenRef.current[k] = 1;
+                            if (!it.is_group || it.muted || openRef.current) return;
+                            setOpenBoxes(function (cur) {
+                                if (cur.some(function (b) { return b.id === it.thread_id; })) return cur;
+                                var max = window.innerWidth < 720 ? 1 : 3;
+                                return cur.slice(0, max - 1).concat([{ id: it.thread_id, is_group: true, project_id: it.project_id,
+                                    project_title: it.display_name, project_avatar: it.avatar_url, others: [] }]);
+                            });
+                        });
+                    }
                 }).catch(function () { inFlight = false; });
             }
             tick();
-            var h = setInterval(tick, 30000);
+            var h = setInterval(tick, 60000); // 60 s: every poll costs a full WordPress boot; tabs also refresh on focus
             function onVis() { if (document.visibilityState === 'visible') tick(); }
             document.addEventListener('visibilitychange', onVis);
             return function () { clearInterval(h); document.removeEventListener('visibilitychange', onVis); };
         }, []);
+
+        // Unread EMAIL poll (same cadence). The first answer is only a baseline — popups appear for mail that
+        // arrives AFTER the page loaded, and only while the chat panel is closed.
+        useEffect(function () {
+            if (! cfg.hasInbox) return;
+            var inFlight = false;
+            function tickEmail() {
+                if (document.visibilityState !== 'visible' || inFlight) return;
+                inFlight = true;
+                restGet('email-unread').then(function (d) {
+                    inFlight = false;
+                    var items = Array.isArray(d.items) ? d.items : [];
+                    setEmail({ unread: Number(d.unread || 0), items: items });
+                    var seen = emailSeenRef.current;
+                    if (seen === null) {
+                        seen = {};
+                        items.forEach(function (it) { seen[it.thread_id + ':' + it.at] = 1; });
+                        emailSeenRef.current = seen;
+                        return;
+                    }
+                    var fresh = [];
+                    items.forEach(function (it) {
+                        var k = it.thread_id + ':' + it.at;
+                        if (! seen[k]) { seen[k] = 1; it._key = k; fresh.push(it); }
+                    });
+                    if (fresh.length && ! openRef.current) {
+                        setToasts(function (cur) { return cur.concat(fresh).slice(-3); });
+                    }
+                }).catch(function () { inFlight = false; });
+            }
+            tickEmail();
+            var h = setInterval(tickEmail, 60000);
+            function onVis() { if (document.visibilityState === 'visible') tickEmail(); }
+            document.addEventListener('visibilitychange', onVis);
+            return function () { clearInterval(h); document.removeEventListener('visibilitychange', onVis); };
+        }, []);
+        openRef.current = open;
+        useEffect(function () { if (open) setToasts([]); }, [open]);
+        function dismissToast(it) { setToasts(function (cur) { return cur.filter(function (x) { return x._key !== it._key; }); }); }
+        function openEmail(it) {
+            // Open the panel on Messages → Email, with that mail's inbox preselected.
+            try { if (it && it.inbox) window.EM_INBOX_PRESELECT = it.inbox; window.EM_INBOX_OPEN_THREAD = (it && it.thread_id) || 0; } catch (e) {}
+            window.__emPendingView = 'email';
+            setToasts([]);
+            setOpen(true);
+            window.dispatchEvent(new CustomEvent('em-chat:open-email'));
+        }
 
         // Listen for site-wide "open chat with user" events fired by
         // other modules (e.g. profile "Message" buttons).
@@ -336,7 +468,10 @@
         }
 
         function openThreadById(item) {
-            pushBox({
+            pushBox(item.is_group ? {
+                id: item.thread_id, is_group: true, project_id: item.project_id,
+                project_title: item.display_name, project_avatar: item.avatar_url, others: [],
+            } : {
                 id: item.thread_id,
                 others: [{
                     user_id: item.user_id,
@@ -352,17 +487,25 @@
 
         return html`
           <div class=${'em-chat-widget ' + (isMobile ? 'is-mobile' : 'is-desktop')}>
+            <${EmailToasts} items=${toasts} onOpen=${openEmail} onDismiss=${dismissToast} />
             <${UnreadDock} items=${dock} onOpen=${openThreadById} />
             <button
               type="button"
-              class=${'em-chat-launcher ' + (open ? 'is-active' : '') + (unread > 0 ? ' has-unread' : '')}
-              aria-label=${'Open chat' + (unread ? ' (' + unread + ' unread)' : '')}
-              onClick=${function () { setOpen(!open); }}>
+              class=${'em-chat-launcher ' + (open ? 'is-active' : '') + ((unread > 0 || email.unread > 0) ? ' has-unread' : '')}
+              aria-label=${'Open chat' + (unread ? ' (' + unread + ' unread message' + (unread === 1 ? '' : 's') + ')' : '') + (email.unread ? ' (' + email.unread + ' unread email' + (email.unread === 1 ? '' : 's') + ')' : '')}
+              onClick=${function () {
+                  // Only email waiting? Land straight on the inbox.
+                  if (! open && email.unread > 0 && unread === 0) { window.__emPendingView = 'email'; window.dispatchEvent(new CustomEvent('em-chat:open-email')); }
+                  setOpen(! open);
+              }}>
               <span class="em-chat-launcher-icon" aria-hidden="true">💬</span>
-              ${unread > 0 && html`<span class="em-chat-launcher-badge">${unread > 99 ? '99+' : unread}</span>`}
+              ${unread > 0 && html`<span class="em-chat-launcher-badge" title=${unread + ' unread message' + (unread === 1 ? '' : 's')}>${unread > 99 ? '99+' : unread}</span>`}
+              ${email.unread > 0 && html`<span class="em-chat-launcher-badge em-chat-launcher-badge--email" title=${email.unread + ' unread email' + (email.unread === 1 ? '' : 's')}><i aria-hidden="true">✉</i>${email.unread > 99 ? '99+' : email.unread}</span>`}
             </button>
             ${open && html`<${SwitcherPanel}
               seqGhost=${seqGhost}
+              chatUnread=${unread}
+              emailUnread=${email.unread}
               isMobile=${isMobile}
               onClose=${function () { setOpen(false); }}
               onOpenThread=${openSwitcher} />`}
@@ -797,6 +940,29 @@
     // navigation if any piece is missing (no jQuery, fetch failure,
     // markup drift).
     var emPmLoad = null;
+    // Opened from the chat: the drawer is a popup here, not a step inside Projects, so it gets a
+    // centered title and a close icon instead of "Back to Projects" (class is dropped when it closes).
+    function emOpenPmDrawer(id) {
+        window.PM.openProjectDrawer(id);
+        var d = document.getElementById('psoo-pm-project-drawer');
+        if (!d) return;
+        d.classList.add('em-pm-from-chat');
+        var head = d.querySelector('.psoo-pm-drawer__header');
+        if (head && !head.querySelector('.em-pm-chat-close')) {
+            var b = document.createElement('button');
+            b.type = 'button'; b.className = 'em-pm-chat-close'; b.setAttribute('aria-label', 'Close');
+            b.textContent = '×';
+            b.addEventListener('click', function () {
+                var back = document.getElementById('psoo-pm-drawer-close');
+                if (back) back.click();
+            });
+            head.appendChild(b);
+        }
+        if (!d.__emFromChatObs && window.MutationObserver) {
+            d.__emFromChatObs = new MutationObserver(function () { if (d.hasAttribute('hidden')) d.classList.remove('em-pm-from-chat'); });
+            d.__emFromChatObs.observe(d, { attributes: true, attributeFilter: ['hidden'] });
+        }
+    }
     function emLoadPmWorkspace(groupId) {
         if (window.PM && window.PM.openProjectDrawer && document.getElementById('psoo-pm-project-drawer')) {
             return Promise.resolve(true);
@@ -820,13 +986,112 @@
         });
         return emPmLoad;
     }
+    // Chat messages carry "Open project" links to the group page
+    // (/groups/<slug>/…/?pm_project=<id>). Open the project slide-out in
+    // place instead of navigating: resolve the group from the slug, load the
+    // workspace fragment, open the drawer. Resolves false (→ caller lets the
+    // normal navigation happen) when anything is missing.
+    function emParseProjectLink(href) {
+        var u;
+        try { u = new URL(href, window.location.href); } catch (e) { return null; }
+        var pid = parseInt(u.searchParams.get('pm_project'), 10);
+        var m = u.pathname.match(/\/groups\/([^\/]+)/);
+        if (!pid || !m || u.host !== window.location.host) { return null; }
+        return { pid: pid, slug: m[1] };
+    }
+    // Group slug → id, looked up once per page (the lookup used to run on every click).
+    var emGroupIdBySlug = {};
+    function emGroupIdForSlug(slug) {
+        if (!emGroupIdBySlug[slug]) {
+            emGroupIdBySlug[slug] = apiFetch({ url: wpJsonRoot + 'buddypress/v1/groups?slug=' + encodeURIComponent(slug) + '&per_page=1', method: 'GET' })
+                .then(function (list) { var g = list && list[0]; return (g && g.id) ? Number(g.id) : 0; })
+                .catch(function () { delete emGroupIdBySlug[slug]; return 0; });
+        }
+        return emGroupIdBySlug[slug];
+    }
+    function emOpenProjectLink(href) {
+        var p = emParseProjectLink(href);
+        if (!p) { return Promise.resolve(false); }
+        return emGroupIdForSlug(p.slug)
+            .then(function (gid) {
+                if (!gid) { return false; }
+                return emLoadPmWorkspace(gid).then(function (ok) {
+                    if (!ok || !window.PM || !window.PM.openProjectDrawer) { return false; }
+                    emOpenPmDrawer(p.pid);
+                    return true;
+                });
+            })
+            .catch(function () { return false; });
+    }
+    // Warm-up for a project link that is on screen or under the finger: resolve the group and download the
+    // workspace fragment + its scripts into the HTTP cache. Network only — nothing is added to the page until
+    // the member actually clicks, so this has no visible side effects.
+    function emWarmProjectLink(href) {
+        var p = emParseProjectLink(href);
+        if (!p || (window.PM && window.PM.openProjectDrawer && document.getElementById('psoo-pm-project-drawer'))) { return; }
+        emGroupIdForSlug(p.slug).then(function (gid) { if (gid) { emFetchPmFragment(gid).then(emPreloadPmScripts, function () {}); } });
+    }
+    function emChatLinkWarm(e) {
+        var a = e.target && e.target.closest ? e.target.closest('a[href*="pm_project="]') : null;
+        if (a) { emWarmProjectLink(a.href); }
+    }
+    function emChatLinkClick(e) {
+        var a = e.target && e.target.closest ? e.target.closest('a[href*="pm_project="]') : null;
+        if (!a || e.button || e.metaKey || e.ctrlKey || e.shiftKey) { return; }
+        e.preventDefault();
+        // Already opening: a second tap must not start a second load.
+        if (a.getAttribute('aria-busy') === 'true') { return; }
+        var href = a.href;
+        var label = a.textContent;
+        a.setAttribute('aria-busy', 'true');
+        a.classList.add('em-pm-opening');
+        a.textContent = 'Opening project…';
+        function done() {
+            a.removeAttribute('aria-busy');
+            a.classList.remove('em-pm-opening');
+            a.textContent = label;
+        }
+        emOpenProjectLink(href).then(function (ok) {
+            if (ok) { done(); return; }
+            // Falling back to the full page: keep the busy state while the browser navigates.
+            window.location.href = href;
+            setTimeout(done, 15000);
+        });
+    }
+
+    // Fragment HTML per group, fetched once (shared by the warm-up and the click).
+    var emPmFragmentText = {};
+    function emFetchPmFragment(groupId) {
+        if (!emPmFragmentText[groupId]) {
+            // Dedicated lightweight fragment endpoint (projects plugin) — the
+            // shortcode output + PSOO_PM boot + SPA script tags, WITHOUT a whole
+            // group page render around it.
+            var ajaxUrl = wpJsonRoot.replace(/wp-json\/?$/, '') + 'wp-admin/admin-ajax.php';
+            emPmFragmentText[groupId] = fetch(ajaxUrl + '?action=psoo_pm_workspace_fragment&group_id=' + encodeURIComponent(groupId), { credentials: 'same-origin' })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+                .catch(function (e) { delete emPmFragmentText[groupId]; throw e; });
+        }
+        return emPmFragmentText[groupId];
+    }
+    // Download the workspace's scripts and styles ahead of the click (rel=preload: fetched, not run).
+    var emPmPreloaded = {};
+    function emPreloadPmScripts(txt) {
+        try {
+            var doc = new DOMParser().parseFromString(txt, 'text/html');
+            doc.querySelectorAll('script[src], link[rel="stylesheet"]').forEach(function (n) {
+                var src = n.getAttribute('src') || n.getAttribute('href') || '';
+                if (!src || /jquery/i.test(src) || emPmPreloaded[src]) return;
+                emPmPreloaded[src] = 1;
+                var l = document.createElement('link');
+                l.rel = 'preload';
+                l.as = n.tagName === 'SCRIPT' ? 'script' : 'style';
+                l.href = src;
+                document.head.appendChild(l);
+            });
+        } catch (e) { /* warm-up only */ }
+    }
     function emLoadPmFragment(groupId) {
-        // Dedicated lightweight fragment endpoint (projects plugin) — the
-        // shortcode output + PSOO_PM boot + SPA script tags, WITHOUT a whole
-        // group page render around it.
-        var ajaxUrl = wpJsonRoot.replace(/wp-json\/?$/, '') + 'wp-admin/admin-ajax.php';
-        return fetch(ajaxUrl + '?action=psoo_pm_workspace_fragment&group_id=' + encodeURIComponent(groupId), { credentials: 'same-origin' })
-            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        return emFetchPmFragment(groupId)
             .then(function (txt) {
                 var doc = new DOMParser().parseFromString(txt, 'text/html');
                 var drawer = doc.getElementById('psoo-pm-project-drawer');
@@ -872,18 +1137,18 @@
                     if (src && !/jquery/i.test(src)) srcs.push(src);
                 });
                 if (!srcs.length) { emPmLoad = null; return false; }
-                return srcs.reduce(function (chain, src) {
-                    return chain.then(function (ok) {
-                        if (!ok) return false;
-                        return new Promise(function (resolve) {
-                            var el = document.createElement('script');
-                            el.src = src;
-                            el.onload = function () { resolve(true); };
-                            el.onerror = function () { resolve(false); };
-                            document.body.appendChild(el);
-                        });
+                // All scripts download in parallel; async=false keeps them RUNNING in fragment order
+                // (sortablejs before pm-admin), so this is the old one-by-one chain without the waits.
+                return Promise.all(srcs.map(function (src) {
+                    return new Promise(function (resolve) {
+                        var el = document.createElement('script');
+                        el.async = false;
+                        el.src = src;
+                        el.onload = function () { resolve(true); };
+                        el.onerror = function () { resolve(false); };
+                        document.body.appendChild(el);
                     });
-                }, Promise.resolve(true)).then(function (ok) {
+                })).then(function (res) { return res.every(Boolean); }).then(function (ok) {
                     if (!ok) { emPmLoad = null; return false; }
                     // pm-admin binds on document.ready — already past, so its
                     // init runs synchronously on load; give it a tick.
@@ -1326,7 +1591,7 @@
                 setOpening(0);
                 if (ok && window.PM && window.PM.openProjectDrawer) {
                     // Drawer paints above the panel (see ProjectCardsPane note).
-                    window.PM.openProjectDrawer(w.hubProjectId);
+                    emOpenPmDrawer(w.hubProjectId);
                 }
             });
         }
@@ -1543,7 +1808,7 @@
                     // Leave the chat panel open — chat-widget.css pins the
                     // drawer ABOVE the widget (body .psoo-pm-drawer z-index
                     // override), so it always paints on top of the panel.
-                    window.PM.openProjectDrawer(card.id);
+                    emOpenPmDrawer(card.id);
                 } else {
                     // Fallback: deep-linked navigation still auto-opens the
                     // drawer on the group page.
@@ -1690,6 +1955,28 @@
         var mResState = useState({ loading: false, items: [] });
         var mRes = mResState[0], setMRes = mResState[1];
         var searchRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        // Members / Projects / Agents (2026-11-12). Members and Agents filter the conversation list; Projects lists
+        // every workspace the member is in (em/v1/chat/projects), each with its group chat.
+        var kindState = useState('members'); var kind = kindState[0], setKind = kindState[1];
+        var kqState = useState({ projects: '', agents: '' }); var kq = kqState[0], setKq = kqState[1];
+        var projState = useState({ loading: true, items: [] }); var projs = projState[0], setProjs = projState[1];
+        function loadProjects() {
+            restGet('projects').then(function (d) { setProjs({ loading: false, items: (d && d.items) || [] }); })
+                .catch(function () { setProjs({ loading: false, items: [] }); });
+        }
+        useEffect(function () {
+            loadProjects();
+            var h = setInterval(function () {
+                if (document.visibilityState !== 'visible') return;
+                loadProjects();
+                if (box !== 'notices') {
+                    restGet('threads?box=' + (box === 'sent' ? 'sentbox' : box))
+                        .then(function (d) { setTh(function (cur) { return { loading: false, items: d.items || [], err: '' }; }); })
+                        .catch(function () {});
+                }
+            }, 30000);
+            return function () { clearInterval(h); };
+        }, [box]);
 
         function loadThreads(b) {
             setTh(function (cur) { return { loading: true, items: cur.items, err: '' }; });
@@ -1721,8 +2008,19 @@
             }, 250);
             return function () { clearTimeout(h); };
         }, [mq]);
+        var activeState = useState(null); var active = activeState[0], setActive = activeState[1];
+        function openHere(t) {
+            if (t && t.id && t.unread > 0) {
+                patchThread(t.id, { unread: 0 });
+            }
+            setActive(t);
+        }
         function startWith(u) {
-            props.onOpenThread({
+            // Reuse an existing conversation with this member when there is one.
+            var existing = th.items.filter(function (t) {
+                return (t.others || []).some(function (o) { return String(o.user_id) === String(u.user_id); });
+            })[0];
+            setActive(existing || {
                 id: 0,
                 others: [{ user_id: u.user_id, display_name: u.display_name, avatar_url: u.avatar_url }],
             });
@@ -1779,8 +2077,18 @@
         }
 
         var needle = filter.trim().toLowerCase();
+        function kindOf(t) { return t.is_group ? 'projects' : (t.is_agent ? 'agents' : 'members'); }
+        var kindUnread = { members: 0, agents: 0, projects: 0 };
+        th.items.forEach(function (t) { if (t.unread > 0 && !t.is_group) kindUnread[kindOf(t)] += 1; });
+        projs.items.forEach(function (p) { if (p.thread && p.thread.unread > 0) kindUnread.projects += 1; });
         var shown = th.items.filter(function (t) {
-            if (!needle) return true;
+            if (kindOf(t) !== kind) return false;
+            var nd = kind === 'agents' ? kq.agents.trim().toLowerCase() : needle;
+            if (!nd) return true;
+            if (kind === 'agents') {
+                var ag = (t.others && t.others[0]) || {};
+                return ((ag.display_name || '') + ' ' + (t.last_message_excerpt || '')).toLowerCase().indexOf(nd) !== -1;
+            }
             var other = (t.others && t.others[0]) || {};
             var hay = ((other.display_name || '') + ' ' + (t.subject || '') + ' ' + (t.last_message_excerpt || '')).toLowerCase();
             return hay.indexOf(needle) !== -1;
@@ -1817,124 +2125,184 @@
             setBox(k);
         }
 
-        function renderRow(t, i) {
-            var other = (t.others && t.others[0]) || {};
+        var MBOX = [
+            ['inbox',   'All'],
+            ['starred', 'Starred'],
+            ['sent',    'Sent'],
+            ['notices', 'Notices'],
+        ];
+        var unreadTotal = kindUnread.members + kindUnread.agents + kindUnread.projects;
+        var KINDS = [['members', 'Members'], ['projects', 'Projects'], ['agents', 'Agents']];
+        function openProject(p) {
+            if (p.thread && p.thread.unread > 0) {
+                setProjs(function (cur) { return { loading: cur.loading, items: cur.items.map(function (x) {
+                    return x.project_id === p.project_id && x.thread ? Object.assign({}, x, { thread: Object.assign({}, x.thread, { unread: 0 }) }) : x;
+                }) }; });
+            }
+            setActive(p.thread ? Object.assign({}, p.thread, { is_group: true, project_id: p.project_id, project_title: p.title, project_avatar: p.avatar })
+                : { id: 0, is_group: true, project_id: p.project_id, project_title: p.title, project_avatar: p.avatar, others: [] });
+        }
+        var pneedle = kq.projects.trim().toLowerCase();
+        var projShown = projs.items.filter(function (p) {
+            return !pneedle || ((p.title || '') + ' ' + (p.group_name || '')).toLowerCase().indexOf(pneedle) !== -1;
+        });
+        function renderProject(p, i) {
+            var t = p.thread;
+            var isActive = !!(active && active.is_group && active.project_id === p.project_id);
+            var unread = t && t.unread > 0 ? t.unread : 0;
+            var prev = t ? emDecode(t.last_message_excerpt) : '';
             return html`
-              <div class=${'em-chat-dm-row' + (t.unread > 0 ? ' is-unread' : '')} key=${t.id} style=${{ '--em-i': i }}>
-                <input type="checkbox" class="em-chat-dm-check" checked=${!!sel[t.id]}
-                  onChange=${function () { var n = Object.assign({}, sel); n[t.id] = !n[t.id]; setSel(n); }} />
-                <button type="button" class="em-chat-dm-from" onClick=${function () { props.onOpenThread(t); }}>
-                  <img class="em-chat-row-avatar" src=${other.avatar_url} alt="" />
-                  <span class="em-chat-dm-from-meta">
-                    <span class="em-chat-dm-from-name">
-                      ${other.display_name || '(unknown)'}
-                      ${t.unread > 0 && html`<span class="em-chat-dm-unread">(${t.unread})</span>`}
+              <div key=${'p' + p.project_id} style=${{ '--em-i': Math.min(i, 12) }}
+                class=${'em-msgr-conv em-msgr-conv--project' + (unread ? ' is-unread' : '') + (isActive ? ' is-active' : '')}>
+                <button type="button" class="em-msgr-conv-main" onClick=${function () { openProject(p); }}>
+                  <span class="em-msgr-ava-wrap">
+                    ${p.avatar ? html`<img class="em-msgr-ava em-msgr-ava--sq" src=${p.avatar} alt="" />` : html`<span class="em-msgr-ava em-msgr-ava--sq em-msgr-ava--blank">${(p.title || '?').charAt(0)}</span>`}
+                    ${unread > 0 && html`<span class="em-msgr-dot"></span>`}
+                  </span>
+                  <span class="em-msgr-conv-txt">
+                    <span class="em-msgr-conv-top">
+                      <span class="em-msgr-conv-name">${p.title}</span>
+                      <span class="em-msgr-conv-time">${t ? emShortDate(t.last_at) : ''}</span>
                     </span>
-                    <span class="em-chat-dm-date">${fmtDate(t.last_at)}</span>
+                    <span class="em-msgr-conv-bot">
+                      <span class="em-msgr-conv-prev">${prev || ((p.group_name ? p.group_name + ' · ' : '') + p.members + ' member' + (p.members === 1 ? '' : 's') + (t ? '' : ' · start the chat'))}</span>
+                      ${unread > 0 && html`<span class="em-msgr-badge">${unread}</span>`}
+                    </span>
                   </span>
                 </button>
-                <button type="button" class="em-chat-dm-subject" onClick=${function () { props.onOpenThread(t); }}>
-                  <span class="em-chat-dm-subject-title">${t.subject || '(no subject)'}</span>
-                  <span class="em-chat-dm-subject-excerpt">${t.last_message_excerpt || ''}</span>
+              </div>`;
+        }
+
+        function renderConv(t, i) {
+            var other = (t.others && t.others[0]) || {};
+            var isActive = !!(active && active.id && active.id === t.id);
+            var excerpt = emDecode(t.last_message_excerpt);
+            var subj = emDecode(t.subject);
+            return html`
+              <div key=${t.id} style=${{ '--em-i': Math.min(i, 12) }}
+                class=${'em-msgr-conv' + (t.unread > 0 ? ' is-unread' : '') + (isActive ? ' is-active' : '')}>
+                <button type="button" class="em-msgr-conv-main"
+                  onMouseDown=${function () { if (window.emChatPrefetchThread) { window.emChatPrefetchThread(t.id); } }}
+                  onClick=${function () { openHere(t); }}>
+                  <span class="em-msgr-ava-wrap">
+                    <img class="em-msgr-ava" src=${other.avatar_url || ''} alt="" />
+                    ${t.unread > 0 && html`<span class="em-msgr-dot"></span>`}
+                  </span>
+                  <span class="em-msgr-conv-txt">
+                    <span class="em-msgr-conv-top">
+                      <span class="em-msgr-conv-name">${other.display_name || '(unknown)'}</span>
+                      <span class="em-msgr-conv-time">${emShortDate(t.last_at)}</span>
+                    </span>
+                    <span class="em-msgr-conv-bot">
+                      <span class="em-msgr-conv-prev">${excerpt || subj || 'No messages yet'}</span>
+                      ${t.unread > 0 && html`<span class="em-msgr-badge">${t.unread}</span>`}
+                    </span>
+                  </span>
                 </button>
-                <button type="button" class=${'em-chat-dm-star' + (t.starred ? ' is-on' : '')}
-                  aria-label=${t.starred ? 'Unstar' : 'Star'}
-                  onClick=${function () { actStar(t); }}>${t.starred ? '★' : '☆'}</button>
-                <span class="em-chat-dm-actions">
-                  <button type="button" class="em-chat-dm-act" title=${t.unread > 0 ? 'Mark read' : 'Mark unread'}
-                    onClick=${function () { actToggleRead(t); }}>${t.unread > 0 ? '👁' : '🙈'}</button>
-                  <button type="button" class="em-chat-dm-act em-chat-dm-act--del" title="Delete"
-                    onClick=${function () { actDelete(t); }}>🗑</button>
+                <span class="em-msgr-conv-acts">
+                  <button type="button" class=${'em-msgr-act' + (t.starred ? ' is-on' : '')} title=${t.starred ? 'Unstar' : 'Star'}
+                    onClick=${function () { actStar(t); }}>${t.starred ? '★' : '☆'}</button>
+                  <button type="button" class="em-msgr-act" title=${t.unread > 0 ? 'Mark read' : 'Mark unread'}
+                    onClick=${function () { actToggleRead(t); }}>${t.unread > 0 ? '✓' : '●'}</button>
+                  <button type="button" class="em-msgr-act em-msgr-act--del" title="Delete"
+                    onClick=${function () { if (active && active.id === t.id) { setActive(null); } actDelete(t); }}>🗑</button>
                 </span>
               </div>`;
         }
 
         return html`
-          <div class="em-chat-dm-pane">
-            <div class="em-chat-dm-tabs" role="tablist" aria-label="Message box">
-              ${TABS.map(function (v) {
-                var active = (v[0] === box) || (v[0] === 'search' && showFilter);
-                return html`
-                  <button type="button" key=${v[0]} role="tab" aria-selected=${active ? 'true' : 'false'}
-                    class=${'em-chat-dm-tab' + (active ? ' is-active' : '')}
-                    onClick=${function () { onTab(v[0]); }}>
-                    <span class="em-chat-dm-tab-ico" aria-hidden="true">${v[1]}</span>
-                    <span>${v[2]}</span>
-                  </button>`;
-              })}
-              <button type="button" class="em-chat-proj-newbtn em-chat-dm-invite" onClick=${function () { props.onInvite && props.onInvite(); }}>＋ Invite new</button>
-            </div>
-
-            <div class="em-chat-dm-compose">
-              <input ref=${searchRef} type="search" placeholder="Search members to start a new conversation…"
-                value=${mq} onInput=${function (e) { setMq(e.target.value); }} />
-              ${mq && html`
-                <div class="em-chat-dm-compose-results" role="listbox">
-                  ${mRes.loading && html`<div class="em-chat-panel-empty">Searching…</div>`}
-                  ${!mRes.loading && mRes.items.length === 0 && html`<div class="em-chat-panel-empty">No members match "${mq}".</div>`}
-                  ${mRes.items.map(function (u) {
-                    return html`
-                      <button type="button" key=${u.user_id} class="em-chat-row em-chat-row--user" onClick=${function () { startWith(u); }}>
-                        <img class="em-chat-row-avatar" src=${u.avatar_url} alt="" />
-                        <span class="em-chat-row-id">
-                          <span class="em-chat-row-name">${u.display_name}</span>
-                          <span class="em-chat-row-sub">@${u.username || ''}</span>
-                        </span>
-                        <span class="em-chat-row-action" aria-hidden="true">→</span>
-                      </button>`;
-                  })}
-                </div>
-              `}
-            </div>
-
-            ${showFilter && box !== 'notices' && html`
-              <div class="em-chat-dm-filter">
-                <input type="search" placeholder="Filter conversations…" value=${filter}
-                  onInput=${function (e) { setFilter(e.target.value); }} />
-              </div>
-            `}
-
-            ${box === 'notices' ? html`
-              <div class="em-chat-dm-scroll">
-                ${notices === null && html`<div class="em-chat-panel-empty">Loading notices…</div>`}
-                ${notices !== null && notices.length === 0 && html`<div class="em-chat-panel-empty">No site notices.</div>`}
-                ${(notices || []).map(function (n) {
-                  return html`
-                    <div class="em-chat-dm-notice" key=${n.id}>
-                      <span class="em-chat-dm-subject-title">${n.subject}${n.is_active ? ' · ACTIVE' : ''}</span>
-                      <span class="em-chat-dm-subject-excerpt">${n.message}</span>
-                      <span class="em-chat-dm-date">${String(n.date || '').slice(0, 10)}</span>
-                    </div>`;
+          <div class=${'em-msgr' + (active ? ' has-active' : '')}>
+            <aside class="em-msgr-side">
+              <div class="em-msgr-kinds" role="tablist" aria-label="Conversation type">
+                ${KINDS.map(function (k) {
+                  var n = kindUnread[k[0]];
+                  return html`<button type="button" key=${k[0]} role="tab" aria-selected=${kind === k[0] ? 'true' : 'false'}
+                    class=${'em-msgr-kind' + (kind === k[0] ? ' is-active' : '')}
+                    onClick=${function () { setKind(k[0]); if (k[0] === 'projects') { loadProjects(); } }}>${k[1]}${n > 0 ? html`<span class="em-msgr-badge">${n}</span>` : null}</button>`;
                 })}
               </div>
-            ` : html`
-              <div class="em-chat-dm-head" aria-hidden="true">
-                <input type="checkbox" class="em-chat-dm-check" checked=${allSelected} onChange=${toggleAll} />
-                <span class="em-chat-dm-head-from">From</span>
-                <span class="em-chat-dm-head-subject">Subject</span>
-                <span class="em-chat-dm-head-star">★</span>
-                <span class="em-chat-dm-head-actions">Actions</span>
+              <div class="em-msgr-side-head">
+                <h3 class="em-msgr-title">Messages${unreadTotal > 0 ? html`<span class="em-msgr-badge">${unreadTotal}</span>` : null}</h3>
+                ${kind === 'members' && html`<button type="button" class="em-msgr-invite" onClick=${function () { props.onInvite && props.onInvite(); }}>＋ Invite</button>`}
               </div>
-              <div class="em-chat-dm-scroll">
-                ${th.loading && html`<div class="em-chat-panel-empty">Loading conversations…</div>`}
-                ${th.err && html`<div class="em-chat-panel-empty em-chat-err">${th.err}</div>`}
-                ${!th.loading && !th.err && shown.length === 0 && html`
-                  <div class="em-chat-panel-empty">${box === 'starred' ? 'No starred conversations.' : (box === 'sent' ? 'Nothing sent yet.' : 'No conversations yet. Search above to start one.')}</div>
+              ${kind === 'members' && html`              <div class="em-msgr-search">
+                <span class="em-msgr-search-ico" aria-hidden="true">⌕</span>
+                <input ref=${searchRef} type="search" placeholder="Search or start a new chat…"
+                  value=${mq} onInput=${function (e) { setMq(e.target.value); }} />
+                ${mq && html`
+                  <div class="em-msgr-results" role="listbox">
+                    ${mRes.loading && html`<div class="em-msgr-empty-sm">Searching…</div>`}
+                    ${!mRes.loading && mRes.items.length === 0 && html`<div class="em-msgr-empty-sm">No members match "${mq}".</div>`}
+                    ${mRes.items.map(function (u) {
+                      return html`
+                        <button type="button" key=${u.user_id} class="em-msgr-result" onClick=${function () { startWith(u); }}>
+                          <img class="em-msgr-ava" src=${u.avatar_url} alt="" />
+                          <span class="em-msgr-conv-txt">
+                            <span class="em-msgr-conv-name">${u.display_name}</span>
+                            <span class="em-msgr-conv-prev">@${u.username || ''}</span>
+                          </span>
+                          <span class="em-msgr-go" aria-hidden="true">→</span>
+                        </button>`;
+                    })}
+                  </div>
                 `}
-                ${shown.map(renderRow)}
+              </div>`}
+              ${kind !== 'members' && html`
+                <div class="em-msgr-search">
+                  <span class="em-msgr-search-ico" aria-hidden="true">⌕</span>
+                  <input type="search" placeholder=${kind === 'projects' ? 'Search your workspaces…' : 'Search agent conversations…'}
+                    value=${kq[kind] || ''} onInput=${function (e) { var v = e.target.value; setKq(function (cur) { var n2 = Object.assign({}, cur); n2[kind] = v; return n2; }); }} />
+                </div>
+              `}
+              ${kind !== 'projects' && html`<div class="em-msgr-pills" role="tablist" aria-label="Conversation filter">
+                ${MBOX.map(function (v) {
+                  return html`<button type="button" key=${v[0]} role="tab" aria-selected=${box === v[0] ? 'true' : 'false'}
+                    class=${'em-msgr-pill' + (box === v[0] ? ' is-active' : '')}
+                    onClick=${function () { setBox(v[0]); }}>${v[1]}</button>`;
+                })}
+              </div>`}
+              <div class="em-msgr-list">
+                ${kind === 'projects' ? html`
+                  ${projs.loading && projs.items.length === 0 && html`<div class="em-msgr-empty-sm">Loading workspaces…</div>`}
+                  ${!projs.loading && projShown.length === 0 && html`<div class="em-msgr-empty-sm">${projs.items.length ? 'No workspace matches.' : 'You are not in any workspaces yet. Workspace chats appear here.'}</div>`}
+                  ${projShown.map(renderProject)}
+                ` : box === 'notices' ? html`
+                  ${notices === null && html`<div class="em-msgr-empty-sm">Loading notices…</div>`}
+                  ${notices !== null && notices.length === 0 && html`<div class="em-msgr-empty-sm">No site notices.</div>`}
+                  ${(notices || []).map(function (n) {
+                    return html`
+                      <div class="em-msgr-notice" key=${n.id}>
+                        <span class="em-msgr-conv-name">${emDecode(n.subject)}${n.is_active ? ' · ACTIVE' : ''}</span>
+                        <span class="em-msgr-notice-body">${emDecode(n.message)}</span>
+                        <span class="em-msgr-conv-time">${String(n.date || '').slice(0, 10)}</span>
+                      </div>`;
+                  })}
+                ` : html`
+                  ${th.loading && th.items.length === 0 && html`<div class="em-msgr-empty-sm">Loading conversations…</div>`}
+                  ${th.err && html`<div class="em-msgr-empty-sm em-chat-err">${th.err}</div>`}
+                  ${!th.loading && !th.err && shown.length === 0 && html`
+                    <div class="em-msgr-empty-sm">${box === 'starred' ? 'No starred conversations.' : (box === 'sent' ? 'Nothing sent yet.' : (kind === 'agents' ? 'No agent conversations yet.' : 'No conversations yet. Search above to start one.'))}</div>
+                  `}
+                  ${shown.map(renderConv)}
+                `}
               </div>
-              <div class="em-chat-dm-bulk">
-                <select value=${bulk} onChange=${function (e) { setBulk(e.target.value); }} aria-label="Bulk actions">
-                  <option value="">Bulk Actions</option>
-                  <option value="read">Mark read</option>
-                  <option value="unread">Mark unread</option>
-                  <option value="star">Star</option>
-                  <option value="unstar">Unstar</option>
-                  <option value="delete">Delete</option>
-                </select>
-                <button type="button" class="em-chat-proj-newbtn" disabled=${!anySelected || !bulk} onClick=${applyBulk}>Apply</button>
-              </div>
-            `}
+            </aside>
+            <section class="em-msgr-main">
+              ${active ? html`
+                <${ChatBox}
+                  key=${active.id || (active.is_group ? ('proj-' + active.project_id) : ('new-' + ((active.others && active.others[0] && active.others[0].user_id) || '')))}
+                  thread=${active}
+                  embedded=${true}
+                  onBack=${function () { setActive(null); }}
+                  onUpdate=${function (updated) { setActive(updated); loadThreads(box); loadProjects(); }} />
+              ` : html`
+                <div class="em-msgr-empty">
+                  <div class="em-msgr-empty-orb" aria-hidden="true">💬</div>
+                  <h3>Your conversations</h3>
+                  <p>Pick a conversation on the left, or search for a member to start a new one.</p>
+                </div>
+              `}
+            </section>
           </div>`;
     }
 
@@ -2107,39 +2475,31 @@
     // bootstraps by the wrap's unique id — innerHTML leaves scripts inert,
     // so each one is re-created to execute.
     function InviteNewModal(props) {
-        var hostRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
-        var st = useState({ loading: true, err: '' });
+        var st = useState({ loading: true });
         var state = st[0], setState = st[1];
+        var fullState = useState(false); var full = fullState[0], setFull = fullState[1];
+        // The frame asks for the whole screen while one of its own popups (email invites / social posts) is open.
         useEffect(function () {
-            var ajaxUrl = wpJsonRoot.replace(/wp-json\/?$/, '') + 'wp-admin/admin-ajax.php';
-            var cancelled = false;
-            fetch(ajaxUrl + '?action=gs_invite_panel_fragment', { credentials: 'same-origin' })
-                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-                .then(function (txt) {
-                    if (cancelled || !hostRef.current) return;
-                    hostRef.current.innerHTML = txt;
-                    hostRef.current.querySelectorAll('script').forEach(function (s) {
-                        var el = document.createElement('script');
-                        if (s.src) { el.src = s.src; } else { el.textContent = s.textContent; }
-                        s.parentNode.replaceChild(el, s);
-                    });
-                    setState({ loading: false, err: '' });
-                })
-                .catch(function (e) { if (!cancelled) setState({ loading: false, err: String((e && e.message) || e) }); });
-            return function () { cancelled = true; };
+            function onMsg(e) {
+                if (e.origin !== window.location.origin || !e.data || typeof e.data.emInviteFull === 'undefined') return;
+                setFull(!!e.data.emInviteFull);
+            }
+            window.addEventListener('message', onMsg);
+            return function () { window.removeEventListener('message', onMsg); };
         }, []);
+        var frameSrc = wpJsonRoot.replace(/wp-json\/?$/, '') + 'wp-admin/admin-ajax.php?action=em_invite_frame';
         var modal = html`
-          <div class="em-chat-agent-modal em-chat-invite-modal" role="dialog" aria-modal="true" aria-label="Invite new members">
+          <div class="em-chat-agent-modal em-chat-invite-modal" role="dialog" aria-modal="true" aria-label="Grow your network">
             <div class="em-chat-agent-backdrop" onClick=${props.onClose}></div>
-            <div class="em-chat-agent-dialog em-chat-invite-dialog">
+            <div class=${'em-chat-agent-dialog em-chat-invite-dialog' + (full ? ' is-full' : '')}>
               <header class="em-chat-agent-head">
-                <span class="em-chat-agent-title">Invite new members</span>
+                <span class="em-chat-agent-title">Grow your network</span>
                 <button type="button" class="em-chat-agent-x" onClick=${props.onClose} aria-label="Close">×</button>
               </header>
               <div class="em-chat-agent-body em-chat-invite-body">
                 ${state.loading && html`<div class="em-chat-panel-empty">Loading the invite panel…</div>`}
-                ${state.err && html`<div class="em-chat-panel-empty em-chat-err">Could not load the invite panel: ${state.err}</div>`}
-                <div ref=${hostRef}></div>
+                <iframe class="em-chat-invite-frame" title="Invite new members" src=${frameSrc}
+                  onLoad=${function () { setState({ loading: false }); }}></iframe>
               </div>
             </div>
           </div>`;
@@ -2381,7 +2741,7 @@
                 setOpening(0);
                 if (ok && window.PM && window.PM.openProjectDrawer) {
                     // Drawer paints above the panel (see ProjectCardsPane note).
-                    window.PM.openProjectDrawer(t.project_id);
+                    emOpenPmDrawer(t.project_id);
                 }
             });
         }
@@ -3888,8 +4248,11 @@
         function addGdrive(idx) {
             var link = String(gdrive[idx] || '').trim();
             if (!link) { return; }
-            addContext(idx, { type: 'gdrive', url: link, label: 'Google Drive doc' });
             setGdriveFor(idx, '');
+            // 2026-11-13 (drive.file): when connected, a pasted link opens Google's picker on that
+            // file so the member confirms it — that grants gend.me access to just that file.
+            if (gdStatus.connected && gdStatus.picker) { openGdPicker(idx, link); return; }
+            addContext(idx, { type: 'gdrive', url: link, label: 'Google Drive doc' });
         }
 
         // ── Google-Drive picker ─────────────────────────────────────────────
@@ -3908,10 +4271,38 @@
                         loaded: true,
                         configured: !!(d && d.configured),
                         connected: !!(d && d.connected),
+                        picker: (d && d.picker) || null,
                     });
                 })
                 .catch(function () { setGdStatus({ loaded: true, configured: false, connected: false }); });
         }, []);
+
+        // 2026-11-13: Google's Drive picker (gend-society assets/gs-drive-picker.js, loaded on first
+        // use; drive.file — gend.me sees only the files picked). `link` = pasted link to confirm.
+        var gdPickErrState = useState({}); var gdPickErr = gdPickErrState[0], setGdPickErr = gdPickErrState[1];
+        function openGdPicker(idx, link) {
+            var pk = gdStatus.picker;
+            function fail(msg) { setGdPickErr(function (p) { var n = Object.assign({}, p); n[idx] = msg; return n; }); }
+            fail('');
+            if (!pk || !pk.js) { if (link) { addContext(idx, { type: 'gdrive', url: link, label: 'Google Drive doc' }); } return; }
+            function go() {
+                var fid = link ? window.gsDrivePicker.idFromUrl(link) : '';
+                if (link && !fid) { fail('That doesn’t look like a Google Drive link.'); return; }
+                window.gsDrivePicker.pick({ config: pk, fileId: fid })
+                    .then(function (docs) {
+                        docs.forEach(function (f) {
+                            addContext(idx, { type: 'gdrive', ref: String(f.id || ''), label: f.name || 'Google Drive file', url: f.url || '' });
+                        });
+                    })
+                    .catch(function (e) { fail((e && e.message) || 'Could not open Google Drive.'); });
+            }
+            if (window.gsDrivePicker) { go(); return; }
+            var s = document.createElement('script');
+            s.src = pk.js;
+            s.onload = go;
+            s.onerror = function () { fail('Could not load Google Drive.'); };
+            document.head.appendChild(s);
+        }
 
         // Optional per-step "paste link" fallback toggle (shown via a small link
         // even when the picker is available).
@@ -3989,6 +4380,7 @@
                                 loaded: true,
                                 configured: !!(d && d.configured),
                                 connected: !!(d && d.connected),
+                                picker: (d && d.picker) || null,
                             });
                         })
                         .catch(function () { setGdStatus(function (prev) { return Object.assign({}, prev, { connected: true }); }); });
@@ -4339,13 +4731,19 @@
                                     </div>`}
                                 </div>`;
                             }
-                            // 3) Connected → searchable picker (+ paste fallback link).
+                            // 3) Connected → "Choose from Google Drive" (Google's picker, drive.file) + search of
+                            //    files already picked (+ paste fallback link). 2026-11-13.
                             var results = Array.isArray(gdResults[idx]) ? gdResults[idx] : [];
                             return html`
                               <div class="em-chat-seq-gdrive">
+                                ${gdStatus.picker && html`
+                                  <button type="button" class="em-chat-seq-gdrive-connect" onClick=${function () { openGdPicker(idx, ''); }}>
+                                    <span class="em-chat-seq-gdrive-g">📁</span> Choose from Google Drive
+                                  </button>`}
+                                ${gdPickErr[idx] && html`<div class="em-chat-seq-gdrive-note">${gdPickErr[idx]}</div>`}
                                 <div class="em-chat-seq-gdrive-row">
                                   <input type="text" class="em-chat-seq-gdrive-search" value=${gdSearch[idx] || ''}
-                                    placeholder="Search Google Drive…"
+                                    placeholder="Search files you’ve already picked…"
                                     onInput=${function (e) { onGdSearchInput(idx, e.target.value); }} />
                                   <a class="em-chat-seq-gdrive-paste-link" href="#"
                                     onClick=${function (e) { e.preventDefault(); toggleGdPaste(idx); }}>paste link</a>
@@ -5104,7 +5502,7 @@
         var qState = useState(''); var q = qState[0], setQ = qState[1];
         var searchState = useState({ loading: false, items: [] });
         var search = searchState[0], setSearch = searchState[1];
-        var tabState = useState('projects'); var tab = tabState[0], setTab = tabState[1];
+        var tabState = useState('messages'); var tab = tabState[0], setTab = tabState[1];
         var agentAddState = useState(false); var agentAdd = agentAddState[0], setAgentAdd = agentAddState[1];
         var inviteOpenState = useState(false); var inviteOpen = inviteOpenState[0], setInviteOpen = inviteOpenState[1];
         // Agents tab sub-view: real DM "chat" vs launched "chatflows"
@@ -5127,8 +5525,7 @@
                     setCtxGid(Number(pnd.groupId) || 0);
                     try { sessionStorage.setItem('emGroupCtx.' + cfg.currentUserId, String(Number(pnd.groupId) || 0)); } catch (err) {}
                 }
-                setTab('agents');
-                setAgentView('sequences');
+                // Popup is Messages-only now: no Agents tab to route to.
             }
             route();
             window.addEventListener('em-seq:nav', route);
@@ -5138,7 +5535,37 @@
         // Messages tab sub-view: Email (inbox suite) / Members (real DM
         // threads — the old top-level tab). Defaults to Email when the
         // member has inbox access, else Members.
-        var msgViewState = useState(cfg.hasInbox ? 'email' : 'members'); var msgView = msgViewState[0], setMsgView = msgViewState[1];
+        var msgViewState = useState('members'); var msgView = msgViewState[0], setMsgView = msgViewState[1];
+        // Calendar tab: the member's personal calendar loads on first visit, then stays mounted (hidden) so switching tabs doesn't reload it.
+        // Top tabs collapse into a slide-down menu on phones.
+        var topMenuState = useState(false); var topMenuOpen = topMenuState[0], setTopMenuOpen = topMenuState[1];
+        useEffect(function () {
+            if (!topMenuOpen) return;
+            function onKey(e) { if (e.key === 'Escape') setTopMenuOpen(false); }
+            function onDoc(e) { if (!e.target.closest || !e.target.closest('.em-chat-topmenu-wrap')) setTopMenuOpen(false); }
+            document.addEventListener('keydown', onKey);
+            document.addEventListener('mousedown', onDoc);
+            document.addEventListener('touchstart', onDoc, { passive: true });
+            return function () {
+                document.removeEventListener('keydown', onKey);
+                document.removeEventListener('mousedown', onDoc);
+                document.removeEventListener('touchstart', onDoc);
+            };
+        }, [topMenuOpen]);
+        var calVisitedState = useState(false); var calVisited = calVisitedState[0], setCalVisited = calVisitedState[1];
+        // A "new email" popup / the launcher's email badge asks to land on Messages → Email.
+        useEffect(function () {
+            function go() {
+                if (window.__emPendingView === 'email' && cfg.hasInbox) {
+                    window.__emPendingView = '';
+                    setTab('messages');
+                    setMsgView('email');
+                }
+            }
+            go();
+            window.addEventListener('em-chat:open-email', go);
+            return function () { window.removeEventListener('em-chat:open-email', go); };
+        }, []);
 
         function reload() {
             setState({ loading: true, items: state.items, err: null });
@@ -5194,47 +5621,58 @@
               + (props.seqGhost ? ' em-chat-panel--ghost' : '')}>
             <header class="em-chat-panel-header em-chat-panel-header--groupbar">
               <span class="em-chat-panel-header-spacer" aria-hidden="true"></span>
-              <${GroupContextBar} gid=${ctxGid} onPick=${setCtxGid} />
+              ${(function () {
+                var tabs = [['members', '💬', 'Chat', Number(props.chatUnread) || 0]]
+                    .concat(cfg.hasInbox ? [['email', '✉️', 'Email', Number(props.emailUnread) || 0]] : [])
+                    .concat(cfg.calendarUrl ? [['calendar', '📅', 'Calendar', 0]] : []);
+                function pick(id) { setTab('messages'); setMsgView(id); if (id === 'calendar') setCalVisited(true); setTopMenuOpen(false); }
+                var current = tabs.filter(function (t) { return t[0] === msgView; })[0] || tabs[0];
+                var otherBadge = tabs.reduce(function (n, t) { return n + (t[0] !== current[0] ? t[3] : 0); }, 0);
+                return html`
+                  <div class="em-chat-topswitch-wrap">
+                    <div class="em-chat-topswitch" role="tablist" aria-label="Chat, email or calendar">
+                      ${tabs.map(function (v) {
+                        return html`
+                          <button type="button" role="tab" key=${v[0]} aria-selected=${msgView === v[0] ? 'true' : 'false'}
+                            class=${'em-chat-topswitch-btn' + (msgView === v[0] ? ' is-active' : '')}
+                            onClick=${function () { pick(v[0]); }}>
+                            <span class="em-chat-topswitch-ico" aria-hidden="true">${v[1]}</span>
+                            <span class="em-chat-topswitch-name">${v[2]}</span>
+                            ${v[3] > 0 && html`<span class="em-chat-topswitch-badge">${v[3] > 99 ? '99+' : v[3]}</span>`}
+                          </button>
+                        `;
+                      })}
+                    </div>
+                  </div>
+                  <div class=${'em-chat-topmenu-wrap' + (topMenuOpen ? ' is-open' : '')}>
+                    <button type="button" class="em-chat-topmenu-btn" aria-haspopup="true" aria-expanded=${topMenuOpen ? 'true' : 'false'}
+                      onClick=${function () { setTopMenuOpen(!topMenuOpen); }}>
+                      <span class="em-chat-topswitch-ico" aria-hidden="true">${current[1]}</span>
+                      <span class="em-chat-topswitch-name">${current[2]}</span>
+                      ${current[3] > 0 && html`<span class="em-chat-topswitch-badge">${current[3] > 99 ? '99+' : current[3]}</span>`}
+                      ${!topMenuOpen && otherBadge > 0 && html`<span class="em-chat-topmenu-dot" aria-hidden="true"></span>`}
+                      <span class="em-chat-topmenu-caret" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="em-chat-topmenu" role="menu" aria-hidden=${topMenuOpen ? 'false' : 'true'}>
+                      <div class="em-chat-topmenu-inner">
+                        ${tabs.map(function (v) {
+                          return html`
+                            <button type="button" role="menuitem" key=${v[0]} tabindex=${topMenuOpen ? 0 : -1}
+                              class=${'em-chat-topmenu-item' + (msgView === v[0] ? ' is-active' : '')}
+                              onClick=${function () { pick(v[0]); }}>
+                              <span class="em-chat-topswitch-ico" aria-hidden="true">${v[1]}</span>
+                              <span class="em-chat-topswitch-name">${v[2]}</span>
+                              ${v[3] > 0 && html`<span class="em-chat-topswitch-badge">${v[3] > 99 ? '99+' : v[3]}</span>`}
+                            </button>
+                          `;
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                `;
+              })()}
               <button type="button" class="em-chat-panel-close" onClick=${props.onClose} aria-label="Close chat">×</button>
             </header>
-            <nav class="em-chat-tabs" role="tablist" aria-label="Conversation type">
-              ${[['projects', 'Projects'], ['agents', 'Agents'], ['messages', 'Messages']].map(function (p) {
-                // Real unread counts only exist for member DM threads today —
-                // the Messages tab's dot mirrors those (its Members sub-tab).
-                var countTab = p[0] === 'messages' ? 'members' : p[0];
-                var c = state.items.filter(function (t) { return emThreadMatchesTab(t, countTab); })
-                        .reduce(function (a, t) { return a + (t.unread > 0 ? 1 : 0); }, 0);
-                return html`
-                  <button
-                    type="button" role="tab" key=${p[0]}
-                    class=${'em-chat-tab ' + (tab === p[0] ? 'is-active' : '')}
-                    aria-selected=${tab === p[0] ? 'true' : 'false'}
-                    onClick=${function () { setTab(p[0]); }}>
-                    ${p[1]}${c > 0 ? html`<span class="em-chat-tab-dot">${c}</span>` : null}
-                  </button>
-                `;
-              })}
-            </nav>
-            ${tab === 'messages' && html`
-              <div class="em-chat-msg-switch" role="tablist" aria-label="Email or member messages">
-                ${[]
-                    .concat(cfg.hasInbox ? [['email', '✉️', 'Email', 'Your connected inboxes']] : [])
-                    .concat([['members', '💬', 'Members', 'Direct messages']])
-                    .map(function (v) {
-                  return html`
-                    <button type="button" role="tab" key=${v[0]} aria-selected=${msgView === v[0] ? 'true' : 'false'}
-                      class=${'em-chat-msg-switch-btn' + (msgView === v[0] ? ' is-active' : '')}
-                      onClick=${function () { setMsgView(v[0]); }}>
-                      <span class="em-chat-msg-switch-ico" aria-hidden="true">${v[1]}</span>
-                      <span class="em-chat-msg-switch-txt">
-                        <span class="em-chat-msg-switch-name">${v[2]}</span>
-                        <span class="em-chat-msg-switch-sub">${v[3]}</span>
-                      </span>
-                    </button>
-                  `;
-                })}
-              </div>
-            `}
             ${msgSearchActive && html`
               <div class="em-chat-invite-bar">
                 <button type="button" class="em-chat-proj-newbtn" onClick=${function () { setInviteOpen(true); }}>＋ Invite new</button>
@@ -5290,6 +5728,11 @@
                 `}
               `}
               ${tab === 'messages' && msgView === 'email' && html`<${EmailInboxPane} />`}
+              ${cfg.calendarUrl && calVisited && html`
+                <div class=${'em-chat-cal-pane' + (tab === 'messages' && msgView === 'calendar' ? '' : ' is-hidden')}>
+                  <iframe class="em-chat-cal-frame" title="My calendar" src=${cfg.calendarUrl}></iframe>
+                </div>
+              `}
               ${tab === 'projects' && html`<${ProjectsPane} onClosePanel=${props.onClose} ctxGid=${ctxGid} />`}
               ${tab === 'agents' && agentView === 'sequences' && html`<${AgentSequencesPane} onClosePanel=${props.onClose} ctxGid=${ctxGid} />`}
               ${(function () {
@@ -5373,6 +5816,40 @@
         var typingState = useState(false); var typing = typingState[0], setTyping = typingState[1];
         var initialIdsRef = useRef(null);
         var replyPollRef = useRef(null);
+        // 2026-11-12: relationship with the other member (connect / report / block), workspace members + mute.
+        var relState = useState(null); var rel = relState[0], setRel = relState[1];
+        var dlgState = useState(''); var dlg = dlgState[0], setDlg = dlgState[1];          // '', 'report', 'block', 'members'
+        var dlgMsgState = useState(''); var dlgMsg = dlgMsgState[0], setDlgMsg = dlgMsgState[1];
+        var busyState = useState(false); var busy = busyState[0], setBusy = busyState[1];
+        var memState = useState(null); var mem = memState[0], setMem = memState[1];
+        var mutedState = useState(!!props.thread.muted); var muted = mutedState[0], setMuted = mutedState[1];
+        var repCatRef = useRef(null); var repTxtRef = useRef(null); var blkTxtRef = useRef(null);
+        var repDoneState = useState(false); var reportDone = repDoneState[0], setReportDone = repDoneState[1];
+        useEffect(function () { if (!reportDone) return; var h = setTimeout(function () { setReportDone(false); }, 4000); return function () { clearTimeout(h); }; }, [reportDone]);
+        var oneOther = (!props.thread.is_group && props.thread.others && props.thread.others.length === 1) ? props.thread.others[0] : null;
+        var otherUid = (state.thread && !state.thread.is_group && state.thread.others && state.thread.others.length === 1) ? state.thread.others[0].user_id : (oneOther ? oneOther.user_id : 0);
+        useEffect(function () {
+            setRel(null);
+            if (!otherUid) return;
+            restGet('relationship?user_id=' + encodeURIComponent(otherUid)).then(setRel).catch(function () {});
+        }, [otherUid]);
+        useEffect(function () { if (state.thread && typeof state.thread.muted === 'boolean') setMuted(state.thread.muted); }, [state.thread && state.thread.id]);
+        function relDo(path, data) {
+            setBusy(true); setDlgMsg('');
+            return restPost(path, Object.assign({ user_id: otherUid }, data || {}))
+                .then(function (d) { setBusy(false); if (d && d.user_id) setRel(d); return d; })
+                .catch(function (e) { setBusy(false); setDlgMsg(cleanError(e)); throw e; });
+        }
+        function openMembers() {
+            setDlg(dlg === 'members' ? '' : 'members');
+            if (!mem && state.thread.project_id) {
+                restGet('projects/' + state.thread.project_id + '/members').then(function (d) { setMem(d); if (typeof d.muted === 'boolean') setMuted(d.muted); }).catch(function (e) { setMem({ err: cleanError(e), members: [] }); });
+            }
+        }
+        function toggleMute() {
+            var next = !muted; setMuted(next);
+            if (state.thread.id) restPost('threads/' + state.thread.id + '/mute', { muted: next ? '1' : '0' }).catch(function () { setMuted(!next); });
+        }
         function otherCount(list) { return (list || []).filter(function (m) { return !m.is_self; }).length; }
 
         // Slice 3e.3: `silent` skips the loading-flash AND preserves the
@@ -5476,6 +5953,20 @@
             settle([900, 1600]); // once the smooth scroll has arrived (a re-pin is a no-op when already there)
         }, [state.messages.length, typing]);
         useEffect(function () { return function () { clearTimeout(replyPollRef.current); pinTimersRef.current.forEach(clearTimeout); }; }, []);
+        // A project link in this conversation: warm its workspace in the background (network only) so the
+        // "Open project" button opens quickly when tapped.
+        useEffect(function () {
+            var href = '';
+            for (var i = state.messages.length - 1; i >= 0 && !href; i--) {
+                var mm = String((state.messages[i] && state.messages[i].message) || '').match(/href=["']([^"']*pm_project=[^"']*)["']/);
+                if (mm) href = mm[1].replace(/&amp;/g, '&');
+            }
+            if (!href) return;
+            var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 1200); };
+            var cancel = window.cancelIdleCallback || clearTimeout;
+            var h = idle(function () { emWarmProjectLink(href); });
+            return function () { cancel(h); };
+        }, [state.messages.length]);
 
         // After sending: show the typing dots and check quickly for the reply (a chatflow's next question is usually
         // already there; an agent's answer can take a few seconds), up to ~45s -- then the normal 15s refresh resumes.
@@ -5536,18 +6027,37 @@
                 restPost('threads/' + state.thread.id + '/send', { content: content })
                     .then(function () {
                         setSending(false);
-                        awaitReply(others);
+                        if (!state.thread.is_group) awaitReply(others); // group chats: no "typing" stand-in
+                        else load(true);
                     })
-                    .catch(function () {
+                    .catch(function (e) {
                         setSending(false);
                         setTyping(false);
-                        setState(function (prev) { return { loading: false, thread: prev.thread, err: 'Message not sent — try again.', messages: prev.messages.filter(function (m) { return !m._pending; }) }; });
+                        var why = cleanError(e);
+                        setState(function (prev) { return { loading: false, thread: prev.thread, err: why || 'Message not sent — try again.', messages: prev.messages.filter(function (m) { return !m._pending; }) }; });
                         setDraft(content);
+                        if (otherUid) restGet('relationship?user_id=' + encodeURIComponent(otherUid)).then(setRel).catch(function () {});
+                    });
+            } else if (state.thread.is_group && state.thread.project_id) {
+                // First message of a workspace's group chat (2026-11-12): the server creates the thread.
+                restPost('projects/' + state.thread.project_id + '/send', { content: content })
+                    .then(function (d) {
+                        setDraft('');
+                        setSending(false);
+                        if (d.thread) {
+                            setState({ loading: false, thread: d.thread, messages: state.messages, err: null });
+                            props.onUpdate && props.onUpdate(d.thread);
+                        }
+                    })
+                    .catch(function (e) {
+                        setSending(false);
+                        setState(function (prev) { return { loading: false, thread: prev.thread, messages: prev.messages, err: cleanError(e) }; });
                     });
             } else {
                 // New thread — needs to_user_id from the other participant.
                 var other = state.thread.others && state.thread.others[0];
                 if (!other) { setSending(false); return; }
+                if (rel && !rel.can_message) { setSending(false); return; }
                 restPost('threads/new', { to_user_id: other.user_id, content: content, subject: 'Chat' })
                     .then(function (d) {
                         setDraft('');
@@ -5558,24 +6068,89 @@
                             props.onUpdate && props.onUpdate(updated);
                         }
                     })
-                    .catch(function () { setSending(false); });
+                    .catch(function (e) { setSending(false); setState(function (prev) { return { loading: false, thread: prev.thread, messages: prev.messages, err: cleanError(e) }; }); });
             }
         }
 
-        var other = (state.thread.others && state.thread.others[0]) || { display_name: '(no recipient)', avatar_url: '' };
+        var other = state.thread.is_group
+            ? { display_name: state.thread.project_title || 'Workspace chat', avatar_url: state.thread.project_avatar || '' }
+            : ((state.thread.others && state.thread.others[0]) || { display_name: '(no recipient)', avatar_url: '' });
+        var isGroup = !!state.thread.is_group;
         return html`
-          <div class=${'em-chat-box ' + (collapsed ? 'is-collapsed' : '')}>
-            <header class="em-chat-box-header" onClick=${function () { setCollapsed(!collapsed); }}>
+          <div class=${'em-chat-box ' + (collapsed ? 'is-collapsed' : '') + (props.embedded ? ' em-chat-box--embedded' : '')}>
+            <header class="em-chat-box-header" onClick=${function () { if (!props.embedded) setCollapsed(!collapsed); }}>
+              ${props.embedded && html`<button type="button" class="em-chat-box-back" onClick=${function (e) { e.stopPropagation(); props.onBack && props.onBack(); }} aria-label="Back to conversations">‹</button>`}
               <img class="em-chat-box-avatar" src=${other.avatar_url || ''} alt="" />
               <span class="em-chat-box-name">${other.display_name}</span>
-              <button type="button" class="em-chat-box-close" onClick=${function (e) { e.stopPropagation(); props.onClose && props.onClose(); }} aria-label="Close chat box">×</button>
+              ${isGroup && html`
+                <span class="em-cx-acts" onClick=${function (e) { e.stopPropagation(); }}>
+                  <button type="button" class=${'em-cx-act' + (dlg === 'members' ? ' is-on' : '')} onClick=${openMembers} title="Workspace members">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Members</span></button>
+                  <button type="button" class=${'em-cx-act' + (muted ? ' is-warn' : '')} onClick=${toggleMute} disabled=${!state.thread.id} title=${muted ? 'Unmute: pop up new messages again' : 'Mute: new messages won’t pop up'}>
+                    ${muted ? html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.73 21a2 2 0 0 1-3.46 0M18.63 13A17.9 17.9 0 0 1 18 8M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14M18 8a6 6 0 0 0-9.33-5M1 1l22 22"/></svg>` : html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>`}<span>${muted ? 'Muted' : 'Mute'}</span></button>
+                </span>`}
+              ${!isGroup && rel && rel.exists && !rel.is_agent && html`
+                <span class="em-cx-acts" onClick=${function (e) { e.stopPropagation(); }}>
+                  ${rel.friend === 'is_friend' ? html`<button type="button" class="em-cx-act" disabled=${busy} onClick=${function () { if (window.confirm('Remove ' + rel.display_name + ' from your connections?')) relDo('connect', { do: 'remove' }).catch(function () {}); }} title="Remove connection">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M17 11h6"/></svg><span>Unfriend</span></button>`
+                  : rel.friend === 'pending' ? html`<button type="button" class="em-cx-act" disabled=${busy} onClick=${function () { relDo('connect', { do: 'cancel' }).catch(function () {}); }} title="Cancel your connection request">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Requested</span></button>`
+                  : rel.friend === 'awaiting_response' ? html`<button type="button" class="em-cx-act is-primary" disabled=${busy} onClick=${function () { relDo('connect', { do: 'accept' }).catch(function () {}); }} title="Accept their connection request">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span>Accept</span></button>`
+                  : html`<button type="button" class="em-cx-act is-primary" disabled=${busy || rel.blocked || rel.blocked_by} onClick=${function () { relDo('connect', { do: 'add' }).catch(function () {}); }} title="Send a connection request">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg><span>Connect</span></button>`}
+                  <button type="button" class=${'em-cx-act' + (dlg === 'report' ? ' is-on' : '')} onClick=${function () { setDlgMsg(''); setDlg(dlg === 'report' ? '' : 'report'); }} title="Report this member">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></svg><span>Report</span></button>
+                  ${rel.can_block && html`<button type="button" class=${'em-cx-act is-danger' + (rel.blocked ? ' is-on' : '')} disabled=${busy} onClick=${function () { if (rel.blocked) { relDo('block', { block: '0' }).catch(function () {}); } else { setDlgMsg(''); setDlg(dlg === 'block' ? '' : 'block'); } }} title=${rel.blocked ? 'Unblock this member' : 'Block this member'}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg><span>${rel.blocked ? 'Unblock' : 'Block'}</span></button>`}
+                </span>`}
+              ${!props.embedded && html`<button type="button" class="em-chat-box-close" onClick=${function (e) { e.stopPropagation(); props.onClose && props.onClose(); }} aria-label="Close chat box">×</button>`}
             </header>
             ${!collapsed && html`
               <div class="em-chat-box-body" ref=${bindBody}>
+                ${dlg === 'members' && html`
+                  <div class="em-cx-panel">
+                    <div class="em-cx-panel-head"><b>Workspace members</b>${mem && mem.can_invite ? (window.PMAddPeople ? html`<button type="button" class="em-cx-btn is-primary" onClick=${function () { window.PMAddPeople.open(state.thread.project_id, state.thread.project_title || other.display_name); }}>＋ Invite people</button>` : (mem.invite_url ? html`<a class="em-cx-btn is-primary" href=${mem.invite_url}>＋ Invite people</a>` : null)) : null}</div>
+                    ${!mem ? html`<p class="em-cx-muted">Loading…</p>` : (mem.err ? html`<p class="em-cx-muted">${mem.err}</p>` : html`
+                      <ul class="em-cx-people">${(mem.members || []).map(function (m) { return html`<li key=${m.user_id}><img src=${m.avatar_url} alt="" /><span>${m.display_name}${m.is_me ? ' (you)' : ''}</span>${m.is_agent ? html`<em>Agent</em>` : null}${!m.in_chat ? html`<em class="is-wait">Invited, not joined</em>` : null}</li>`; })}</ul>`)}
+                  </div>`}
+                ${dlg === 'report' && rel && html`
+                  <div class="em-cx-panel">
+                    <div class="em-cx-panel-head"><b>Report ${rel.display_name}</b></div>
+                    <p class="em-cx-muted">Reports go to the gend.me moderation team. ${rel.display_name} isn’t told who reported them.</p>
+                    <select ref=${repCatRef} class="em-cx-input"><option value="spam">Spam</option><option value="harassment">Harassment or abuse</option><option value="scam">Scam or fraud</option><option value="inappropriate">Inappropriate content</option><option value="other">Something else</option></select>
+                    <textarea ref=${repTxtRef} class="em-cx-input" rows="3" maxlength="2000" placeholder="What happened? (optional)"></textarea>
+                    ${dlgMsg && html`<p class="em-cx-note">${dlgMsg}</p>`}
+                    <div class="em-cx-row"><button type="button" class="em-cx-btn" onClick=${function () { setDlg(''); }}>Cancel</button>
+                      <button type="button" class="em-cx-btn is-primary" disabled=${busy} onClick=${function () {
+                        relDo('report', { category: repCatRef.current ? repCatRef.current.value : 'other', description: repTxtRef.current ? repTxtRef.current.value : '' })
+                          .then(function () { setDlg(''); setState(function (prev) { return Object.assign({}, prev, { err: null }); }); window.setTimeout(function () { setDlgMsg(''); }, 10); window.alert && null; setReportDone(true); }).catch(function () {});
+                      }}>Send report</button></div>
+                  </div>`}
+                ${reportDone && html`<div class="em-cx-toast" role="status">Thanks. Your report was sent to the moderation team.</div>`}
+                ${dlg === 'block' && rel && html`
+                  <div class="em-cx-panel is-danger">
+                    <div class="em-cx-panel-head"><b>Block ${rel.display_name}?</b></div>
+                    <p class="em-cx-muted">Neither of you will be able to message the other. You can unblock them any time from here.</p>
+                    <textarea ref=${blkTxtRef} class="em-cx-input" rows="2" maxlength="1000" placeholder="Reason (optional, only for the moderation team)"></textarea>
+                    ${dlgMsg && html`<p class="em-cx-note">${dlgMsg}</p>`}
+                    <div class="em-cx-row"><button type="button" class="em-cx-btn" onClick=${function () { setDlg(''); }}>Cancel</button>
+                      <button type="button" class="em-cx-btn is-danger" disabled=${busy} onClick=${function () { relDo('block', { block: '1', reason: blkTxtRef.current ? blkTxtRef.current.value : '' }).then(function () { setDlg(''); }).catch(function () {}); }}>Block</button></div>
+                  </div>`}
+                ${!isGroup && rel && !rel.can_message && html`
+                  <div class="em-cx-gate">
+                    <img src=${rel.avatar_url} alt="" />
+                    <b>${rel.reason === 'deleted' ? 'This member’s account was deleted' : (rel.reason === 'blocked' ? 'You blocked ' + rel.display_name : (rel.reason === 'unavailable' ? 'You can’t message this member' : 'Connect with ' + rel.display_name + ' to chat'))}</b>
+                    <p>${rel.reason === 'not_connected' ? 'Only Project Consultants and site admins can be messaged without a connection. Send a connection request, and you can chat as soon as they accept.' : (rel.reason === 'blocked' ? 'Unblock them to send messages again.' : (rel.reason === 'deleted' ? 'You can still read your past messages.' : 'This member isn’t accepting messages from you.'))}</p>
+                    ${rel.reason === 'not_connected' && (rel.friend === 'pending' ? html`<span class="em-cx-pill">Request sent · waiting for ${rel.display_name}</span>`
+                      : rel.friend === 'awaiting_response' ? html`<button type="button" class="em-cx-btn is-primary" disabled=${busy} onClick=${function () { relDo('connect', { do: 'accept' }).catch(function () {}); }}>Accept their request</button>`
+                      : html`<button type="button" class="em-cx-btn is-primary" disabled=${busy} onClick=${function () { relDo('connect', { do: 'add' }).catch(function () {}); }}>＋ Add connection</button>`)}
+                    ${rel.reason === 'blocked' && html`<button type="button" class="em-cx-btn" disabled=${busy} onClick=${function () { relDo('block', { block: '0' }).catch(function () {}); }}>Unblock</button>`}
+                  </div>`}
                 ${state.loading && html`<div class="em-chat-panel-empty">Loading…</div>`}
                 ${state.err && html`<div class="em-chat-panel-empty em-chat-err">${state.err}</div>`}
                 ${!state.loading && state.messages.length === 0 && html`
-                  <div class="em-chat-panel-empty">No messages yet. Say hello.</div>
+                  <div class="em-chat-panel-empty">${isGroup ? 'No messages yet. Start the conversation with everyone in this workspace.' : 'No messages yet. Say hello.'}</div>
                 `}
                 ${state.messages.map(function (m, i) {
                   // Stagger only the first load's last few bubbles; anything newer animates in right away.
@@ -5585,7 +6160,8 @@
                     <div key=${m.id} class=${'em-chat-bubble ' + (m.is_self ? 'is-self' : 'is-other') + (initial ? '' : ' is-new') + (m._pending ? ' is-pending' : '')} style=${{ '--em-i': delayIndex }}>
                       ${!m.is_self && html`<img class="em-chat-bubble-avatar" src=${m.sender_avatar} alt="" />`}
                       <span class="em-chat-bubble-body">
-                        <span class="em-chat-bubble-text" dangerouslySetInnerHTML=${{ __html: m.message }}></span>
+                        ${isGroup && !m.is_self && m.sender_name && html`<span class="em-chat-bubble-who">${m.sender_name}</span>`}
+                        <span class="em-chat-bubble-text" onClick=${emChatLinkClick} onMouseOver=${emChatLinkWarm} onTouchStart=${emChatLinkWarm} onFocus=${emChatLinkWarm} dangerouslySetInnerHTML=${{ __html: m.message }}></span>
                         <span class="em-chat-bubble-time">${m._pending ? 'Sending…' : formatTime(m.date_sent)}</span>
                       </span>
                     </div>
@@ -5601,10 +6177,11 @@
               <form class="em-chat-box-compose" onSubmit=${function (e) { e.preventDefault(); send(); }}>
                 <input
                   type="text"
-                  placeholder=${'Message ' + other.display_name + '…'}
+                  placeholder=${(!isGroup && rel && !rel.can_message) ? 'Messaging is off for this conversation' : ('Message ' + other.display_name + '…')}
                   value=${draft}
+                  disabled=${!isGroup && rel && !rel.can_message}
                   onChange=${function (e) { setDraft(e.target.value); }} />
-                <button type="submit" disabled=${sending || !draft.trim()} aria-label="Send">
+                <button type="submit" disabled=${sending || !draft.trim() || (!isGroup && rel && !rel.can_message)} aria-label="Send">
                   ${sending ? '…' : '➤'}
                 </button>
               </form>
