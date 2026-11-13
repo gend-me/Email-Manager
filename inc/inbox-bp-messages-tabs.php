@@ -170,7 +170,12 @@ function em_inbox_bp_messages_tab_strip_footer() {
     $chat_active  = $active === 'chat'  ? ' is-active' : '';
     $dm_active    = $active === 'dm'    ? ' is-active' : '';
     $body_class   = 'em-inbox-bp-mode-' . $active;
+    // 2026-11-13 (owner): member Messages pages show only their content, so
+    // the Email / Chat / Direct Messages strip is off by default. The
+    // routes still work; return true from this filter to bring it back.
+    $show_strip   = (bool) apply_filters('em_inbox_messages_tab_strip', false);
     ?>
+    <?php if ($show_strip) : ?>
     <template id="em-inbox-messages-tabs-template">
       <nav class="em-inbox-messages-tabs" aria-label="<?php esc_attr_e('Messages section', 'email-manager'); ?>">
         <a class="em-inbox-messages-tab<?php echo $email_active; ?>" href="<?php echo esc_url($email_url); ?>" aria-current="<?php echo $email_active ? 'page' : 'false'; ?>">
@@ -184,6 +189,7 @@ function em_inbox_bp_messages_tab_strip_footer() {
         </a>
       </nav>
     </template>
+    <?php endif; ?>
     <script>
     (function () {
         var BODY_CLASS = '<?php echo esc_js($body_class); ?>';
@@ -221,6 +227,7 @@ function em_inbox_bp_messages_tab_strip_footer() {
         function inject() {
             document.body.classList.add(BODY_CLASS);
             var tpl = document.getElementById('em-inbox-messages-tabs-template');
+            // No template = the strip is turned off (em_inbox_messages_tab_strip).
             if (! tpl || tpl.dataset.emInjected) return true;
             var subnav = findSubnav();
             var frag, anchor, where;
