@@ -1960,9 +1960,15 @@
         var kindState = useState('members'); var kind = kindState[0], setKind = kindState[1];
         var kqState = useState({ projects: '', agents: '' }); var kq = kqState[0], setKq = kqState[1];
         var projState = useState({ loading: true, items: [] }); var projs = projState[0], setProjs = projState[1];
+        var appsState = useState([]); var apps = appsState[0], setApps = appsState[1];
+        var openAppsState = useState({}); var openApps = openAppsState[0], setOpenApps = openAppsState[1];
         function loadProjects() {
             restGet('projects').then(function (d) { setProjs({ loading: false, items: (d && d.items) || [] }); })
                 .catch(function () { setProjs({ loading: false, items: [] }); });
+            // Apps tab (2026-11-14): each app (group) with its chat channels.
+            apiFetch({ url: wpJsonRoot + 'gend-chat/v1/me/apps', method: 'GET' })
+                .then(function (d) { setApps((d && d.items) || []); })
+                .catch(function () {});
         }
         useEffect(function () {
             loadProjects();
@@ -2081,6 +2087,7 @@
         var kindUnread = { members: 0, agents: 0, projects: 0 };
         th.items.forEach(function (t) { if (t.unread > 0 && !t.is_group) kindUnread[kindOf(t)] += 1; });
         projs.items.forEach(function (p) { if (p.thread && p.thread.unread > 0) kindUnread.projects += 1; });
+        apps.forEach(function (a) { if (a.unread > 0) kindUnread.projects += 1; });
         var shown = th.items.filter(function (t) {
             if (kindOf(t) !== kind) return false;
             var nd = kind === 'agents' ? kq.agents.trim().toLowerCase() : needle;
@@ -2132,7 +2139,7 @@
             ['notices', 'Notices'],
         ];
         var unreadTotal = kindUnread.members + kindUnread.agents + kindUnread.projects;
-        var KINDS = [['members', 'Members'], ['projects', 'Projects'], ['agents', 'Agents']];
+        var KINDS = [['members', 'Members'], ['projects', 'Apps'], ['agents', 'Agents']];
         function openProject(p) {
             if (p.thread && p.thread.unread > 0) {
                 setProjs(function (cur) { return { loading: cur.loading, items: cur.items.map(function (x) {
@@ -2146,6 +2153,14 @@
         var projShown = projs.items.filter(function (p) {
             return !pneedle || ((p.title || '') + ' ' + (p.group_name || '')).toLowerCase().indexOf(pneedle) !== -1;
         });
+        var appIds = {};
+        apps.forEach(function (a) { appIds[a.group_id] = true; });
+        var appsShown = apps.filter(function (a) {
+            if (!pneedle) return true;
+            var hay = (a.name + ' ' + a.channels.map(function (c) { return c.name; }).join(' ')).toLowerCase();
+            return hay.indexOf(pneedle) !== -1 || projShown.some(function (p) { return p.group_id === a.group_id; });
+        });
+        var otherWs = projShown.filter(function (p) { return !appIds[p.group_id]; });
         function renderProject(p, i) {
             var t = p.thread;
             var isActive = !!(active && active.is_group && active.project_id === p.project_id);
@@ -2170,6 +2185,43 @@
                     </span>
                   </span>
                 </button>
+              </div>`;
+        }
+
+        function openChannel(a, c) {
+            setApps(function (cur) { return cur.map(function (x) {
+                if (x.group_id !== a.group_id) return x;
+                var chs = x.channels.map(function (y) { return y.id === c.id ? Object.assign({}, y, { unread: 0 }) : y; });
+                return Object.assign({}, x, { channels: chs, unread: chs.reduce(function (n, y) { return n + (y.unread || 0); }, 0) });
+            }); });
+            setActive({ gchat: true, group_id: a.group_id, channel_id: c.id, title: a.name, avatar: a.avatar, url: a.url });
+        }
+        function renderApp(a, i) {
+            var shut = openApps[a.group_id] === false;
+            var ws = projShown.filter(function (p) { return p.group_id === a.group_id; });
+            return html`
+              <div key=${'a' + a.group_id} class="em-msgr-app" style=${{ '--em-i': Math.min(i, 12) }}>
+                <button type="button" class=${'em-msgr-app-head' + (a.unread ? ' is-unread' : '')}
+                  aria-expanded=${shut ? 'false' : 'true'}
+                  onClick=${function () { setOpenApps(function (cur) { var n = Object.assign({}, cur); n[a.group_id] = shut; return n; }); }}>
+                  ${a.avatar ? html`<img class="em-msgr-ava em-msgr-ava--sq" src=${a.avatar} alt="" />` : html`<span class="em-msgr-ava em-msgr-ava--sq em-msgr-ava--blank">${(a.name || '?').charAt(0)}</span>`}
+                  <span class="em-msgr-conv-name">${a.name}</span>
+                  ${a.unread > 0 && html`<span class="em-msgr-badge">${a.unread}</span>`}
+                  <span class="em-msgr-app-caret" aria-hidden="true">${shut ? '▸' : '▾'}</span>
+                </button>
+                ${!shut && html`
+                  <div class="em-msgr-app-body">
+                    ${a.channels.map(function (c) {
+                      var on = !!(active && active.gchat && active.channel_id === c.id);
+                      return html`<button type="button" key=${'c' + c.id}
+                        class=${'em-msgr-chan' + (c.unread ? ' is-unread' : '') + (on ? ' is-active' : '')}
+                        onClick=${function () { openChannel(a, c); }}>
+                        <span class="em-msgr-chan-hash">#</span><span class="em-msgr-chan-name">${c.name}</span>
+                        ${c.unread > 0 && !on ? html`<span class="em-msgr-badge">${c.unread}</span>` : null}
+                      </button>`;
+                    })}
+                    ${ws.map(renderProject)}
+                  </div>`}
               </div>`;
         }
 
@@ -2250,7 +2302,7 @@
               ${kind !== 'members' && html`
                 <div class="em-msgr-search">
                   <span class="em-msgr-search-ico" aria-hidden="true">⌕</span>
-                  <input type="search" placeholder=${kind === 'projects' ? 'Search your workspaces…' : 'Search agent conversations…'}
+                  <input type="search" placeholder=${kind === 'projects' ? 'Search apps, channels and workspaces…' : 'Search agent conversations…'}
                     value=${kq[kind] || ''} onInput=${function (e) { var v = e.target.value; setKq(function (cur) { var n2 = Object.assign({}, cur); n2[kind] = v; return n2; }); }} />
                 </div>
               `}
@@ -2263,9 +2315,11 @@
               </div>`}
               <div class="em-msgr-list">
                 ${kind === 'projects' ? html`
-                  ${projs.loading && projs.items.length === 0 && html`<div class="em-msgr-empty-sm">Loading workspaces…</div>`}
-                  ${!projs.loading && projShown.length === 0 && html`<div class="em-msgr-empty-sm">${projs.items.length ? 'No workspace matches.' : 'You are not in any workspaces yet. Workspace chats appear here.'}</div>`}
-                  ${projShown.map(renderProject)}
+                  ${projs.loading && projs.items.length === 0 && apps.length === 0 && html`<div class="em-msgr-empty-sm">Loading your apps…</div>`}
+                  ${!projs.loading && appsShown.length === 0 && otherWs.length === 0 && html`<div class="em-msgr-empty-sm">${(projs.items.length || apps.length) ? 'Nothing matches.' : 'You are not in any apps yet. Their chat channels and workspace chats appear here.'}</div>`}
+                  ${appsShown.map(renderApp)}
+                  ${otherWs.length > 0 && html`<div class="em-msgr-app-sep">Other workspaces</div>`}
+                  ${otherWs.map(renderProject)}
                 ` : box === 'notices' ? html`
                   ${notices === null && html`<div class="em-msgr-empty-sm">Loading notices…</div>`}
                   ${notices !== null && notices.length === 0 && html`<div class="em-msgr-empty-sm">No site notices.</div>`}
@@ -2288,7 +2342,11 @@
               </div>
             </aside>
             <section class="em-msgr-main">
-              ${active ? html`
+              ${active && active.gchat ? html`
+                <${ChannelPane} key=${'gc-' + active.channel_id} group=${active.group_id} channel=${active.channel_id}
+                  title=${active.title} avatar=${active.avatar} url=${active.url}
+                  onBack=${function () { setActive(null); loadProjects(); }} />
+              ` : active ? html`
                 <${ChatBox}
                   key=${active.id || (active.is_group ? ('proj-' + active.project_id) : ('new-' + ((active.others && active.others[0] && active.others[0].user_id) || '')))}
                   thread=${active}
@@ -2303,6 +2361,30 @@
                 </div>
               `}
             </section>
+          </div>`;
+    }
+
+
+    // Apps tab (owner 2026-11-14): a group chat channel, shown with Social Profiles' chat screen
+    // (window.GendGroupChat from social-network assets/group-chat/group-chat.js).
+    function ChannelPane(props) {
+        var ref = useRef(null);
+        useEffect(function () {
+            var node = ref.current;
+            if (node && window.GendGroupChat) { window.GendGroupChat.mount(node, { group: props.group, channel: props.channel }); }
+            return function () { if (node && window.GendGroupChat) { window.GendGroupChat.unmount(node); } };
+        }, [props.group, props.channel]);
+        return html`
+          <div class="em-gchat-pane">
+            <div class="em-gchat-head">
+              <button type="button" class="em-gchat-back" aria-label="Back" onClick=${function () { props.onBack && props.onBack(); }}>‹</button>
+              ${props.avatar ? html`<img class="em-msgr-ava em-msgr-ava--sq" src=${props.avatar} alt="" />` : null}
+              <span class="em-gchat-title">${props.title}</span>
+              ${props.url ? html`<a class="em-gchat-open" href=${props.url + 'members-hub/?gm_tab=chat'}>Open</a>` : null}
+            </div>
+            ${window.GendGroupChat
+              ? html`<div ref=${ref} class="gend-gchat gend-gchat--embed"></div>`
+              : html`<div class="em-msgr-empty-sm">Group chat is not available on this site.</div>`}
           </div>`;
     }
 
@@ -4810,7 +4892,7 @@
                               </select>`
                             : html`
                               <select value=${s.aiIntegration} onChange=${function (e) { onStepIntegration(idx, e.target.value); }}>
-                                <option value="gemini">Davinci Architect AI</option>
+                                <option value="gemini">gend.me AI</option>
                               </select>`}
                           </label>
                         </div>
