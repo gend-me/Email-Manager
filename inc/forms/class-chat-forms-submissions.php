@@ -20,7 +20,7 @@ class Chat_Forms_Submissions
     public function get_submission_details()
     {
         // Security 2026-11-02: submissions hold personal data, and hub members all have edit_posts.
-        if (!current_user_can('manage_options')) {
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage')) {
             wp_send_json_error('Unauthorized');
         }
 

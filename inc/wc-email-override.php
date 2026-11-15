@@ -174,6 +174,92 @@ add_filter('wp_new_user_notification_email', function ($email_arr, $user, $blogn
     return $email_arr;
 }, 20, 3);
 
+/**
+ * The subject saved with Configure for a WordPress account email, placeholders filled. Empty when none is saved.
+ *
+ * @param string $email_id     password_reset, new_user_welcome or new_user_registration.
+ * @param array  $replacements Placeholder => value.
+ * @return string
+ */
+function em_wp_account_subject($email_id, $replacements = array())
+{
+    $saved   = get_option('woocommerce_' . $email_id . '_settings', array());
+    $subject = (is_array($saved) && isset($saved['subject'])) ? trim((string) $saved['subject']) : '';
+    if ($subject === '') {
+        return '';
+    }
+    $replacements += array('{site_title}' => get_bloginfo('name'), '{site_url}' => home_url());
+    return wp_strip_all_tags(str_replace(array_keys($replacements), array_values($replacements), $subject));
+}
+
+add_filter('retrieve_password_title', function ($title, $user_login = '', $user_data = null) {
+    $subject = em_wp_account_subject('password_reset', array(
+        '{customer_username}' => (string) $user_login,
+        '{customer_name}'     => is_object($user_data) ? (string) $user_data->display_name : (string) $user_login,
+    ));
+    return $subject !== '' ? $subject : $title;
+}, 20, 3);
+
+/**
+ * {set_password_url}: WordPress writes the link for choosing a password into its own welcome message, which a saved
+ * body replaces. Keep the link before that swap (priority 20, above) and fill the placeholder after it.
+ */
+add_filter('wp_new_user_notification_email', function ($email_arr) {
+    $GLOBALS['em_set_password_url'] = (is_array($email_arr) && preg_match('#https?://[^\s<>"]+action=rp[^\s<>"]*#', (string) ($email_arr['message'] ?? ''), $m)) ? $m[0] : '';
+    return $email_arr;
+}, 19);
+
+add_filter('wp_new_user_notification_email', function ($email_arr, $user = null) {
+    if (!is_array($email_arr) || !is_object($user)) {
+        return $email_arr;
+    }
+    if (isset($email_arr['message'])) {
+        $url = !empty($GLOBALS['em_set_password_url']) ? $GLOBALS['em_set_password_url'] : wp_lostpassword_url();
+        $email_arr['message'] = str_replace('{set_password_url}', esc_url($url), (string) $email_arr['message']);
+    }
+    $subject = em_wp_account_subject('new_user_welcome', array('{customer_name}' => $user->display_name, '{customer_username}' => $user->user_login));
+    if ($subject !== '') {
+        $email_arr['subject'] = str_replace('%', '%%', $subject); // WordPress runs the subject through sprintf()
+    }
+    return $email_arr;
+}, 21, 2);
+
+add_filter('wp_new_user_notification_email_admin', function ($email_arr, $user = null) {
+    if (!is_array($email_arr) || !is_object($user)) {
+        return $email_arr;
+    }
+    $subject = em_wp_account_subject('new_user_registration', array('{customer_name}' => $user->display_name, '{customer_username}' => $user->user_login));
+    if ($subject !== '') {
+        $email_arr['subject'] = str_replace('%', '%%', $subject); // WordPress runs the subject through sprintf()
+    }
+    return $email_arr;
+}, 21, 2);
+
+/**
+ * Apply the saved body to the email-change confirmation: WordPress's request to confirm a new address, sent to that
+ * address. WordPress fills its own ###...### markers after this filter, so the placeholders map onto them. A body
+ * without {confirm_url} would send no link to confirm with, so WordPress's own text goes out instead.
+ */
+add_filter('new_user_email_content', function ($content) {
+    $override = get_option(EM_WC_OVERRIDE_PREFIX . 'email_change_confirmation', '');
+    if (empty($override) || strpos($override, '{confirm_url}') === false) {
+        return $content;
+    }
+    // WordPress sends this one without a content type: the saved body is HTML, so say so for this send only.
+    add_filter('wp_mail_content_type', 'em_wp_account_html_content_type');
+    return str_replace(
+        ['{confirm_url}', '{customer_name}', '{customer_username}', '{customer_email}', '{new_email}', '{site_title}', '{site_url}', '{account_url}'],
+        ['###ADMIN_URL###', '###USERNAME###', '###USERNAME###', '###EMAIL###', '###EMAIL###', '###SITENAME###', '###SITEURL###', esc_url(admin_url('profile.php'))],
+        $override
+    );
+}, 20);
+
+function em_wp_account_html_content_type()
+{
+    remove_filter('wp_mail_content_type', 'em_wp_account_html_content_type');
+    return 'text/html';
+}
+
 // ─── Account token list ───────────────────────────────────────────────────────
 
 /**
@@ -184,6 +270,12 @@ function em_wp_account_tokens($email_id = '')
     $shared = ['{customer_name}', '{customer_username}', '{customer_email}', '{site_title}', '{site_url}', '{account_url}'];
     if ($email_id === 'password_reset') {
         return array_merge($shared, ['{password_reset_link}']);
+    }
+    if ($email_id === 'new_user_welcome') {
+        return array_merge($shared, ['{set_password_url}']);
+    }
+    if ($email_id === 'email_change_confirmation') {
+        return array_merge($shared, ['{new_email}', '{confirm_url}']);
     }
     return $shared;
 }
@@ -591,6 +683,22 @@ function em_wc_email_render_handler(WP_REST_Request $request)
             $html = '';
         }
     }
+
+    // A site with a saved brand previews the design it really sends, with sample details when it has no orders yet.
+    if (function_exists('gend_society_sb_brand') && gend_society_sb_brand()) {
+        try {
+            if (!empty($html)) {
+                $html = $email->style_inline($html);
+            } else {
+                $preview = wc_get_container()->get(\Automattic\WooCommerce\Internal\Admin\EmailPreview\EmailPreview::class);
+                $preview->set_email_type(get_class($email));
+                $html = $preview->render();
+            }
+        } catch (Throwable $ex) { /* the plain preview below still works */ }
+    }
+
+    // A site with its own email template (gend.me) shows the default as the body it will send.
+    $html = (string) apply_filters('em_wc_email_render_html', $html, $email);
 
     if (empty($html)) {
         $heading = method_exists($email, 'get_heading') ? $email->get_heading() : $email->get_title();

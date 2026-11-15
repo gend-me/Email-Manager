@@ -128,8 +128,33 @@ function em_inbox_part_on_message_inserted($msg_id, $thread_id, $raw_row) {
 }
 
 /**
- * INSERT or refresh the participant row for a thread's owner. Pure
- * upsert — caller decides whether the new state should mark unread.
+ * Everyone who can read an inbox and so needs their OWN unread state for its threads: the owner plus anyone the owner
+ * has granted access to (agent mailboxes are shared with the site admin / group admins this way). Read state is kept
+ * per person, so without a row for the grantee a shared inbox's mail never counted as unread for them — no badge,
+ * no "new email" popup, no bold row.
+ */
+function em_inbox_part_readers($owner_user_id) {
+    global $wpdb;
+    $owner_user_id = (int) $owner_user_id;
+    $ids = array($owner_user_id);
+    $grants = $wpdb->prefix . 'gdc_inbox_grants';
+    if ($wpdb->get_var("SHOW TABLES LIKE '" . esc_sql($grants) . "'") === $grants) {
+        $rows = $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT grantee_user_id FROM $grants
+             WHERE owner_user_id = %d AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())",
+            $owner_user_id
+        ));
+        foreach ((array) $rows as $g) {
+            $g = (int) $g;
+            if ($g > 0 && $g !== $owner_user_id) $ids[] = $g;
+        }
+    }
+    return array_values(array_unique($ids));
+}
+
+/**
+ * INSERT or refresh the participant row of a thread's owner AND of everyone granted access to that inbox.
+ * Pure upsert — caller decides whether the new state should mark unread.
  */
 function em_inbox_part_upsert_for_thread($thread_id, $is_read_on_new_arrival) {
     global $wpdb;
@@ -139,7 +164,13 @@ function em_inbox_part_upsert_for_thread($thread_id, $is_read_on_new_arrival) {
         "SELECT owner_user_id FROM $threads WHERE id = %d", $thread_id
     ));
     if ($owner_user_id <= 0) return;
+    foreach (em_inbox_part_readers($owner_user_id) as $uid) {
+        em_inbox_part_upsert_row((int) $thread_id, (int) $uid, $is_read_on_new_arrival);
+    }
+}
 
+function em_inbox_part_upsert_row($thread_id, $owner_user_id, $is_read_on_new_arrival) {
+    global $wpdb;
     $now   = current_time('mysql', 1);
     $part  = $wpdb->prefix . 'gdc_inbox_participants';
     $row   = $wpdb->get_row($wpdb->prepare(
@@ -479,6 +510,7 @@ function em_inbox_part_purge_old_trash() {
         $tid = (int) $tid;
         $raw_ids = $wpdb->get_col($wpdb->prepare("SELECT raw_id FROM {$wpdb->prefix}gdc_inbox_messages WHERE thread_id = %d", $tid));
         $wpdb->query($wpdb->prepare("DELETE FROM $part WHERE thread_id = %d", $tid));
+        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_thread_labels WHERE thread_id = %d", $tid));
         $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}gdc_inbox_messages WHERE thread_id = %d", $tid));
         if ($raw_ids) {
             $ph = implode(',', array_fill(0, count($raw_ids), '%d'));

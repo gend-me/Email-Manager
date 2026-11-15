@@ -644,8 +644,7 @@ jQuery(document).ready(function ($) {
         var cfg = window.emLeoConfig || {};
         if (!cfg.clientId) { alert('OAuth Client ID is not configured yet (Email Manager → AI Integration).'); return; }
         var hub = cfg.hubUrl || 'https://gend.me';
-        var flow = cfg.oauthFlow || null; // gend.me's own OAuth server (Hydra), else the hub's legacy one
-        var redirectUri = flow ? flow.redirect_uri : 'https://gend.me/oauth-bridge/';
+        var redirectUri = 'https://gend.me/oauth-bridge/';
         var b64url = function (bytes) {
             var s = ''; bytes.forEach(function (b) { s += String.fromCharCode(b); });
             return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -666,10 +665,7 @@ jQuery(document).ready(function ($) {
                 code_challenge: challenge,
                 code_challenge_method: 'S256'
             });
-            if (flow) params.set('scope', flow.scope);
-            // where the visitor came from + the gend.me affiliate this site remembers (gm_from / gm_ref); Hydra records them for the hub's referral credit
-            if (flow && flow.extra) { Object.keys(flow.extra).forEach(function (k) { params.set(k, flow.extra[k]); }); }
-            var authorizeUrl = (flow ? flow.authorize_url : hub + '/oauth/authorize') + '?' + params.toString();
+            var authorizeUrl = hub + '/oauth/authorize?' + params.toString();
             var w = 600, h = 700;
             var l = (window.innerWidth / 2) - w / 2;
             var t = (window.innerHeight / 2) - h / 2;
@@ -678,7 +674,7 @@ jQuery(document).ready(function ($) {
             var onMsg = function (ev) {
                 if (ev.origin !== hubOrigin) return;
                 var d = ev.data || {};
-                if ((d.type !== 'gdc-auth' && d.type !== 'gend_oauth') || !d.code) return;
+                if (d.type !== 'gdc-auth' || !d.code) return;
                 window.removeEventListener('message', onMsg);
                 if (win) try { win.close(); } catch(_) {}
                 var attempt = {};

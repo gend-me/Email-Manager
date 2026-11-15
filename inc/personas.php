@@ -127,7 +127,7 @@ class EM_Personas
 
     public function handle_save()
     {
-        if (!current_user_can('manage_options')) wp_die('Forbidden', 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage')) wp_die('Forbidden', 403);
         $persona_id = isset($_POST['persona_id']) ? absint($_POST['persona_id']) : 0;
         check_admin_referer('em_save_persona_' . $persona_id);
 
@@ -213,7 +213,7 @@ class EM_Personas
 
     public function handle_delete()
     {
-        if (!current_user_can('manage_options')) wp_die('Forbidden', 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage')) wp_die('Forbidden', 403);
         $persona_id = isset($_POST['persona_id']) ? absint($_POST['persona_id']) : 0;
         check_admin_referer('em_delete_persona_' . $persona_id);
 
@@ -232,7 +232,7 @@ class EM_Personas
     public function ajax_get_persona()
     {
         check_ajax_referer('em_app_support', 'nonce');
-        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Forbidden'], 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage')) wp_send_json_error(['message' => 'Forbidden'], 403);
         $id = absint($_POST['id'] ?? 0);
         $data = $id ? self::get_persona_data($id) : null;
         if (!$data) wp_send_json_error(['message' => 'Not found'], 404);

@@ -480,7 +480,8 @@
             e.stopPropagation();
             openEditor({
                 section: 'timed',
-                label: 'New Email Sequence',
+                kind: 'onboarding',
+                label: 'New onboarding email',
                 subject: '',
                 html: '',
                 description: ''
@@ -494,7 +495,8 @@
             e.stopPropagation();
             openEditor({
                 section: 'timed',
-                label: 'New Newsletter',
+                kind: 'newsletter',
+                label: 'New newsletter',
                 subject: '',
                 html: '',
                 description: ''
@@ -596,14 +598,14 @@
 
             if (mode === 'code') {
                 // Sync Visual -> Code
-                var html = $('#gdc-email-visual-editor').html();
-                $('#gdc-email-ai-body').val(html).show().addClass('active');
+                syncCode($('#gdc-email-visual-editor').html());
+                $('#gdc-email-ai-body').show().addClass('active');
                 $('#gdc-email-visual-editor').hide();
                 $('#gdc-editor-toolbar').hide();
             } else {
                 // Sync Code -> Visual
                 var code = $('#gdc-email-ai-body').val();
-                $('#gdc-email-visual-editor').html(code).show();
+                $('#gdc-email-visual-editor').html(bodyInner(code)).show();
                 $('#gdc-email-ai-body').hide().removeClass('active');
                 $('#gdc-editor-toolbar').show();
             }
@@ -616,8 +618,7 @@
             var cmd = $(this).data('cmd');
             document.execCommand(cmd, false, null);
             // Sync immediately
-            var html = $('#gdc-email-visual-editor').html();
-            $('#gdc-email-ai-body').val(html);
+            syncCode($('#gdc-email-visual-editor').html());
         });
 
         // Format Block Dropdown
@@ -625,21 +626,19 @@
             var val = $(this).val();
             document.execCommand('formatBlock', false, val);
             // Sync immediately
-            var html = $('#gdc-email-visual-editor').html();
-            $('#gdc-email-ai-body').val(html);
+            syncCode($('#gdc-email-visual-editor').html());
             $(this).val('P'); // reset
         });
 
         // Sync Visual -> Code on Input
         $(document).on('input', '#gdc-email-visual-editor', function () {
-            var html = $(this).html();
-            $('#gdc-email-ai-body').val(html);
+            syncCode($(this).html());
         });
 
         // Sync Code -> Visual on Input
         $(document).on('input', '#gdc-email-ai-body', function () {
             var code = $(this).val();
-            $('#gdc-email-visual-editor').html(code);
+            $('#gdc-email-visual-editor').html(bodyInner(code));
         });
 
         // Add Media Handler for custom editor
@@ -656,7 +655,7 @@
                 var attachment = mediaUploader.state().get('selection').first().toJSON();
                 var imgHtml = '<img src="' + attachment.url + '" alt="' + (attachment.alt || '') + '" style="max-width: 100%; height: auto;"/> ';
                 document.execCommand('insertHTML', false, imgHtml);
-                $('#gdc-email-ai-body').val($('#gdc-email-visual-editor').html());
+                syncCode($('#gdc-email-visual-editor').html());
             });
             mediaUploader.open();
         });
@@ -866,6 +865,22 @@
     /**
      * Open the email editor popup
      */
+    // Store / system emails are full HTML documents (DOCTYPE, head, styles).
+    // The Visual tab only edits the <body>; edits are merged back into the
+    // saved document so the envelope is never lost.
+    function bodyInner(code) {
+        var m = /<body[^>]*>([\s\S]*)<\/body>/i.exec(code || '');
+        return m ? m[1] : (code || '');
+    }
+    function syncCode(html) {
+        var $code = $('#gdc-email-ai-body');
+        var cur = $code.val() || '';
+        if (/<body[^>]*>[\s\S]*<\/body>/i.test(cur)) {
+            html = cur.replace(/(<body[^>]*>)[\s\S]*(<\/body>)/i, function (_, a, b) { return a + html + b; });
+        }
+        $code.val(html);
+    }
+
     function openEditor(emailData) {
         // Ensure initialized (e.g. if called from another plugin page)
         if (!$modal || !$modal.length) {
@@ -986,16 +1001,13 @@
             // WordPress account emails come without send_to_customer: they always go to their own recipient.
             $('.gdc-email-ai-store-recipients').toggle(typeof emailData.send_to_customer === 'boolean');
 
-            // ── Force Code (raw HTML) tab for store/community emails ──────────
-            // The visual editor is a contenteditable div; setting .html() on it
-            // strips <DOCTYPE>, <html>, <head>, <style> — losing the email
-            // envelope. Editing in Code tab preserves the full document.
+            // Open on the Visual tab (body only). Edits are merged back into the
+            // full HTML document by syncCode(), so the envelope is preserved.
             $('.gdc-editor-tab').removeClass('active');
-            $('.gdc-editor-tab[data-mode="code"]').addClass('active');
-            $('#gdc-email-visual-editor').hide();
-            $('#gdc-editor-toolbar').hide();
-            // Body textarea stays shown in code mode
-            $('#gdc-email-ai-body').show().addClass('active');
+            $('.gdc-editor-tab[data-mode="visual"]').addClass('active');
+            $('#gdc-email-visual-editor').html(bodyInner(bodyContent)).show();
+            $('#gdc-editor-toolbar').show();
+            $('#gdc-email-ai-body').hide().removeClass('active');
 
             if (isCommunity) {
                 // Community emails just load the saved body directly
@@ -1022,6 +1034,7 @@
                         if (res && res.html) {
                             // Write full HTML directly to textarea (preserves DOCTYPE/html/head/style)
                             $bodyField.val(res.html);
+                            $('#gdc-email-visual-editor').html(bodyInner(res.html));
                             if (res.source === 'woocommerce') {
                                 showStoreEmailNotice('Showing the live WooCommerce email. Edit the HTML below and click <strong>Save</strong> to use your custom version. Insert <strong>{token}</strong> chips for dynamic data.');
                             } else {
@@ -1040,6 +1053,18 @@
                 }
             }
 
+        } else if (section === 'timed') {
+            // Onboarding emails and newsletters: a name, and for a newsletter who gets it and when.
+            var isNewsletter = emailData.kind !== 'onboarding';
+            $('.gdc-email-ai-campaign-name').show();
+            $('#gdc-email-ai-campaign-name').val(emailData.label || '');
+            $('.gdc-email-ai-recipients').toggle(isNewsletter);
+            $('.gdc-email-ai-send-options').toggle(isNewsletter);
+            $('.gdc-email-ai-send').toggle(isNewsletter);
+            $('.gdc-email-ai-store-recipients').hide();
+            $('.gdc-email-ai-status-field').hide();
+            $('#gdc-email-tokens-wrap').hide();
+            $('.gdc-email-ai-save').text('Save');
         } else {
             $('.gdc-email-ai-campaign-name').hide();
             $('.gdc-email-ai-recipients').hide();
@@ -1055,16 +1080,8 @@
         // Set global context for Leo Widget
         window.LEO_OVERRIDE_CONTEXT = 'email_architect';
 
-        // Trigger the global AIPA widget — but not for Store / Social Network
-        // emails: "Configure" is a settings form, and the chat opening on top
-        // of it hid the editor. Leo still gets the email context if opened by hand.
-        if (!isStore && !isCommunity && window.AIPA_WIDGET && document.querySelector('aipa-widget')) {
-            const aipa = document.querySelector('aipa-widget');
-            if (typeof aipa.open === 'function') {
-                aipa.open();
-                // We'll let Leo flow logic handle the greeting internally based on context
-            }
-        }
+        // The Leo chat widget is not opened with the editor (new or edit); it
+        // covered the form. Leo still gets the email context if opened by hand.
 
         // Open modal
         $modal.addClass('open').attr('aria-hidden', 'false');
@@ -1582,7 +1599,9 @@
         var section = state.currentEmail ? (state.currentEmail.section || 'general') : 'general';
         var label = (section === 'proposals')
             ? ($('#gdc-email-ai-campaign-name').val().trim() || 'Proposal Email')
-            : (state.currentEmail ? (state.currentEmail.label || '') : '');
+            : (section === 'timed')
+                ? ($('#gdc-email-ai-campaign-name').val().trim() || (state.currentEmail && state.currentEmail.label) || 'Untitled email')
+                : (state.currentEmail ? (state.currentEmail.label || '') : '');
 
         var data = {
             section:   section,
@@ -1703,6 +1722,36 @@
                 var msg = 'Failed to save email.';
                 if (xhr.responseJSON && xhr.responseJSON.message) { msg = xhr.responseJSON.message; }
                 alert(msg);
+            });
+            return;
+        }
+
+        // Onboarding emails and newsletters: saved on the server, then the tab is reloaded to show the row
+        if (data.section === 'timed') {
+            var $timedBtn = $('.gdc-email-ai-save');
+            var timedKind = (state.currentEmail && state.currentEmail.kind === 'onboarding') ? 'onboarding' : 'newsletter';
+            $timedBtn.prop('disabled', true).text('Saving…');
+            $.ajax({
+                url: config.timedEmailsEndpoint || ((config.root || '/wp-json/') + 'em/v1/timed-emails'),
+                method: 'POST',
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                },
+                data: JSON.stringify({ _id: data._id, kind: timedKind, label: data.label, subject: data.subject, preheader: data.preheader, html: data.html })
+            })
+            .done(function (response) {
+                if (response && response.success) {
+                    window.location.hash = '#tab=email&subtab=' + (timedKind === 'onboarding' ? 'onboarding' : 'newsletters');
+                    window.location.reload();
+                } else {
+                    $timedBtn.prop('disabled', false).text('Save');
+                    alert('Could not save the email. Please try again.');
+                }
+            })
+            .fail(function () {
+                $timedBtn.prop('disabled', false).text('Save');
+                alert('Could not save the email. Please try again.');
             });
             return;
         }
@@ -1900,6 +1949,11 @@
             preheader: preheader,
             mode: state.sendMode
         };
+        // A newsletter goes out one by one, each with the recipient's name and unsubscribe link
+        var sendingNewsletter = !!(state.currentEmail && state.currentEmail.section === 'timed' && state.currentEmail.kind !== 'onboarding');
+        if (sendingNewsletter) {
+            data.kind = 'newsletter';
+        }
 
         if (state.sendMode === 'schedule') {
             var scheduleDate = $('#gdc-email-ai-schedule-date').val();
@@ -1926,6 +1980,27 @@
         })
             .done(function () {
                 var msg = state.sendMode === 'schedule' ? 'Email scheduled successfully!' : 'Email sent successfully!';
+
+                // A newsletter keeps what was sent, and when
+                if (sendingNewsletter) {
+                    $.ajax({
+                        url: config.timedEmailsEndpoint || ((config.root || '/wp-json/') + 'em/v1/timed-emails'),
+                        method: 'POST',
+                        contentType: 'application/json',
+                        beforeSend: function (xhr) {
+                            xhr.setRequestHeader('X-WP-Nonce', config.nonce || '');
+                        },
+                        data: JSON.stringify({
+                            _id: state.currentEmail._id || null,
+                            kind: 'newsletter',
+                            label: $('#gdc-email-ai-campaign-name').val().trim() || state.currentEmail.label || 'Newsletter',
+                            subject: subject,
+                            preheader: preheader,
+                            html: body,
+                            status: state.sendMode === 'schedule' ? 'scheduled' : 'sent'
+                        })
+                    });
+                }
 
                 // For proposal emails, record the sent/scheduled status in the proposals list
                 if (section === 'proposals' && config.proposalEmailsEndpoint) {

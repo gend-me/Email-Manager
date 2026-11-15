@@ -163,7 +163,7 @@ function em_inbox_card_contracts($email) {
         return null;
     }
     try {
-        $log_table = $wpdb->prefix . 'mycred_log';
+        $log_table = ( function_exists( 'mycred' ) && ! empty( mycred()->log_table ) ? mycred()->log_table : $wpdb->base_prefix . 'myCRED_log' );
         if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $log_table)) !== $log_table) {
             return null;
         }

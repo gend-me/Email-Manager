@@ -1,0 +1,29 @@
+/* Group Careers tab (email-manager postings-groups.php, owner 2026-11-14). */
+html body .emcg { color: var(--bps-text, #e6edf3); font-family: var(--gs-font-body, Inter, system-ui, sans-serif); text-align: left; }
+html body .emcg *, html body .emcg *::before, html body .emcg *::after { box-sizing: border-box; }
+html body .emcg__head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px; margin: 0 0 16px; }
+html body .emcg__head h3 { margin: 0 0 4px !important; padding: 0 !important; border: 0 !important; background: none !important; color: #fff !important; font: 800 1.15rem/1.25 inherit !important; font-family: inherit !important; text-transform: none !important; }
+html body .emcg__head p { margin: 0; max-width: 640px; color: var(--bps-muted, #94a3b8); font-size: .88rem; line-height: 1.55; }
+html body .emcg__tools { display: flex; flex-wrap: wrap; gap: 8px; }
+html body .emcg__btn { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--bps-line, rgba(255,255,255,.12)); color: var(--bps-text, #e6edf3) !important; font-size: .84rem; font-weight: 700; text-decoration: none !important; white-space: nowrap; }
+html body .emcg__btn:hover { background: rgba(255,255,255,.06); }
+html body .emcg__btn.is-main { border: 0; color: #fff !important; background: linear-gradient(135deg, var(--bps-accent, #b608c9), var(--bps-accent-2, #3b82f6)); }
+html body .emcg__empty { margin: 0 0 8px; padding: 32px 20px; border-radius: 18px; text-align: center; color: var(--bps-muted, #94a3b8); border: 1px dashed rgba(255,255,255,.12); background: rgba(255,255,255,.02); }
+html body .emcg__roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 0 0 8px; }
+html body .emcg__role { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 18px; border-radius: 18px; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--a, #6366f1) 35%, transparent); background: radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--a, #6366f1) 16%, transparent), transparent 60%), rgba(12,18,34,.88); }
+html body .emcg__rtop { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+html body .emcg__st { padding: 2px 9px; border-radius: 999px; font-size: .66rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #bbf7d0; background: rgba(34,197,94,.14); border: 1px solid rgba(34,197,94,.35); }
+html body .emcg__st.is-closed { color: #fde68a; background: rgba(255,209,102,.12); border-color: rgba(255,209,102,.35); }
+html body .emcg__st.is-draft { color: #cbd5e1; background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.14); }
+html body .emcg__n { color: var(--bps-muted, #94a3b8); font-size: .76rem; font-weight: 600; }
+html body .emcg__role h4 { margin: 0 !important; padding: 0 !important; border: 0 !important; background: none !important; color: #fff !important; font: 800 1.05rem/1.3 inherit !important; font-family: inherit !important; text-transform: none !important; }
+html body .emcg__role p { margin: 0; color: var(--bps-muted, #94a3b8); font-size: .84rem; line-height: 1.5; }
+html body .emcg__go { margin-top: auto; color: #fff !important; font-size: .82rem; font-weight: 700; text-decoration: none !important; }
+html body .emcg__go:hover { text-decoration: underline !important; }
+html body .emcg .em-ats--group { margin-top: 26px; padding: 20px; border-radius: 20px; border: 1px solid rgba(255,255,255,.08); background: rgba(11,14,22,.85); }
+@media (max-width: 640px) { html body .emcg .em-ats--group { padding: 14px; } html body .emcg__tools { width: 100%; } html body .emcg__btn { flex: 1 1 auto; justify-content: center; } }
+/* On group pages the site header and widgets sit at the top of the stacking order: lift the applicant drawer, popups and toasts above them. */
+html body .em-ats-drawer, html body .em-ats-modal, html body .em-ats-toast { z-index: 2147483600 !important; }
+html body .emcg .em-ats-head h3 { margin: 0 0 4px !important; padding: 0 !important; border: 0 !important; background: none !important; color: #fff !important; font: 800 1.05rem/1.3 inherit !important; font-family: inherit !important; text-transform: none !important; }
+html body .emcg .em-ats-head .description { margin: 0 !important; color: var(--bps-muted, #94a3b8) !important; font-size: .86rem !important; line-height: 1.55 !important; }

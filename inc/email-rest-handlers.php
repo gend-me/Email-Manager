@@ -17,12 +17,12 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => 'em_get_lists_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => 'em_create_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -30,17 +30,17 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => 'em_get_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::EDITABLE,
             'callback' => 'em_update_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => 'em_delete_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -48,13 +48,13 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => 'em_get_list_subscribers_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::CREATABLE, // Add existing subscriber to list
             'callback' => 'em_add_subscriber_to_list_handler', // NOT IMPLEMENTED in original file, but logic exists in JS to call POST to this endpoint? Checking JS...
             // JS calls: POST .../email-lists/ID/subscribers with subscriber_id
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -63,7 +63,7 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => 'em_add_subscriber_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -71,7 +71,7 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => 'em_remove_subscriber_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -80,7 +80,7 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => 'em_import_csv_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -129,7 +129,7 @@ function em_register_email_manager_routes()
         array(
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => 'em_wc_email_toggle_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_wc_toggle_permission_check',
         ),
     ));
 
@@ -232,6 +232,31 @@ function em_delete_proposal_email_handler(WP_REST_Request $request)
     return array('success' => true);
 }
 
+// Onboarding emails and newsletters: storage, unsubscribe, the welcome series.
+require_once __DIR__ . '/timed-emails.php';
+
+// ─── Outgoing HTML ────────────────────────────────────────────────────────────
+
+/**
+ * The HTML a Talk Flows send goes out with. A site with its own email template (gend.me) wraps the body in it through
+ * the em_outgoing_email_html filter, preview line included; otherwise the preview line is tucked in front of the body.
+ *
+ * @param string $body      Email body.
+ * @param string $subject   Subject.
+ * @param string $preheader Inbox preview line.
+ * @param string $to        Recipient, when the send is to one address.
+ * @param array  $context   More for the template: unsubscribe (link), label (the kind of email).
+ * @return string
+ */
+function em_outgoing_email_html($body, $subject = '', $preheader = '', $to = '', $context = array())
+{
+    $html = (string) apply_filters('em_outgoing_email_html', $body, array_merge((array) $context, array('subject' => $subject, 'preheader' => $preheader, 'to' => $to)));
+    if ($html === $body && !empty($preheader) && !empty($body)) {
+        $html = '<div style="display:none;max-height:0;overflow:hidden;">' . esc_html($preheader) . '</div>' . $body;
+    }
+    return $html;
+}
+
 // ─── Send Test Email ──────────────────────────────────────────────────────────
 
 function em_send_test_email_handler(WP_REST_Request $request)
@@ -249,9 +274,7 @@ function em_send_test_email_handler(WP_REST_Request $request)
         return new WP_Error('missing_content', 'Subject and body are required', array('status' => 400));
     }
 
-    if (!empty($preheader) && !empty($body)) {
-        $body = '<div style="display:none;max-height:0;overflow:hidden;">' . esc_html($preheader) . '</div>' . $body;
-    }
+    $body = em_outgoing_email_html($body, $subject, $preheader, $to);
 
     $headers = array('Content-Type: text/html; charset=UTF-8');
     $result  = wp_mail($to, $subject ?: '(Test Email)', $body, $headers);
@@ -296,20 +319,27 @@ function em_send_email_handler(WP_REST_Request $request)
                 'subject'    => $subject,
                 'body'       => $body,
                 'preheader'  => $preheader,
+                'kind'       => (isset($params['kind']) && $params['kind'] === 'newsletter') ? 'newsletter' : '',
             )
         ));
         return array('success' => true, 'message' => 'Email scheduled successfully.');
     }
 
-    if (!empty($preheader) && !empty($body)) {
-        $body = '<div style="display:none;max-height:0;overflow:hidden;">' . esc_html($preheader) . '</div>' . $body;
-    }
-
     $headers = array('Content-Type: text/html; charset=UTF-8');
     $sent    = 0;
     $errors  = array();
+    $newsletter = isset($params['kind']) && $params['kind'] === 'newsletter' && function_exists('em_timed_email_send');
     foreach ($valid_recipients as $email) {
-        if (wp_mail($email, $subject, $body, $headers)) {
+        if ($newsletter) {
+            // Sent one by one with the recipient's name and unsubscribe link; an unsubscribed address is skipped.
+            if (em_timed_email_send(array('kind' => 'newsletter', 'subject' => $subject, 'preheader' => $preheader, 'html' => $body), $email)) {
+                $sent++;
+            } else {
+                $errors[] = $email;
+            }
+            continue;
+        }
+        if (wp_mail($email, $subject, em_outgoing_email_html($body, $subject, $preheader, $email), $headers)) {
             $sent++;
         } else {
             $errors[] = $email;
@@ -324,12 +354,13 @@ function em_send_email_handler(WP_REST_Request $request)
 
 add_action('em_send_scheduled_email', function ($data) {
     $headers = array('Content-Type: text/html; charset=UTF-8');
-    $body    = $data['body'];
-    if (!empty($data['preheader'])) {
-        $body = '<div style="display:none;max-height:0;overflow:hidden;">' . esc_html($data['preheader']) . '</div>' . $body;
-    }
+    $newsletter = isset($data['kind']) && $data['kind'] === 'newsletter' && function_exists('em_timed_email_send');
     foreach ($data['recipients'] as $email) {
-        wp_mail($email, $data['subject'], $body, $headers);
+        if ($newsletter) {
+            em_timed_email_send(array('kind' => 'newsletter', 'subject' => $data['subject'], 'preheader' => isset($data['preheader']) ? $data['preheader'] : '', 'html' => $data['body']), $email);
+            continue;
+        }
+        wp_mail($email, $data['subject'], em_outgoing_email_html($data['body'], $data['subject'], isset($data['preheader']) ? $data['preheader'] : '', $email), $headers);
     }
 });
 
@@ -364,6 +395,29 @@ function em_wc_email_toggle_handler(WP_REST_Request $request)
 function em_rest_permission_check()
 {
     return current_user_can('manage_options');
+}
+
+/** 2026-11-15: email lists + subscribers: site admins or Talk Flows Manage (dashboard levels). */
+function em_rest_lists_permission_check()
+{
+    return current_user_can('manage_options') || current_user_can('gs_dash_talk_flows_manage');
+}
+
+/**
+ * 2026-11-15: turning a system email on/off: site admins, or Sales Team Manage for the Sales Team's own emails
+ * (ST_Notifications::catalog). Editing copy and recipients (wc-email-save) stays admin-only: the body sanitizer is
+ * permissive and extra recipients could copy password-reset mail.
+ */
+function em_rest_wc_toggle_permission_check(WP_REST_Request $request)
+{
+    if (current_user_can('manage_options')) return true;
+    if (!current_user_can('gs_dash_sales_team_manage') || !class_exists('ST_Notifications') || !method_exists('ST_Notifications', 'catalog')) return false;
+    $body = json_decode($request->get_body(), true);
+    $id = is_array($body) && isset($body['email_id']) ? sanitize_key($body['email_id']) : '';
+    foreach ((array) ST_Notifications::catalog() as $def) {
+        if ($id !== '' && isset($def['id']) && $def['id'] === $id) return true;
+    }
+    return false;
 }
 
 // ─── WC Email Save ────────────────────────────────────────────────────────────

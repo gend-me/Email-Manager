@@ -101,6 +101,11 @@ add_action('rest_api_init', function () {
         'callback'            => 'em_chat_rest_unread_count',
         'permission_callback' => 'em_chat_perm_logged_in',
     ));
+    register_rest_route('em/v1', '/chat/email-unread', array(
+        'methods'             => WP_REST_Server::READABLE,
+        'callback'            => 'em_chat_rest_email_unread',
+        'permission_callback' => 'em_chat_perm_logged_in',
+    ));
 });
 
 function em_chat_perm_logged_in() {
@@ -176,7 +181,17 @@ function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
         foreach ($thread->recipients as $rcp) {
             if ((int) $rcp->user_id === (int) $for_user_id) continue;
             $u = get_user_by('id', $rcp->user_id);
-            if (! $u) continue;
+            if (! $u) {
+                // The account was deleted: keep the conversation readable (2026-11-12).
+                $others[] = array(
+                    'user_id'      => (int) $rcp->user_id,
+                    'display_name' => __('Deleted member', 'email-manager'),
+                    'avatar_url'   => get_avatar_url(0, array('size' => 96, 'default' => 'mystery', 'force_default' => true)),
+                    'profile_url'  => '',
+                    'deleted'      => true,
+                );
+                continue;
+            }
             $others[] = array(
                 'user_id'      => (int) $u->ID,
                 'display_name' => $u->display_name ?: $u->user_login,
@@ -189,6 +204,8 @@ function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
 
     // Project linkage (Phase 44) → drives the Projects tab.
     $project_id = em_chat_thread_project_id($thread_id);
+    // Workspace group chat (2026-11-12, projects plugin psoo_pm_ws_*): one thread for all the workspace's members.
+    $group = em_chat_thread_group_info($thread_id);
 
     $last = end($thread->messages);
     // Per-thread unread count lives on the recipient row — read it
@@ -224,9 +241,24 @@ function em_chat_thread_summary($thread_id, $for_user_id, $thread = null) {
         'message_count' => count($thread->messages),
         'unread'      => $thread_unread,
         'others'      => $others,
-        'is_agent'    => (bool) $is_agent,
+        'is_agent'    => (bool) $is_agent && ! $group,
         'project_id'  => $project_id ?: null,
+        'is_group'       => (bool) $group,
+        'muted'          => in_array((int) $thread_id, em_chat_muted_threads((int) $for_user_id), true),
+        'project_title'  => $group ? $group['title'] : '',
+        'project_avatar' => $group ? $group['avatar'] : '',
     );
+}
+
+/** Workspace group-chat details for a thread, or null (2026-11-12). */
+function em_chat_thread_group_info($thread_id) {
+    if (! function_exists('psoo_pm_ws_thread_project') || ! class_exists('PSOO_PM_Projects')) return null;
+    $pid = (int) psoo_pm_ws_thread_project((int) $thread_id);
+    if ($pid <= 0) return null;
+    $p      = PSOO_PM_Projects::get($pid);
+    $gid    = (int) PSOO_PM_Projects::get_group_id($pid);
+    $avatar = ($gid && function_exists('bp_core_fetch_avatar')) ? (string) bp_core_fetch_avatar(array('item_id' => $gid, 'object' => 'group', 'type' => 'thumb', 'html' => false)) : '';
+    return array('project_id' => $pid, 'title' => ($p && ! empty($p->title)) ? (string) $p->title : __('Workspace chat', 'email-manager'), 'avatar' => $avatar);
 }
 
 function em_chat_message_to_array($message, $for_user_id) {
@@ -340,6 +372,9 @@ function em_chat_rest_send_reply(WP_REST_Request $r) {
     if (function_exists('messages_check_thread_access') && ! messages_check_thread_access($id, $uid)) {
         return new WP_Error('em_chat_forbidden', 'No access to this thread', array('status' => 403));
     }
+    if (function_exists('em_chat_thread_other') && ($em_other = em_chat_thread_other($id, $uid)) && ($em_guard = em_chat_send_guard($uid, $em_other))) {
+        return $em_guard; // one-to-one chats: connected members (or consultants / admins / agents) only (2026-11-12)
+    }
     if (! function_exists('messages_new_message')) {
         return new WP_Error('em_chat_no_bp', 'BuddyPress messaging not active', array('status' => 500));
     }
@@ -369,6 +404,9 @@ function em_chat_rest_new_thread(WP_REST_Request $r) {
     }
     if ($content === '') {
         return new WP_Error('em_chat_empty', 'message body required', array('status' => 400));
+    }
+    if (function_exists('em_chat_send_guard') && ($em_guard = em_chat_send_guard($uid, $to))) {
+        return $em_guard; // connected members (or consultants / admins / agents) only (2026-11-12)
     }
     if (! function_exists('messages_new_message')) {
         return new WP_Error('em_chat_no_bp', 'BuddyPress messaging not active', array('status' => 500));
@@ -596,11 +634,15 @@ function em_chat_rest_unread_count(WP_REST_Request $r) {
             if (! $summary || empty($summary['unread'])) continue;
             $other = isset($summary['others'][0]) ? $summary['others'][0] : null;
             if (! $other) continue;
+            $is_group = ! empty($summary['is_group']);
             $items[] = array(
                 'thread_id'    => (int) $summary['id'],
                 'user_id'      => (int) $other['user_id'],
-                'display_name' => (string) $other['display_name'],
-                'avatar_url'   => (string) $other['avatar_url'],
+                'display_name' => $is_group ? (string) $summary['project_title'] : (string) $other['display_name'],
+                'avatar_url'   => $is_group ? (string) $summary['project_avatar'] : (string) $other['avatar_url'],
+                'is_group'     => $is_group,
+                'muted'        => ! empty($summary['muted']),
+                'last_sender'  => (int) $summary['last_sender'],
                 'unread'       => (int) $summary['unread'],
                 'last_at'      => $summary['last_at'],
                 'excerpt'      => (string) $summary['last_message_excerpt'],
@@ -610,10 +652,78 @@ function em_chat_rest_unread_count(WP_REST_Request $r) {
         }
     }
 
+    // Per-tab unread conversations for the widget's Members / Projects / Agents tabs (2026-11-12).
+    $by_tab = array('members' => 0, 'projects' => 0, 'agents' => 0);
+    if ($count > 0 && class_exists('BP_Messages_Thread') && method_exists('BP_Messages_Thread', 'get_current_threads_for_user')) {
+        $all = BP_Messages_Thread::get_current_threads_for_user(array('user_id' => $uid, 'box' => 'inbox', 'type' => 'unread', 'limit' => 100, 'page' => 1));
+        foreach ((array) (isset($all['threads']) ? $all['threads'] : array()) as $t) {
+            $tid = (int) $t->thread_id;
+            if (em_chat_thread_group_info($tid)) { $by_tab['projects']++; continue; }
+            $agent = false;
+            foreach ((array) (isset($t->recipients) ? $t->recipients : array()) as $rcp) {
+                if ((int) $rcp->user_id !== $uid && em_chat_user_is_agent((int) $rcp->user_id)) { $agent = true; break; }
+            }
+            $by_tab[$agent ? 'agents' : 'members']++;
+        }
+    }
+
     return rest_ensure_response(array(
         'unread' => $count,
         'items'  => $items,
+        'unread_by_tab' => $by_tab,
     ));
+}
+
+/**
+ * Unread EMAIL for the widget launcher: the viewer's own unread, un-archived, un-trashed, un-snoozed inbox threads
+ * (their participant rows, so it is exactly the number the inbox itself shows) plus the newest few with a
+ * sender / subject / snippet preview for the "new email" popup. Chat (BuddyPress) unread stays on /chat/unread-count.
+ */
+function em_chat_rest_email_unread(WP_REST_Request $r) {
+    global $wpdb;
+    $uid = get_current_user_id();
+    $out = array('unread' => 0, 'items' => array());
+    if (! $uid || ! function_exists('em_inbox_user_has_inbox_access') || ! em_inbox_user_has_inbox_access($uid)) {
+        return rest_ensure_response($out);
+    }
+    $threads = $wpdb->prefix . 'gdc_inbox_threads';
+    $part    = $wpdb->prefix . 'gdc_inbox_participants';
+    $msgs    = $wpdb->prefix . 'gdc_inbox_messages';
+    $from_where = "FROM $threads t
+         JOIN $part p ON p.thread_id = t.id AND p.user_id = %d
+         LEFT JOIN $msgs m ON m.id = t.last_message_id
+         WHERE COALESCE(p.is_read, 1) = 0 AND COALESCE(p.is_archived, 0) = 0 AND COALESCE(p.is_trashed, 0) = 0
+           AND (p.snoozed_until IS NULL OR p.snoozed_until <= UTC_TIMESTAMP())";
+    $out['unread'] = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) $from_where", $uid));
+    if ($out['unread'] < 1) return rest_ensure_response($out);
+
+    $rows = $wpdb->get_results($wpdb->prepare(
+        "SELECT t.id, t.inbox_address, t.subject_first, t.updated_at,
+                m.sender AS last_sender, m.subject AS last_subject, m.received_at, m.body_plain
+         $from_where ORDER BY t.updated_at DESC LIMIT 5",
+        $uid
+    ), ARRAY_A);
+    foreach ((array) $rows as $row) {
+        $sender = trim((string) $row['last_sender']);
+        $name = $sender; $addr = $sender;
+        if (preg_match('/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/', $sender, $mm)) {
+            $addr = trim($mm[2]);
+            $name = trim($mm[1]) !== '' ? trim($mm[1]) : $addr;
+        }
+        if ($name === '') $name = 'Unknown sender';
+        $body = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags((string) $row['body_plain'])));
+        $out['items'][] = array(
+            'thread_id'  => (int) $row['id'],
+            'inbox'      => (string) $row['inbox_address'],
+            'from_name'  => $name,
+            'from_email' => $addr,
+            'avatar_url' => $addr !== '' && is_email($addr) ? get_avatar_url($addr, array('size' => 80)) : '',
+            'subject'    => (string) ($row['last_subject'] !== null && $row['last_subject'] !== '' ? $row['last_subject'] : $row['subject_first']),
+            'excerpt'    => wp_html_excerpt($body, 140, '…'),
+            'at'         => (string) ($row['received_at'] ?: $row['updated_at']),
+        );
+    }
+    return rest_ensure_response($out);
 }
 
 /* -------------------------------------------------------------------------
@@ -638,6 +748,8 @@ add_action('wp_enqueue_scripts', 'em_chat_widget_enqueue', 20);
 function em_chat_widget_enqueue() {
     if (! is_user_logged_in()) return;
     if (! function_exists('bp_is_active') || ! bp_is_active('messages')) return;
+    // Never inside the widget's own embedded pages (calendar / connections / invite frames): no widget in a widget.
+    if (! empty($_GET['gdc_tab_only']) || ! empty($_GET['gs_embed']) || ! empty($_GET['gend_embed'])) return;
 
     wp_enqueue_style(
         'em-chat-widget',
@@ -685,7 +797,16 @@ function em_chat_widget_enqueue() {
         ));
     }
 
+    // The member's personal calendar (GenD Society's member-calendar tab, chrome-stripped embed) for the widget's Calendar tab.
+    $cal_url = '';
+    if (function_exists('gend_society_calendar_profile_screen') && function_exists('bp_loggedin_user_domain')) {
+        $cal_url = add_query_arg(
+            array('gdc_tab_only' => '1', 'gs_embed' => 'calendar'),
+            trailingslashit(bp_loggedin_user_domain()) . 'member-calendar/'
+        );
+    }
     wp_localize_script('em-chat-widget', 'EM_CHAT_CONFIG', array(
+        'calendarUrl'      => esc_url_raw($cal_url),
         'restRoot'         => esc_url_raw(rest_url('em/v1/chat/')),
         'nonce'            => wp_create_nonce('wp_rest'),
         'currentUserId'    => (int) $u->ID,
@@ -701,6 +822,7 @@ add_action('wp_footer', 'em_chat_widget_mount', 50);
 function em_chat_widget_mount() {
     if (! is_user_logged_in()) return;
     if (! function_exists('bp_is_active') || ! bp_is_active('messages')) return;
+    if (! empty($_GET['gdc_tab_only']) || ! empty($_GET['gs_embed']) || ! empty($_GET['gend_embed'])) return;
     echo '<div id="em-chat-widget-root" data-loading="1"></div>';
 }
 
@@ -725,3 +847,322 @@ function em_chat_widget_admin_mount() {
     if (! em_chat_widget_admin_ok()) return;
     em_chat_widget_mount();
 }
+
+/**
+ * Messages → Members → "＋ Invite": the member's Commissions → Referrals → Tracking URLs content ("Grow your
+ * network": invite link, Invite by email, Share on social) as its own small page, shown in an iframe by the chat
+ * widget. A real document (not a grafted fragment) so the email composer's TinyMCE assets always load.
+ * admin-ajax counts as is_admin(), so wp_editor() registers its init on the ADMIN footer action.
+ */
+add_action('wp_ajax_em_invite_frame', 'em_invite_frame_ajax');
+function em_invite_frame_ajax() {
+    $tracking = shortcode_exists('affiliate_link');
+    if (! is_user_logged_in() || (! $tracking && ! function_exists('gend_society_invite_render_panel'))) {
+        status_header(403);
+        exit;
+    }
+    $content = '';
+    if ($tracking) {
+        if (defined('AAS_PLUGIN_URL')) {
+            $css = defined('AAS_PLUGIN_DIR') ? AAS_PLUGIN_DIR . 'assets/dashboard-gend.css' : '';
+            wp_enqueue_style('aas-dashboard-gend', AAS_PLUGIN_URL . 'assets/dashboard-gend.css', array(), ($css && file_exists($css)) ? (string) filemtime($css) : '1');
+        }
+        // Rendered BEFORE the head prints so the styles/scripts it enqueues land in the right place.
+        $content = '<div class="aas-affiliate-dashboard gs-invite-tracking">' . do_shortcode('[affiliate_link]') . '</div>';
+        // The tracking block never uses these (only the Social-post composer, which is its own iframe).
+        wp_dequeue_script('fullcalendar');
+        wp_dequeue_script('chartjs');
+    }
+    wp_enqueue_style('dashicons');
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+    echo '<style>html,body{margin:0;padding:0;background:transparent;color:#e8edf5;font-family:Inter,"Segoe UI",system-ui,sans-serif}body{padding:4px 4px 24px}</style>';
+    wp_print_styles();
+    wp_print_head_scripts();
+    echo '</head><body class="em-invite-frame">';
+    if ($tracking) {
+        echo $content; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- the shortcode escapes its own output
+    } else {
+        gend_society_invite_render_panel(array(), array('embedded' => false));
+    }
+    if (is_admin()) {
+        do_action('admin_print_footer_scripts');
+    } else {
+        wp_print_footer_scripts();
+    }
+    echo '</body></html>';
+    exit;
+}
+
+/* Workspace chats for the widget's Projects tab (2026-11-12). Needs the projects plugin (hub); elsewhere it is empty. */
+add_action('rest_api_init', function () {
+    register_rest_route('em/v1', '/chat/projects', array(
+        'methods'             => WP_REST_Server::READABLE,
+        'callback'            => 'em_chat_rest_projects',
+        'permission_callback' => 'em_chat_perm_logged_in',
+    ));
+    register_rest_route('em/v1', '/chat/projects/(?P<id>\d+)/send', array(
+        'methods'             => WP_REST_Server::CREATABLE,
+        'callback'            => 'em_chat_rest_project_send',
+        'permission_callback' => 'em_chat_perm_logged_in',
+    ));
+});
+
+function em_chat_rest_projects(WP_REST_Request $r) {
+    $uid = get_current_user_id();
+    if (! $uid) return new WP_Error('em_chat_no_user', 'Login required', array('status' => 401));
+    if (! function_exists('psoo_pm_ws_user_projects')) return rest_ensure_response(array('items' => array()));
+    $items = array();
+    foreach (psoo_pm_ws_user_projects($uid) as $p) {
+        $sum = null;
+        if (! empty($p['thread_id'])) {
+            if (function_exists('psoo_pm_ws_thread_sync')) psoo_pm_ws_thread_sync((int) $p['project_id'], (int) $p['thread_id']);
+            $sum = em_chat_thread_summary((int) $p['thread_id'], $uid);
+        }
+        $p['thread'] = $sum;
+        $items[] = $p;
+    }
+    usort($items, function ($a, $b) {
+        $ta = $a['thread'] && $a['thread']['last_at'] ? strtotime($a['thread']['last_at']) : 0;
+        $tb = $b['thread'] && $b['thread']['last_at'] ? strtotime($b['thread']['last_at']) : 0;
+        return $tb <=> $ta;
+    });
+    return rest_ensure_response(array('items' => $items));
+}
+
+function em_chat_rest_project_send(WP_REST_Request $r) {
+    $uid = get_current_user_id();
+    if (! $uid) return new WP_Error('em_chat_no_user', 'Login required', array('status' => 401));
+    if (! function_exists('psoo_pm_ws_thread_send')) return new WP_Error('em_chat_no_projects', 'Workspace chat is not available here.', array('status' => 404));
+    $content = trim((string) $r->get_param('content'));
+    if ($content === '') return new WP_Error('em_chat_empty', 'Message body required', array('status' => 400));
+    $res = psoo_pm_ws_thread_send((int) $r['id'], $uid, wp_kses_post($content));
+    if (is_wp_error($res)) {
+        return new WP_Error($res->get_error_code(), $res->get_error_message(), array('status' => 'not_member' === $res->get_error_code() ? 403 : 400));
+    }
+    return rest_ensure_response(array('ok' => true, 'thread' => em_chat_thread_summary((int) $res['thread_id'], $uid)));
+}
+
+/* ---------------------------------------------------------------------------------------------------------------------
+ * Who can message whom + connection / report / block / mute from the chat (owner 2026-11-12).
+ * Rule: a one-to-one chat needs the two members to be connected (BuddyPress friends), unless the recipient is a Project
+ * Consultant or a site admin, the sender is a site admin, or the other side is an AI agent. Blocks (Youzify block
+ * members: yz_blocked_members) stop messages both ways. Reports go to the moderation queue (YZM_Query). Mute is per
+ * thread (user meta _em_chat_muted): a muted chat never pops open by itself.
+ * ------------------------------------------------------------------------------------------------------------------ */
+
+function em_chat_user_is_consultant($user_id) {
+    $user_id = (int) $user_id;
+    if ($user_id <= 0) return false;
+    if (function_exists('psoo_dash_user_types') && function_exists('psoo_dash_norm_type')) {
+        $types = (array) psoo_dash_user_types($user_id);
+        if (isset($types[psoo_dash_norm_type('Project Consultants')])) return true;
+    }
+    if (function_exists('bp_get_member_type')) {
+        foreach ((array) bp_get_member_type($user_id, false) as $t) {
+            if (strpos((string) $t, 'consultant') !== false) return true;
+        }
+    }
+    return (bool) apply_filters('em_chat_user_is_consultant', false, $user_id);
+}
+
+function em_chat_user_is_site_admin($user_id) {
+    return (int) $user_id > 0 && (is_super_admin((int) $user_id) || user_can((int) $user_id, 'manage_options'));
+}
+
+function em_chat_is_blocked($blocker, $blocked) {
+    global $wpdb;
+    $t = $wpdb->prefix . 'yz_blocked_members';
+    static $has = null;
+    if ($has === null) $has = (bool) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $t));
+    if (! $has) return false;
+    return (bool) $wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} WHERE user_id=%d AND blocked_user=%d AND status=1 LIMIT 1", (int) $blocker, (int) $blocked));
+}
+
+/** Everything the chat needs to know about the viewer and one other member. */
+function em_chat_relationship($me, $other) {
+    $me = (int) $me; $other = (int) $other;
+    $u  = $other > 0 ? get_userdata($other) : null;
+    $r  = array(
+        'user_id' => $other, 'exists' => (bool) $u,
+        'display_name' => $u ? ($u->display_name ?: $u->user_login) : __('Deleted member', 'email-manager'),
+        'avatar_url' => $u ? get_avatar_url($u->ID, array('size' => 96)) : get_avatar_url(0, array('size' => 96, 'default' => 'mystery', 'force_default' => true)),
+        'profile_url' => ($u && function_exists('bp_members_get_user_url')) ? bp_members_get_user_url($u->ID) : '',
+        'friend' => 'not_friends', 'friendship_id' => 0,
+        'blocked' => false, 'blocked_by' => false,
+        'is_agent' => $u ? em_chat_user_is_agent($other) : false,
+        'is_consultant' => $u ? em_chat_user_is_consultant($other) : false,
+        'is_admin' => $u ? em_chat_user_is_site_admin($other) : false,
+        'can_block' => $u && ! em_chat_user_is_site_admin($other) && $other !== $me,
+        'can_message' => false, 'reason' => '',
+    );
+    if (! $u) { $r['reason'] = 'deleted'; return $r; }
+    if (function_exists('bp_is_active') && bp_is_active('friends') && function_exists('friends_check_friendship_status')) {
+        $r['friend'] = (string) friends_check_friendship_status($me, $other);
+        if ($r['friend'] === 'awaiting_response' || $r['friend'] === 'pending') {
+            $r['friendship_id'] = (int) (function_exists('friends_get_friendship_id') ? friends_get_friendship_id($me, $other) : 0);
+        }
+    }
+    $r['blocked']    = em_chat_is_blocked($me, $other);
+    $r['blocked_by'] = em_chat_is_blocked($other, $me);
+    if ($r['blocked']) { $r['reason'] = 'blocked'; return $r; }
+    if ($r['blocked_by']) { $r['reason'] = 'unavailable'; return $r; }
+    $open = $r['is_agent'] || $r['is_consultant'] || $r['is_admin'] || em_chat_user_is_site_admin($me) || $r['friend'] === 'is_friend';
+    $r['can_message'] = (bool) apply_filters('em_chat_can_message', $open, $me, $other);
+    if (! $r['can_message']) $r['reason'] = 'not_connected';
+    return $r;
+}
+
+/** Message-permission error for a one-to-one send, or null when allowed. */
+function em_chat_send_guard($me, $other) {
+    $rel = em_chat_relationship($me, $other);
+    if ($rel['can_message']) return null;
+    $msg = array(
+        'deleted'       => __('This member no longer has an account.', 'email-manager'),
+        'blocked'       => __('You blocked this member. Unblock them to send a message.', 'email-manager'),
+        'unavailable'   => __('You can’t message this member.', 'email-manager'),
+        'not_connected' => sprintf(__('Connect with %s first. Only Project Consultants and site admins can be messaged without a connection.', 'email-manager'), $rel['display_name']),
+    );
+    return new WP_Error('em_chat_' . $rel['reason'], $msg[$rel['reason']] ?? $msg['unavailable'], array('status' => 403, 'relationship' => $rel));
+}
+
+/** The single other participant of a one-to-one thread (0 for group / multi-person threads). */
+function em_chat_thread_other($thread_id, $me) {
+    global $wpdb;
+    if (em_chat_thread_group_info($thread_id) || ! function_exists('buddypress')) return 0;
+    $ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare('SELECT user_id FROM ' . buddypress()->messages->table_name_recipients . ' WHERE thread_id=%d AND user_id<>%d', (int) $thread_id, (int) $me)));
+    return count($ids) === 1 ? $ids[0] : 0;
+}
+
+add_action('rest_api_init', function () {
+    $p = 'em_chat_perm_logged_in';
+    register_rest_route('em/v1', '/chat/relationship', array('methods' => 'GET', 'callback' => 'em_chat_rest_relationship', 'permission_callback' => $p));
+    register_rest_route('em/v1', '/chat/connect', array('methods' => 'POST', 'callback' => 'em_chat_rest_connect', 'permission_callback' => $p));
+    register_rest_route('em/v1', '/chat/block', array('methods' => 'POST', 'callback' => 'em_chat_rest_block', 'permission_callback' => $p));
+    register_rest_route('em/v1', '/chat/report', array('methods' => 'POST', 'callback' => 'em_chat_rest_report', 'permission_callback' => $p));
+    register_rest_route('em/v1', '/chat/threads/(?P<id>\d+)/mute', array('methods' => 'POST', 'callback' => 'em_chat_rest_mute', 'permission_callback' => $p));
+    register_rest_route('em/v1', '/chat/projects/(?P<id>\d+)/members', array('methods' => 'GET', 'callback' => 'em_chat_rest_project_members', 'permission_callback' => $p));
+});
+
+function em_chat_rest_relationship(WP_REST_Request $r) {
+    $me = get_current_user_id();
+    $other = (int) $r->get_param('user_id');
+    if ($other <= 0 || $other === $me) return new WP_Error('em_chat_bad_user', 'Unknown member', array('status' => 400));
+    return rest_ensure_response(em_chat_relationship($me, $other));
+}
+
+function em_chat_rest_connect(WP_REST_Request $r) {
+    $me = get_current_user_id();
+    $other = (int) $r->get_param('user_id');
+    $act = sanitize_key((string) $r->get_param('do'));
+    if ($other <= 0 || $other === $me || ! get_userdata($other)) return new WP_Error('em_chat_bad_user', 'Unknown member', array('status' => 400));
+    if (! function_exists('bp_is_active') || ! bp_is_active('friends')) return new WP_Error('em_chat_no_friends', 'Connections are not available.', array('status' => 400));
+    $rel = em_chat_relationship($me, $other);
+    if ($rel['blocked'] || $rel['blocked_by']) return new WP_Error('em_chat_blocked', 'Not available for this member.', array('status' => 403));
+    if ($act === 'add' && $rel['friend'] === 'not_friends') {
+        friends_add_friend($me, $other);
+    } elseif ($act === 'accept' && $rel['friend'] === 'awaiting_response' && $rel['friendship_id']) {
+        friends_accept_friendship($rel['friendship_id']);
+    } elseif ($act === 'cancel' && $rel['friend'] === 'pending') {
+        friends_withdraw_friendship($me, $other);
+    } elseif ($act === 'remove' && $rel['friend'] === 'is_friend') {
+        friends_remove_friend($me, $other);
+    }
+    return rest_ensure_response(em_chat_relationship($me, $other));
+}
+
+function em_chat_rest_block(WP_REST_Request $r) {
+    global $wpdb;
+    $me = get_current_user_id();
+    $other = (int) $r->get_param('user_id');
+    $block = (string) $r->get_param('block') !== '0';
+    if ($other <= 0 || $other === $me || ! get_userdata($other)) return new WP_Error('em_chat_bad_user', 'Unknown member', array('status' => 400));
+    if (! (bool) $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $wpdb->prefix . 'yz_blocked_members'))) return new WP_Error('em_chat_no_block', 'Blocking is not available.', array('status' => 400));
+    if ($block) {
+        if (em_chat_user_is_site_admin($other)) return new WP_Error('em_chat_cant_block', __('Site admins can’t be blocked.', 'email-manager'), array('status' => 403));
+        if (! em_chat_is_blocked($me, $other)) {
+            $args = array('user_id' => $me, 'blocked_user' => $other, 'description' => sanitize_textarea_field((string) $r->get_param('reason')), 'status' => 1, 'blocking_date' => function_exists('bp_core_current_time') ? bp_core_current_time() : current_time('mysql', true));
+            $wpdb->insert($wpdb->prefix . 'yz_blocked_members', $args);
+            if (function_exists('yzbbm_update_blocked_users_list')) yzbbm_update_blocked_users_list($me, $other, 'block');
+            if (function_exists('yzbbm_notify_admin') && function_exists('yzbbm_option') && 'on' === yzbbm_option('yzbbm_notify_admin_on_block', 'on')) yzbbm_notify_admin('yzbbm-user-blocked', $args);
+        }
+    } else {
+        $wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}yz_blocked_members SET status=0, unblocking_date=%s WHERE user_id=%d AND blocked_user=%d AND status=1", current_time('mysql', true), $me, $other));
+        if (function_exists('yzbbm_update_blocked_users_list')) yzbbm_update_blocked_users_list($me, $other, 'unblock');
+    }
+    return rest_ensure_response(em_chat_relationship($me, $other));
+}
+
+function em_chat_rest_report(WP_REST_Request $r) {
+    $me = get_current_user_id();
+    $other = (int) $r->get_param('user_id');
+    if ($other <= 0 || $other === $me || ! get_userdata($other)) return new WP_Error('em_chat_bad_user', 'Unknown member', array('status' => 400));
+    if (! class_exists('YZM_Query')) return new WP_Error('em_chat_no_reports', 'Reporting is not available.', array('status' => 400));
+    if (get_option('yz_block_reports_' . $me)) return new WP_Error('em_chat_reports_off', __('You can’t send reports right now.', 'email-manager'), array('status' => 403));
+    $cats = array('spam', 'harassment', 'inappropriate', 'scam', 'other');
+    $cat = sanitize_key((string) $r->get_param('category'));
+    $data = array(
+        'status' => 'open', 'component' => 'user', 'reporter' => $me, 'author' => $other, 'item_id' => $other,
+        'category' => in_array($cat, $cats, true) ? $cat : 'other',
+        'description' => mb_substr(sanitize_textarea_field((string) $r->get_param('description')), 0, 2000),
+    );
+    $q = new YZM_Query();
+    if (method_exists($q, 'is_user_already_reported_item') && $q->is_user_already_reported_item($me, $other, 'user')) {
+        return rest_ensure_response(array('ok' => true, 'already' => true));
+    }
+    $already = method_exists($q, 'is_item_already_reported') ? $q->is_item_already_reported($other, 'user') : true;
+    $id = $q->add_report(apply_filters('yz_user_report_form_data', $data));
+    if ($id && ! $already && function_exists('yzm_notify_admin') && function_exists('youzify_moderation_option') && 'on' === youzify_moderation_option('yz_notify_admin_on_new_reports', 'on')) {
+        yzm_notify_admin('yz-admin-new-report', $id);
+    }
+    if ($id) do_action('yzm_after_adding_user_report', $id, $data);
+    return rest_ensure_response(array('ok' => (bool) $id));
+}
+
+function em_chat_muted_threads($uid) {
+    $m = get_user_meta((int) $uid, '_em_chat_muted', true);
+    return is_array($m) ? array_map('intval', $m) : array();
+}
+
+function em_chat_rest_mute(WP_REST_Request $r) {
+    $me = get_current_user_id();
+    $tid = (int) $r['id'];
+    if (! function_exists('messages_check_thread_access') || ! messages_check_thread_access($tid, $me)) return new WP_Error('em_chat_forbidden', 'No access to this thread', array('status' => 403));
+    $m = em_chat_muted_threads($me);
+    if ((string) $r->get_param('muted') === '0') $m = array_values(array_diff($m, array($tid)));
+    elseif (! in_array($tid, $m, true)) $m[] = $tid;
+    update_user_meta($me, '_em_chat_muted', array_slice($m, -500));
+    return rest_ensure_response(array('ok' => true, 'muted' => in_array($tid, $m, true)));
+}
+
+function em_chat_rest_project_members(WP_REST_Request $r) {
+    global $wpdb;
+    $me = get_current_user_id();
+    $pid = (int) $r['id'];
+    if (! class_exists('PSOO_PM_Projects') || ! function_exists('psoo_pm_ws_member_user_ids')) return new WP_Error('em_chat_no_projects', 'Not available here.', array('status' => 404));
+    if (! PSOO_PM_Projects::user_is_project_member($pid, $me) && ! em_chat_user_is_site_admin($me)) return new WP_Error('em_chat_forbidden', 'Not a member of this workspace', array('status' => 403));
+    $in_chat = psoo_pm_ws_member_user_ids($pid);
+    $rows = array();
+    foreach (array_map('intval', (array) $wpdb->get_col($wpdb->prepare("SELECT user_id FROM {$wpdb->prefix}pm_role_user WHERE project_id=%d", $pid))) as $uid) {
+        $u = get_userdata($uid);
+        if (! $u) continue;
+        $rows[] = array('user_id' => $uid, 'display_name' => $u->display_name, 'avatar_url' => get_avatar_url($uid, array('size' => 64)),
+            'in_chat' => in_array($uid, $in_chat, true), 'is_agent' => em_chat_user_is_agent($uid), 'is_me' => $uid === $me);
+    }
+    usort($rows, function ($a, $b) { return ($b['in_chat'] <=> $a['in_chat']) ?: strcasecmp($a['display_name'], $b['display_name']); });
+    $can = class_exists('PSOO_PM_Members') && method_exists('PSOO_PM_Members', 'can_admin_members') && PSOO_PM_Members::can_admin_members($pid, $me);
+    $base = function_exists('bp_members_get_user_url') ? bp_members_get_user_url($me) : home_url('/');
+    return rest_ensure_response(array(
+        'members' => $rows,
+        'can_invite' => $can,
+        'invite_url' => $can ? add_query_arg(array('pm_open' => $pid, 'pm_members' => 1), trailingslashit($base) . 'groups/') : '',
+        'muted' => ($tid = (function_exists('psoo_pm_ws_thread_id') ? psoo_pm_ws_thread_id($pid) : 0)) ? in_array($tid, em_chat_muted_threads($me), true) : false,
+    ));
+}
+
+/* Direct messages live in the chat widget (its own unread badges and pop-ups), so they don't also go into the member's
+ * notifications menu (owner 2026-11-12). Only BuddyPress's "sent you a new private message" notification is removed;
+ * the new-message e-mail and the chat's unread counts are unchanged. */
+add_action('bp_init', function () {
+    remove_action('messages_message_sent', 'bp_messages_message_sent_add_notification', 10);
+}, 99);

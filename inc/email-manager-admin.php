@@ -217,8 +217,13 @@ if (!function_exists('em_system_email_table')) {
 
 function em_render_email_manager_page()
 {
-    // Check permissions
-    if (!current_user_can('manage_options')) {
+    // Check permissions. 2026-11-14: GenD Society dashboard levels (Talk Flows): Use = Inbox, Applications (applicant
+    // review) and Support; Manage = also Email lists/onboarding/newsletters/system emails/app template, Forms and
+    // Chatflows. Logs, Sending Settings and the postings editor stay with site administrators.
+    $em_dash_admin  = current_user_can('manage_options');
+    $em_dash_manage = $em_dash_admin || current_user_can('gs_dash_talk_flows_manage');
+    $em_dash_use    = $em_dash_manage || current_user_can('gs_dash_talk_flows_use');
+    if (!$em_dash_use) {
         return;
     }
 
@@ -238,6 +243,9 @@ function em_render_email_manager_page()
         'applications' => __('Applications', 'email-manager'),
         'support'      => __('Support', 'email-manager'),
     );
+    if (!$em_dash_manage) {
+        unset($tabs['forms'], $tabs['chatflows']);
+    }
 
     // WordPress core system emails (static – these are built into WP core)
     $gdc_wp_core_emails = array(
@@ -274,6 +282,14 @@ function em_render_email_manager_page()
             'subject'     => sprintf('[%s] Email Change Request', get_bloginfo('name')),
         ),
     );
+
+    // A subject saved with Configure is the one that is sent (wc-email-override.php), so it is the one shown.
+    foreach ($gdc_wp_core_emails as $gdc_core_i => $gdc_core_email) {
+        $gdc_core_saved = get_option('woocommerce_' . $gdc_core_email['id'] . '_settings', array());
+        if (is_array($gdc_core_saved) && !empty($gdc_core_saved['subject'])) {
+            $gdc_wp_core_emails[$gdc_core_i]['subject'] = $gdc_core_saved['subject'];
+        }
+    }
 
     // WooCommerce store emails. WC() returns WooCommerce::instance(), which
     // fatals if the WooCommerce class itself never loaded (the "WooCommerce
@@ -466,9 +482,11 @@ function em_render_email_manager_page()
                             <button type="button" class="gdc-subtab active" data-subtab="email-inbox">
                                 <?php esc_html_e('Inbox', 'email-manager'); ?>
                             </button>
+                            <?php if ($em_dash_manage) : // 2026-11-14 dashboard levels ?>
                             <button type="button" class="gdc-subtab" data-subtab="lists">
                                 <?php esc_html_e('Lists', 'email-manager'); ?>
                             </button>
+                            <?php endif; if ($em_dash_admin) : // Onboarding, Newsletters, System Emails, App Template edit email HTML: admins (2026-11-15) ?>
                             <button type="button" class="gdc-subtab" data-subtab="onboarding">
                                 <?php esc_html_e('Onboarding Emails', 'email-manager'); ?>
                             </button>
@@ -481,12 +499,14 @@ function em_render_email_manager_page()
                             <button type="button" class="gdc-subtab" data-subtab="app-template">
                                 <?php esc_html_e('App Template', 'email-manager'); ?>
                             </button>
+                            <?php endif; if ($em_dash_admin) : ?>
                             <button type="button" class="gdc-subtab" data-subtab="logs">
                                 <?php esc_html_e('Logs', 'email-manager'); ?>
                             </button>
                             <button type="button" class="gdc-subtab" data-subtab="sending-settings">
                                 <?php esc_html_e('Sending Settings', 'email-manager'); ?>
                             </button>
+                            <?php endif; ?>
                         </div>
 
                         <!-- Inbox Subtab Content (slice 2zz.4 — moved from top-level Inbox tab) -->
@@ -495,6 +515,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- Lists Subtab Content -->
+                        <?php if ($em_dash_manage) : // Lists, Onboarding, Newsletters, App Template ?>
                         <div class="gdc-subtab-panel" data-subpanel="lists" hidden>
                             <div class="gdc-email-panel">
                                 <div class="gdc-email-panel__header">
@@ -537,28 +558,8 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- Onboarding Emails Subtab Content -->
+                        <?php endif; if ($em_dash_admin) : // Onboarding, Newsletters, App Template: admins (2026-11-15) ?>
                         <div class="gdc-subtab-panel" data-subpanel="onboarding" hidden>
-                            <?php
-                            $gdc_onboarding_rows = array();
-                            $gdc_onboarding_rows[] = array(
-                                'type' => __('Onboarding', 'email-manager'),
-                                'type_slug' => 'timed',
-                                'trigger' => __('Role gain or product purchase', 'email-manager'),
-                                'status' => __('Draft', 'email-manager'),
-                                'enabled' => true,
-                                'sequence' => 1,
-                                'edit_url' => $gdc_nurture_embed_url,
-                                'edit_title' => __('Open nurture workspace', 'email-manager'),
-                                'email_data' => array(
-                                    'section' => 'timed',
-                                    'label' => __('Welcome Series', 'email-manager'),
-                                    'trigger' => __('New User Registration', 'email-manager'),
-                                    'status' => __('Draft', 'email-manager'),
-                                    'description' => __('Welcome new users and introduce them to the platform.', 'email-manager'),
-                                    'subject' => __('Welcome to the community!', 'email-manager'),
-                                ),
-                            );
-                            ?>
                             <div class="gdc-email-panel">
                                 <div class="gdc-email-panel__header">
                                     <h3>
@@ -569,14 +570,14 @@ function em_render_email_manager_page()
                                     </button>
                                 </div>
                                 <div class="gdc-table-wrap">
-                                    <table class="widefat striped">
+                                    <table class="widefat striped gdc-list-table">
                                         <thead>
                                             <tr>
                                                 <th>
-                                                    <?php esc_html_e('Campaign Name', 'email-manager'); ?>
+                                                    <?php esc_html_e('Email', 'email-manager'); ?>
                                                 </th>
                                                 <th>
-                                                    <?php esc_html_e('Trigger', 'email-manager'); ?>
+                                                    <?php esc_html_e('When', 'email-manager'); ?>
                                                 </th>
                                                 <th>
                                                     <?php esc_html_e('Status', 'email-manager'); ?>
@@ -586,29 +587,13 @@ function em_render_email_manager_page()
                                                 </th>
                                             </tr>
                                         </thead>
-                                        <tbody>
-                                            <?php foreach ($gdc_onboarding_rows as $row): ?>
-                                                <tr>
-                                                    <td><strong>
-                                                            <?php echo esc_html($row['email_data']['label']); ?>
-                                                        </strong></td>
-                                                    <td>
-                                                        <?php echo esc_html($row['trigger']); ?>
-                                                    </td>
-                                                    <td>
-                                                        <?php echo esc_html($row['status']); ?>
-                                                    </td>
-                                                    <td>
-                                                        <button type="button" class="button button-small gdc-email-open-editor"
-                                                            data-email-section="<?php echo esc_attr($row['type_slug']); ?>"
-                                                            data-edit-url="<?php echo esc_url($row['edit_url']); ?>"
-                                                            data-edit-title="<?php echo esc_attr($row['edit_title']); ?>"
-                                                            data-email='<?php echo json_encode($row['email_data']); ?>'>
-                                                            <?php esc_html_e('Edit', 'email-manager'); ?>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
+                                        <tbody class="em-timed-rows" data-kind="onboarding">
+                                            <?php
+                                            // The saved welcome series (inc/timed-emails.php). Each step is off until switched on.
+                                            if (function_exists('em_render_timed_email_rows')) {
+                                                em_render_timed_email_rows('onboarding');
+                                            }
+                                            ?>
                                         </tbody>
                                     </table>
                                 </div>
@@ -617,27 +602,6 @@ function em_render_email_manager_page()
 
                         <!-- Newsletters Subtab Content -->
                         <div class="gdc-subtab-panel" data-subpanel="newsletters" hidden>
-                            <?php
-                            $gdc_newsletter_rows = array();
-                            $gdc_newsletter_rows[] = array(
-                                'type' => __('Newsletter', 'email-manager'),
-                                'type_slug' => 'timed',
-                                'trigger' => __('Scheduled Time', 'email-manager'),
-                                'status' => __('Scheduled', 'email-manager'),
-                                'enabled' => true,
-                                'sequence' => 1,
-                                'edit_url' => $gdc_nurture_embed_url,
-                                'edit_title' => __('Open nurture workspace', 'email-manager'),
-                                'email_data' => array(
-                                    'section' => 'timed',
-                                    'label' => __('Weekly Digest', 'email-manager'),
-                                    'trigger' => __('Every Monday', 'email-manager'),
-                                    'status' => __('Scheduled', 'email-manager'),
-                                    'description' => __('Weekly summary of top content.', 'email-manager'),
-                                    'subject' => __('Your Weekly Update', 'email-manager'),
-                                ),
-                            );
-                            ?>
                             <div class="gdc-email-panel">
                                 <div class="gdc-email-panel__header">
                                     <h3>
@@ -648,14 +612,14 @@ function em_render_email_manager_page()
                                     </button>
                                 </div>
                                 <div class="gdc-table-wrap">
-                                    <table class="widefat striped">
+                                    <table class="widefat striped gdc-list-table">
                                         <thead>
                                             <tr>
                                                 <th>
-                                                    <?php esc_html_e('Subject', 'email-manager'); ?>
+                                                    <?php esc_html_e('Newsletter', 'email-manager'); ?>
                                                 </th>
                                                 <th>
-                                                    <?php esc_html_e('Send Date', 'email-manager'); ?>
+                                                    <?php esc_html_e('Last sent', 'email-manager'); ?>
                                                 </th>
                                                 <th>
                                                     <?php esc_html_e('Status', 'email-manager'); ?>
@@ -665,29 +629,13 @@ function em_render_email_manager_page()
                                                 </th>
                                             </tr>
                                         </thead>
-                                        <tbody>
-                                            <?php foreach ($gdc_newsletter_rows as $row): ?>
-                                                <tr>
-                                                    <td><strong>
-                                                            <?php echo esc_html($row['email_data']['label']); ?>
-                                                        </strong></td>
-                                                    <td>
-                                                        <?php echo esc_html($row['trigger']); ?>
-                                                    </td>
-                                                    <td>
-                                                        <?php echo esc_html($row['status']); ?>
-                                                    </td>
-                                                    <td>
-                                                        <button type="button" class="button button-small gdc-email-open-editor"
-                                                            data-email-section="<?php echo esc_attr($row['type_slug']); ?>"
-                                                            data-edit-url="<?php echo esc_url($row['edit_url']); ?>"
-                                                            data-edit-title="<?php echo esc_attr($row['edit_title']); ?>"
-                                                            data-email='<?php echo json_encode($row['email_data']); ?>'>
-                                                            <?php esc_html_e('Edit', 'email-manager'); ?>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            <?php endforeach; ?>
+                                        <tbody class="em-timed-rows" data-kind="newsletter">
+                                            <?php
+                                            // The saved newsletters (inc/timed-emails.php).
+                                            if (function_exists('em_render_timed_email_rows')) {
+                                                em_render_timed_email_rows('newsletter');
+                                            }
+                                            ?>
                                         </tbody>
                                     </table>
                                 </div>
@@ -697,7 +645,13 @@ function em_render_email_manager_page()
                         <!-- App Template Subtab Content -->
                         <div class="gdc-subtab-panel" data-subpanel="app-template" hidden>
                             <?php
-                            if (class_exists('EM_Email_Templates')) {
+                            // A site with its own email template (gend.me) shows and edits it here.
+                            ob_start();
+                            do_action('em_app_template_panel');
+                            $gdc_app_template_panel = ob_get_clean();
+                            if (trim($gdc_app_template_panel) !== '') {
+                                echo $gdc_app_template_panel; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- markup from the template's own panel.
+                            } elseif (class_exists('EM_Email_Templates')) {
                                 $templates = new EM_Email_Templates();
                                 $templates->render();
                             }
@@ -705,6 +659,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- Logs Subtab Content -->
+                        <?php endif; if ($em_dash_admin) : // Logs, Sending Settings: admins only ?>
                         <div class="gdc-subtab-panel" data-subpanel="logs" hidden>
                             <?php
                             if (class_exists('EM_Email_Logs')) {
@@ -723,6 +678,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- System Emails Subtab Content -->
+                        <?php endif; if ($em_dash_admin) : // System Emails: admins (2026-11-15) ?>
                         <div class="gdc-subtab-panel" data-subpanel="system-emails" hidden>
                             <?php // --- WordPress Core Emails --- ?>
                             <?php em_system_email_table(__('Login & Account Emails', 'email-manager'), function() use ($gdc_wp_core_emails) {
@@ -810,9 +766,42 @@ function em_render_email_manager_page()
                                 }); ?>
                             <?php endif; ?>
                         </div>
+                        <?php endif; ?>
                         <!-- Inline Script for Subtabs -->
                         <script>
                             jQuery(document).ready(function ($) {
+                                // Onboarding and newsletter rows: switch a step on or off, set its day, delete.
+                                var emTimedCfg = window.GDC_EMAIL_AI_CONFIG || {};
+                                var emTimedUrl = emTimedCfg.timedEmailsEndpoint || ((emTimedCfg.root || '/wp-json/') + 'em/v1/timed-emails');
+                                function emTimedSave(id, fields) {
+                                    return $.ajax({
+                                        url: emTimedUrl,
+                                        method: 'POST',
+                                        contentType: 'application/json',
+                                        beforeSend: function (xhr) { xhr.setRequestHeader('X-WP-Nonce', emTimedCfg.nonce || ''); },
+                                        data: JSON.stringify($.extend({ id: id }, fields))
+                                    });
+                                }
+                                $(document).on('change', '.em-timed-toggle', function () {
+                                    var $box = $(this), on = $box.is(':checked'), $pill = $box.siblings('.gdc-list-pill');
+                                    emTimedSave($box.closest('tr').data('timed-id'), { status: on ? 'active' : 'draft' })
+                                        .done(function () { $pill.text(on ? 'On' : 'Off').toggleClass('is-active', on).toggleClass('is-draft', !on); })
+                                        .fail(function () { $box.prop('checked', !on); alert('Could not save. Please try again.'); });
+                                });
+                                $(document).on('change', '.em-timed-days', function () {
+                                    emTimedSave($(this).closest('tr').data('timed-id'), { days: parseInt($(this).val(), 10) || 0 })
+                                        .fail(function () { alert('Could not save. Please try again.'); });
+                                });
+                                $(document).on('click', '.em-timed-delete', function () {
+                                    var $row = $(this).closest('tr');
+                                    if (!window.confirm('Delete this email? It stops sending right away.')) { return; }
+                                    $.ajax({
+                                        url: emTimedUrl + '/' + encodeURIComponent($row.data('timed-id')),
+                                        method: 'DELETE',
+                                        beforeSend: function (xhr) { xhr.setRequestHeader('X-WP-Nonce', emTimedCfg.nonce || ''); }
+                                    }).done(function () { $row.remove(); }).fail(function () { alert('Could not delete. Please try again.'); });
+                                });
+
                                 $('.gdc-subtab').on('click', function () {
                                     var subtab = $(this).data('subtab');
                                     var $parent = $(this).closest('.gdc-sub-tabpanel');
@@ -866,6 +855,7 @@ function em_render_email_manager_page()
                          tab's first sub-tab (data-subpanel="email-inbox") above. -->
 
                     <!-- Forms Tab -->
+                    <?php if ($em_dash_manage) : // Forms + Chatflows ?>
                     <section class="gdc-sub-tabpanel" data-panel="forms" hidden>
                         <div class="gdc-subtabs">
                             <button type="button" class="gdc-subtab active" data-subtab="basic-forms">
@@ -888,7 +878,7 @@ function em_render_email_manager_page()
                                     </a>
                                 </div>
                                 <div class="gdc-table-wrap">
-                                    <table class="widefat striped">
+                                    <table class="widefat striped gdc-list-table">
                                         <thead>
                                             <tr>
                                                 <th><?php esc_html_e('Title', 'email-manager'); ?></th>
@@ -903,10 +893,11 @@ function em_render_email_manager_page()
                                             if ($basic_forms):
                                                 foreach ($basic_forms as $post): ?>
                                                     <tr>
-                                                        <td><strong><?php echo esc_html($post->post_title); ?></strong></td>
+                                                        <td><strong class="gdc-list-title"><?php echo esc_html($post->post_title ? $post->post_title : __('(no title)', 'email-manager')); ?></strong>
+                                                            <?php if ($post->post_status !== 'publish'): ?><span class="gdc-list-pill is-draft"><?php esc_html_e('Draft', 'email-manager'); ?></span><?php endif; ?></td>
                                                         <td><input type="text" readonly
                                                                 value="[basic_form id='<?php echo esc_attr($post->ID); ?>']"
-                                                                style="width:100%;" onclick="this.select();" /></td>
+                                                                class="gdc-list-code" onclick="this.select();" /></td>
                                                         <td><?php echo esc_html(get_the_date('', $post->ID)); ?></td>
                                                         <td>
                                                             <a href="<?php echo admin_url('post.php?post=' . $post->ID . '&action=edit'); ?>"
@@ -918,7 +909,7 @@ function em_render_email_manager_page()
                                                 <?php endforeach;
                                             else: ?>
                                                 <tr>
-                                                    <td colspan="4"><?php esc_html_e('No forms found.', 'email-manager'); ?>
+                                                    <td colspan="4" class="gdc-list-empty"><?php esc_html_e('No forms yet. Create your first form to get started.', 'email-manager'); ?>
                                                     </td>
                                                 </tr>
                                             <?php endif; ?>
@@ -1209,7 +1200,7 @@ function em_render_email_manager_page()
                                     //    no duplicate loads when a widget already targets admin).
                                     wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
                                     wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
-                                    wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.12', true);
+                                    wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.10', true);
                                     wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
                                     $em_cf_cu = wp_get_current_user();
                                     wp_localize_script('chat_forms_frontend_js', 'chatFormsPublic', array(
@@ -1421,6 +1412,7 @@ function em_render_email_manager_page()
                             </div>
 
                             <!-- AI Integration subtab -->
+                            <?php if ($em_dash_admin) : // prints the site AI token: admins only (2026-11-14) ?>
                             <div class="gdc-subtab-panel" data-subpanel="cf-ai-integration" hidden>
                                 <?php
                                 if (class_exists('EM_Leo')) {
@@ -1428,9 +1420,11 @@ function em_render_email_manager_page()
                                 }
                                 ?>
                             </div>
+                            <?php endif; ?>
                         </div>
                     </section>
 
+                    <?php endif; ?>
                     <!-- Applications Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="applications" hidden>
                         <?php

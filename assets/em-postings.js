@@ -144,7 +144,7 @@
         $row.find('.em-process-approver-role').html(approverRoleOptionsHtml).val(step.approver_role || 'administrator');
         $row.find('.em-process-action-label').val(step.action_label || '');
         $row.find('.em-process-action-url').val(step.action_url || '');
-        $row.find('.em-process-action-mode').val(step.action_mode === 'update' ? 'update' : 'manual');
+        $row.find('.em-process-action-mode').val(step.action_mode === 'update' || step.action_mode === 'member' ? step.action_mode : 'manual');
         var ticked = step.action_updates || [];
         $row.find('.em-process-update').each(function () {
             $(this).prop('checked', ticked.indexOf($(this).val()) !== -1);
@@ -676,6 +676,7 @@
         $form[0].reset();
         $form.find('[name="posting_id"]').val('0');
         $form.find('[name="status"]').val('open');
+        $form.find('[name="group_id"]').val('0');
         $form.find('[name="ty_mode"][value="message"]').prop('checked', true);
         $form.find('[name="contract_enabled"]').prop('checked', false);
         $form.find('[name="contract_require"]').prop('checked', true);
@@ -702,6 +703,7 @@
         $form.find('[name="posting_id"]').val(d.id || 0);
         $form.find('[name="title"]').val(d.title || '');
         $form.find('[name="status"]').val(d.status || 'open');
+        $form.find('[name="group_id"]').val(String(d.group_id || 0));
         setChosenForm(d.form_id || 0, d.form_title ? (d.form_title + (d.form_type ? ' (' + d.form_type + ')' : '')) : '');
 
         $form.find('[name="ty_mode"][value="' + (t.mode || 'message') + '"]').prop('checked', true);
@@ -1192,6 +1194,8 @@
         job: {
             rows: '#em-board-rows', medium: 'job_board', catalog: cfg.boards || [],
             titlePh: 'Posting title on the board (optional)', urlPh: 'https://… link to the posting on the board',
+            bodyLabel: 'Posting text', bodyPh: 'The job posting to paste on this board. Write {apply_link} where the apply link goes.',
+            bodyHint: 'Copy posting copies this text with {apply_link} swapped for the tracked apply link above.',
             linkHint: 'Use this as the apply URL on the board, so visits and applications from it are counted here.',
             costLabel: 'Cost', reported: ['Board views', 'Board clicks', 'Board applies'],
             reportedHint: 'Board views / clicks / applies are the numbers the board itself reports — optional, for comparison.'
@@ -1199,12 +1203,14 @@
         affiliate: {
             rows: '#em-affiliate-rows', medium: 'affiliate_network', catalog: cfg.affiliates || [],
             titlePh: 'Listing name (optional)', urlPh: 'https://… link to your program on the site',
+            bodyLabel: 'Listing text', bodyPh: 'The program description to paste on this site. Write {apply_link} where the link goes.',
+            bodyHint: 'Copy listing copies this text with {apply_link} swapped for the tracked link above.',
             linkHint: 'Use this as the link on the site, so visits and applications from it are counted here.',
             costLabel: 'Cost of the listing', reported: ['Site views', 'Site clicks', 'Site applies'],
             reportedHint: 'Site views / clicks / applies are the numbers the site itself reports — optional, for comparison.'
         }
     };
-    var boardStatuses = cfg.boardStatuses || { live: 'Live', paused: 'Paused', closed: 'Closed' };
+    var boardStatuses = cfg.boardStatuses || { live: 'Live', draft: 'Ready to post', paused: 'Paused', closed: 'Closed' };
     var boardLandingUrl = '';
 
     function kindOf(k) { return k === 'affiliate' ? 'affiliate' : 'job'; }
@@ -1246,6 +1252,12 @@
         $row.find('.em-board-link__input').val(link);
         $row.find('.em-board-copy').prop('disabled', !link);
         $row.find('.em-board-link__note').toggle(!link);
+    }
+    // Posting text: a character count, and Copy stays off until there is something to copy.
+    function syncBoardBody($row) {
+        var len = ($row.find('.em-board-body').val() || '').length;
+        $row.find('.em-board-body__count').text(len ? len.toLocaleString() + ' characters' : '');
+        $row.find('.em-board-body-copy').prop('disabled', !len);
     }
     function syncBoardEmpty() {
         $('.em-board-empty').each(function () {
@@ -1312,6 +1324,15 @@
                     '<span class="em-pf-hint em-board-link__note">Save the posting to generate this link.</span>' +
                     '<span class="em-pf-hint">' + esc(K.linkHint) + '</span>' +
                 '</div>' +
+                '<div class="em-pf-field em-board-body-field">' +
+                    '<span class="em-pf-label">' + esc(K.bodyLabel) + '</span>' +
+                    '<textarea name="board_body[]" class="em-board-body" rows="9" maxlength="12000" style="width:100%;min-height:170px;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;resize:vertical;" placeholder="' + esc(K.bodyPh) + '"></textarea>' +
+                    '<div class="em-pf-inline" style="justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">' +
+                        '<span class="em-pf-hint em-board-body__count"></span>' +
+                        '<button type="button" class="button em-board-body-copy">' + esc(kind === 'affiliate' ? 'Copy listing' : 'Copy posting') + '</button>' +
+                    '</div>' +
+                    '<span class="em-pf-hint">' + esc(K.bodyHint) + '</span>' +
+                '</div>' +
                 '<div class="em-board-row__grid">' +
                     '<label class="em-pf-field"><span class="em-pf-label">' + esc(K.costLabel) + ' (' + cur + ')</span><input type="number" name="board_cost[]" class="em-board-cost" min="0" step="0.01" /></label>' +
                     '<label class="em-pf-field"><span class="em-pf-label">' + esc(K.reported[0]) + '</span><input type="number" name="board_rviews[]" class="em-board-rviews" min="0" step="1" /></label>' +
@@ -1324,6 +1345,7 @@
         $row.find('.em-board-id').val(b.id || newBoardId(key));
         $row.find('.em-board-title').val(b.title || '');
         $row.find('.em-board-url').val(b.url || '');
+        $row.find('.em-board-body').val(b.body || '');
         $row.find('.em-board-cost').val(b.cost ? b.cost : '');
         $row.find('.em-board-rviews').val(rep.views ? rep.views : '');
         $row.find('.em-board-rclicks').val(rep.clicks ? rep.clicks : '');
@@ -1331,6 +1353,7 @@
         $row.find('.em-board-program').data('saved', b.program || '');
         $(K.rows).append($row);
         refreshBoardLink($row);
+        syncBoardBody($row);
         refreshProgramSelects();
         syncBoardEmpty();
         return $row;
@@ -1366,6 +1389,18 @@
         setTimeout(function () { $btn.removeClass('is-copied'); }, 1200);
     });
     $doc.on('focus click', '.em-board-link__input', function () { this.select(); });
+    $doc.on('input', '.em-board-body', function () { syncBoardBody($(this).closest('.em-board-row')); });
+    $doc.on('click', '.em-board-body-copy', function () {
+        var $btn = $(this);
+        var $row = $btn.closest('.em-board-row');
+        var text = $row.find('.em-board-body').val() || '';
+        if (!text) return;
+        var link = $row.find('.em-board-link__input').val() || '';
+        if (link) text = text.split('{apply_link}').join(link);
+        copyText(text);
+        $btn.addClass('is-copied');
+        setTimeout(function () { $btn.removeClass('is-copied'); }, 1200);
+    });
 
     /* ---------------- Per-step email editor (Visual/Text, full HTML) ---------------- */
     var $emailModal = $('#em-email-modal');
@@ -2037,7 +2072,7 @@
                 how = 'Runs automatically on approval';
             } else if (s.completion === 'action') {
                 var n = s.action_mode === 'update' ? (s.action_updates || []).length : 0;
-                how = 'User action' + (s.action_label ? ': ' + s.action_label : '') + (n ? ' (' + n + ' tracked)' : '');
+                how = (s.action_mode === 'member' ? 'Member submits' : 'User action') + (s.action_label ? ': ' + s.action_label : '') + (n ? ' (' + n + ' tracked)' : '');
                 if (n) hasAuto = true;
             } else {
                 how = 'Approval · ' + approverLabelJs(s);

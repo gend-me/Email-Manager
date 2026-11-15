@@ -332,6 +332,9 @@ class Chat_Forms_Ajax
                     break;
                 }
             }
+            if (!$reg_terms && function_exists('em_chat_default_terms')) {
+                $reg_terms = em_chat_default_terms();   // every chatflow account accepts the site's terms (2026-11-12)
+            }
             if ($reg_terms && empty($registration_data['terms_accepted'])) {
                 wp_send_json_error('Please accept the terms and conditions to create your account.');
             }
@@ -360,7 +363,7 @@ class Chat_Forms_Ajax
             }
 
             // Send new-user notifications (admin + welcome email to user)
-            wp_new_user_notification($user_id, null, 'both');
+            wp_new_user_notification($user_id, null, 'admin'); // the member chose their password in the form: no set-password email (2026-11-12)
 
             // Log the new user in for the current request
             wp_set_current_user($user_id);
@@ -379,6 +382,13 @@ class Chat_Forms_Ajax
             } else {
                 $answers[$registration_key] = $safe_reg_answer;
             }
+        }
+
+        // A plugin may answer this submission instead of saving it (postings: a member who already has an open
+        // application for the posting is refused, owner 2026-11-13). Return an array to send it as the success data.
+        $em_pre = apply_filters('chat_form_pre_submission', null, $form_id, $answers);
+        if (is_array($em_pre)) {
+            wp_send_json_success($em_pre);
         }
 
         // Create Submission

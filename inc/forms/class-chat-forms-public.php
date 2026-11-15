@@ -38,7 +38,7 @@ class Chat_Forms_Public
 
     public function enqueue_styles()
     {
-        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
+        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.3', 'all');
         wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
     }
 
@@ -48,7 +48,7 @@ class Chat_Forms_Public
         $recaptcha_site_key = $smtp_settings['recaptcha_site_key'] ?? '';
         if (!gend_recaptcha_required()) $recaptcha_site_key = '';   // verified members: no reCAPTCHA at all
 
-        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.12', false);
+        wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.11', false);
         wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
         $current_user_data = array();
         if (is_user_logged_in()) {
@@ -72,6 +72,7 @@ class Chat_Forms_Public
             'recaptchaSiteKey' => $recaptcha_site_key,
             'isLoggedIn'       => is_user_logged_in(),
             'currentUser'      => $current_user_data,
+            'defaultTerms'     => em_chat_default_terms(),
             'brand'            => wp_parse_args($brand_colors, array(
                 'primary'   => '#6366f1',
                 'secondary' => '#8b5cf6',
@@ -104,7 +105,7 @@ class Chat_Forms_Public
         if (empty($forms)) return;
 
         // Need our chat assets on admin pages too
-        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.2', 'all');
+        wp_enqueue_style('chat_forms_frontend_css', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.css', array(), '1.3.3', 'all');
         wp_enqueue_style('chat_forms_widget_launcher_css', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.css', array('chat_forms_frontend_css'), '1.3.0', 'all');
         wp_enqueue_script('chat_forms_frontend_js', EMAIL_MANAGER_URL . 'assets/forms/chat-frontend.js', array('jquery'), '1.11', true);
         wp_enqueue_script('chat_forms_widget_launcher_js', EMAIL_MANAGER_URL . 'assets/forms/chat-widget-launcher.js', array('jquery', 'chat_forms_frontend_js'), '1.0.0', true);
@@ -121,6 +122,7 @@ class Chat_Forms_Public
                 'avatar_url'   => get_avatar_url($cu->ID, array('size' => 96)),
                 'email'        => $cu->user_email,
             ) : array(),
+            'defaultTerms' => em_chat_default_terms(),
             'brand'       => wp_parse_args(get_option('em_chat_brand_colors', array()), array(
                 'primary'   => '#6366f1',
                 'secondary' => '#8b5cf6',
@@ -432,5 +434,25 @@ class Chat_Forms_Public
         echo $final_html;
 
         return ob_get_clean();
+    }
+}
+
+/**
+ * Terms every chatflow account registration accepts when its form sets none of its own (owner, 2026-11-12):
+ * the site's Terms of Service page (falls back to the privacy policy page).
+ */
+if (!function_exists('em_chat_default_terms')) {
+    function em_chat_default_terms()
+    {
+        if (!apply_filters('em_chat_require_terms', true)) return null;
+        $page = get_page_by_path('terms-of-service');
+        $url  = $page ? get_permalink($page) : (function_exists('get_privacy_policy_url') ? get_privacy_policy_url() : '');
+        return array(
+            'enabled' => 1,
+            'mode'    => 'page',
+            'url'     => $url,
+            'label'   => __('I agree to the Terms of Service and Privacy Policy', 'email-manager'),
+            'title'   => __('Terms of Service', 'email-manager'),
+        );
     }
 }
