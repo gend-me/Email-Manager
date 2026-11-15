@@ -133,7 +133,7 @@ class EM_Email_Logs
                 <?php esc_html_e('Email Logs', 'email-manager'); ?>
             </h3>
             <p class="description">
-                <?php esc_html_e('History of all emails sent.', 'email-manager'); ?>
+                <?php esc_html_e('The 20 most recent logged emails.', 'email-manager'); ?>
             </p>
 
             <?php
@@ -224,7 +224,7 @@ class EM_Email_Logs
                     <?php esc_html_e('Email Content', 'email-manager'); ?>
                 </h3>
                 <div class="em-log-content"
-                    style="padding:20px; overflow:auto; background:#fff; border:1px solid #ddd;">
+                    style="padding:0; overflow:auto;">
                 </div>
             </div>
         </div>
@@ -247,7 +247,13 @@ class EM_Email_Logs
                         data: { action: 'em_get_log_body', id: id, nonce: '<?php echo wp_create_nonce('em_log_nonce'); ?>' },
                         success: function (res) {
                             if (res.success) {
-                                $('.em-log-content').html(res.data.body);
+                                // Email HTML renders in a sandboxed frame (no scripts, no access to wp-admin).
+                                var fr = document.createElement('iframe');
+                                fr.setAttribute('sandbox', '');
+                                fr.setAttribute('title', 'Email content');
+                                fr.style.cssText = 'width:100%;height:100%;min-height:60vh;border:0;border-radius:10px;background:#fff;';
+                                fr.srcdoc = res.data.body || '';
+                                $('.em-log-content').empty().append(fr);
                             } else {
                                 $('.em-log-content').html('Error loading content.');
                             }
@@ -282,8 +288,11 @@ add_action('wp_ajax_em_get_log_body', function () {
     }
     $id = absint($_GET['id']);
     $post = get_post($id);
-    if ($post && $post->post_type === 'em_email_log') {
-        wp_send_json_success(['body' => $post->post_content]);
+    // The Logs tab lists both types (gdc_email_log = pre-migration logs); allowing only em_email_log broke every View.
+    if ($post && in_array($post->post_type, ['em_email_log', 'gdc_email_log'], true)) {
+        // Pre-migration logs (gdc_email_log) keep the body in meta, not post_content.
+        $body = $post->post_content !== '' ? $post->post_content : (string) (get_post_meta($id, '_em_log_body', true) ?: get_post_meta($id, '_gdc_log_body', true));
+        wp_send_json_success(['body' => $body]);
     }
     wp_send_json_error();
 });
