@@ -509,8 +509,11 @@ class EM_Applications
         ?>
         <div class="em-app-tab">
             <?php
-            if (class_exists('EM_Postings')) {
+            if (class_exists('EM_Postings') && current_user_can('manage_options')) {
                 EM_Postings::render_panel();
+            } else {
+                // 2026-11-14: Talk Flows Use/Manage review applicants; editing postings stays with site admins.
+                do_action('em_postings_panel_after_grid');
             }
             ?>
         </div>

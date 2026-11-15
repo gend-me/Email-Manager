@@ -217,8 +217,13 @@ if (!function_exists('em_system_email_table')) {
 
 function em_render_email_manager_page()
 {
-    // Check permissions
-    if (!current_user_can('manage_options')) {
+    // Check permissions. 2026-11-14: GenD Society dashboard levels (Talk Flows): Use = Inbox, Applications (applicant
+    // review) and Support; Manage = also Email lists/onboarding/newsletters/system emails/app template, Forms and
+    // Chatflows. Logs, Sending Settings and the postings editor stay with site administrators.
+    $em_dash_admin  = current_user_can('manage_options');
+    $em_dash_manage = $em_dash_admin || current_user_can('gs_dash_talk_flows_manage');
+    $em_dash_use    = $em_dash_manage || current_user_can('gs_dash_talk_flows_use');
+    if (!$em_dash_use) {
         return;
     }
 
@@ -238,6 +243,9 @@ function em_render_email_manager_page()
         'applications' => __('Applications', 'email-manager'),
         'support'      => __('Support', 'email-manager'),
     );
+    if (!$em_dash_manage) {
+        unset($tabs['forms'], $tabs['chatflows']);
+    }
 
     // WordPress core system emails (static – these are built into WP core)
     $gdc_wp_core_emails = array(
@@ -474,6 +482,7 @@ function em_render_email_manager_page()
                             <button type="button" class="gdc-subtab active" data-subtab="email-inbox">
                                 <?php esc_html_e('Inbox', 'email-manager'); ?>
                             </button>
+                            <?php if ($em_dash_manage) : // 2026-11-14 dashboard levels ?>
                             <button type="button" class="gdc-subtab" data-subtab="lists">
                                 <?php esc_html_e('Lists', 'email-manager'); ?>
                             </button>
@@ -489,12 +498,14 @@ function em_render_email_manager_page()
                             <button type="button" class="gdc-subtab" data-subtab="app-template">
                                 <?php esc_html_e('App Template', 'email-manager'); ?>
                             </button>
+                            <?php endif; if ($em_dash_admin) : ?>
                             <button type="button" class="gdc-subtab" data-subtab="logs">
                                 <?php esc_html_e('Logs', 'email-manager'); ?>
                             </button>
                             <button type="button" class="gdc-subtab" data-subtab="sending-settings">
                                 <?php esc_html_e('Sending Settings', 'email-manager'); ?>
                             </button>
+                            <?php endif; ?>
                         </div>
 
                         <!-- Inbox Subtab Content (slice 2zz.4 — moved from top-level Inbox tab) -->
@@ -503,6 +514,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- Lists Subtab Content -->
+                        <?php if ($em_dash_manage) : // Lists, Onboarding, Newsletters, App Template ?>
                         <div class="gdc-subtab-panel" data-subpanel="lists" hidden>
                             <div class="gdc-email-panel">
                                 <div class="gdc-email-panel__header">
@@ -645,6 +657,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- Logs Subtab Content -->
+                        <?php endif; if ($em_dash_admin) : // Logs, Sending Settings: admins only ?>
                         <div class="gdc-subtab-panel" data-subpanel="logs" hidden>
                             <?php
                             if (class_exists('EM_Email_Logs')) {
@@ -663,6 +676,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- System Emails Subtab Content -->
+                        <?php endif; if ($em_dash_manage) : // System Emails ?>
                         <div class="gdc-subtab-panel" data-subpanel="system-emails" hidden>
                             <?php // --- WordPress Core Emails --- ?>
                             <?php em_system_email_table(__('Login & Account Emails', 'email-manager'), function() use ($gdc_wp_core_emails) {
@@ -750,6 +764,7 @@ function em_render_email_manager_page()
                                 }); ?>
                             <?php endif; ?>
                         </div>
+                        <?php endif; ?>
                         <!-- Inline Script for Subtabs -->
                         <script>
                             jQuery(document).ready(function ($) {
@@ -838,6 +853,7 @@ function em_render_email_manager_page()
                          tab's first sub-tab (data-subpanel="email-inbox") above. -->
 
                     <!-- Forms Tab -->
+                    <?php if ($em_dash_manage) : // Forms + Chatflows ?>
                     <section class="gdc-sub-tabpanel" data-panel="forms" hidden>
                         <div class="gdc-subtabs">
                             <button type="button" class="gdc-subtab active" data-subtab="basic-forms">
@@ -1394,6 +1410,7 @@ function em_render_email_manager_page()
                             </div>
 
                             <!-- AI Integration subtab -->
+                            <?php if ($em_dash_admin) : // prints the site AI token: admins only (2026-11-14) ?>
                             <div class="gdc-subtab-panel" data-subpanel="cf-ai-integration" hidden>
                                 <?php
                                 if (class_exists('EM_Leo')) {
@@ -1401,9 +1418,11 @@ function em_render_email_manager_page()
                                 }
                                 ?>
                             </div>
+                            <?php endif; ?>
                         </div>
                     </section>
 
+                    <?php endif; ?>
                     <!-- Applications Tab -->
                     <section class="gdc-sub-tabpanel" data-panel="applications" hidden>
                         <?php

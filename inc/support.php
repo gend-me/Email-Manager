@@ -43,7 +43,7 @@ class EM_Support
     public function register_rest_routes()
     {
         $perm = function () {
-            return current_user_can('manage_options');
+            return current_user_can('manage_options') || current_user_can('gs_dash_talk_flows_use'); // 2026-11-14: Talk Flows Use
         };
 
         register_rest_route('em/v1', '/support/(?P<id>\d+)', [
@@ -296,7 +296,7 @@ class EM_Support
 
     public function handle_save_form_purposes()
     {
-        if (!current_user_can('manage_options')) wp_die('Forbidden', 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage')) wp_die('Forbidden', 403);
         check_admin_referer('em_save_support_form_purposes');
 
         $marked_ids   = isset($_POST['support_form_ids']) ? array_map('intval', (array) $_POST['support_form_ids']) : [];
@@ -316,7 +316,7 @@ class EM_Support
 
     public function handle_update_ticket()
     {
-        if (!current_user_can('manage_options')) wp_die('Forbidden', 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_use')) wp_die('Forbidden', 403);
         $submission_id = isset($_POST['submission_id']) ? absint($_POST['submission_id']) : 0;
         check_admin_referer('em_update_ticket_' . $submission_id);
 
@@ -333,7 +333,7 @@ class EM_Support
 
     public function handle_bulk_update()
     {
-        if (!current_user_can('manage_options')) wp_die('Forbidden', 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_use')) wp_die('Forbidden', 403);
         check_admin_referer('em_bulk_update_tickets');
 
         $ids    = isset($_POST['ticket_ids']) ? array_map('intval', (array) $_POST['ticket_ids']) : [];
@@ -350,7 +350,7 @@ class EM_Support
 
     public function handle_save_settings()
     {
-        if (!current_user_can('manage_options')) wp_die('Forbidden', 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage')) wp_die('Forbidden', 403);
         check_admin_referer('em_save_support_settings');
 
         $settings = [
@@ -374,7 +374,7 @@ class EM_Support
     public function ajax_get_detail()
     {
         check_ajax_referer('em_app_support', 'nonce');
-        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Forbidden'], 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_use')) wp_send_json_error(['message' => 'Forbidden'], 403);
 
         $id = absint($_POST['id'] ?? 0);
         $post = $id ? get_post($id) : null;
@@ -386,7 +386,7 @@ class EM_Support
     public function ajax_add_reply()
     {
         check_ajax_referer('em_app_support', 'nonce');
-        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Forbidden'], 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_use')) wp_send_json_error(['message' => 'Forbidden'], 403);
 
         $id      = absint($_POST['id'] ?? 0);
         $content = isset($_POST['content']) ? wp_kses_post(wp_unslash($_POST['content'])) : '';
@@ -504,8 +504,10 @@ class EM_Support
                      chatflow Support-Ticket section now sets form purposes
                      automatically. */ ?>
             <?php self::render_tickets_panel($tickets, $statuses, $priorities); ?>
+            <?php if (current_user_can('manage_options') || current_user_can('gs_dash_talk_flows_manage')) : // settings: Talk Flows Manage (2026-11-14) ?>
             <?php self::render_forms_panel($form_ids); ?>
             <?php self::render_settings_panel($settings); ?>
+            <?php endif; ?>
         </div>
         <?php
     }

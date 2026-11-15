@@ -43,7 +43,7 @@ class EM_Postings_ATS
             if (!self::$group) wp_send_json_error(['message' => __('You do not have permission to manage this group\'s applications.', 'email-manager')], 403);
             return;
         }
-        if (!current_user_can('manage_options')) wp_send_json_error(['message' => __('You do not have permission to manage applications.', 'email-manager')], 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_use')) wp_send_json_error(['message' => __('You do not have permission to manage applications.', 'email-manager')], 403);
     }
 
     private static function in_scope($posting_id)
@@ -208,7 +208,7 @@ class EM_Postings_ATS
         foreach ($ids as $sid) {
             $pid = (int) get_post_meta($sid, EM_Postings::SUBMISSION_TAG, true);
             if (get_post_type($sid) !== 'chat_submission' || !$pid || !self::in_scope($pid)) { $skipped++; continue; }
-            if (self::$group && $op === 'confirm_email' && !current_user_can('manage_options')) { $skipped++; continue; }
+            if ($op === 'confirm_email' && !current_user_can('manage_options')) { $skipped++; continue; } // admins only (group managers and Talk Flows levels skip it)
             $uid = EM_Postings::applicant_user_id($sid, get_post_meta($sid, '_chat_submission_data', true));
             switch ($op) {
                 case 'reject':

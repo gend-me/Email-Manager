@@ -72,7 +72,7 @@ class EM_Chats
     public function ajax_get_detail()
     {
         check_ajax_referer('em_app_support', 'nonce');
-        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Forbidden'], 403);
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage')) wp_send_json_error(['message' => 'Forbidden'], 403);
 
         $id = absint($_POST['id'] ?? 0);
         $post = $id ? get_post($id) : null;

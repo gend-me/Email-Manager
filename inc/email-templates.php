@@ -476,7 +476,7 @@ class EM_Email_Templates
     public function handle_save_template()
     {
         check_ajax_referer('em_templates_nonce', 'nonce');
-        if (!current_user_can('manage_options'))
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage'))
             wp_send_json_error(['message' => 'Unauthorized']);
 
         $name = sanitize_text_field($_POST['name'] ?? '');
@@ -505,7 +505,7 @@ class EM_Email_Templates
     public function handle_delete_template()
     {
         check_ajax_referer('em_templates_nonce', 'nonce');
-        if (!current_user_can('manage_options'))
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage'))
             wp_send_json_error(['message' => 'Unauthorized']);
 
         $name = sanitize_text_field($_POST['name'] ?? '');
@@ -521,7 +521,7 @@ class EM_Email_Templates
     public function handle_set_active_template()
     {
         check_ajax_referer('em_templates_nonce', 'nonce');
-        if (!current_user_can('manage_options'))
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage'))
             wp_send_json_error(['message' => 'Unauthorized']);
 
         $name = sanitize_text_field($_POST['name'] ?? '');
@@ -532,7 +532,7 @@ class EM_Email_Templates
     public function handle_save_theme()
     {
         check_ajax_referer('em_templates_nonce', 'nonce');
-        if (!current_user_can('manage_options'))
+        if (!current_user_can('manage_options') && !current_user_can('gs_dash_talk_flows_manage'))
             wp_send_json_error(['message' => 'Unauthorized']);
 
         // Sanitize and save all theme fields

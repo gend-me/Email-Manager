@@ -2559,10 +2559,23 @@ class EM_Postings
        AJAX
        ================================================================ */
 
+    /**
+     * 2026-11-14: people with the Talk Flows dashboard (Use) may move and approve applicants, never edit postings, and
+     * only on postings whose steps don't grant an admin-level role (em_posting_group_safe).
+     */
+    private static function talk_flows_applicant_op()
+    {
+        if (!current_user_can('gs_dash_talk_flows_use')) return false;
+        $action = sanitize_key($_REQUEST['action'] ?? '');
+        if (!in_array($action, array('em_advance_posting_applicant', 'em_bulk_advance_posting_applicants', 'em_complete_posting_step'), true)) return false;
+        $pid = absint($_POST['posting_id'] ?? 0);
+        return $pid && get_post_type($pid) === self::CPT && function_exists('em_posting_group_safe') && em_posting_group_safe($pid);
+    }
+
     private function guard()
     {
         // 2026-11-14: a group's managers may move / approve its applicants from the group's Careers tab (postings-groups.php).
-        if (!current_user_can('manage_options') && !(function_exists('em_ats_group_scope') && em_ats_group_scope())) wp_send_json_error(['message' => 'Forbidden'], 403);
+        if (!current_user_can('manage_options') && !(function_exists('em_ats_group_scope') && em_ats_group_scope()) && !self::talk_flows_applicant_op()) wp_send_json_error(['message' => 'Forbidden'], 403);
         check_ajax_referer('em_app_support', 'nonce');
     }
 
