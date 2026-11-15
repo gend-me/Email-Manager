@@ -27,3 +27,26 @@ html body .emcg .em-ats--group { margin-top: 26px; padding: 20px; border-radius:
 html body .em-ats-drawer, html body .em-ats-modal, html body .em-ats-toast { z-index: 2147483600 !important; }
 html body .emcg .em-ats-head h3 { margin: 0 0 4px !important; padding: 0 !important; border: 0 !important; background: none !important; color: #fff !important; font: 800 1.05rem/1.3 inherit !important; font-family: inherit !important; text-transform: none !important; }
 html body .emcg .em-ats-head .description { margin: 0 !important; color: var(--bps-muted, #94a3b8) !important; font-size: .86rem !important; line-height: 1.55 !important; }
+
+/* 2026-11-15 UX pass: applicants as cards on phones (the 980px table scrolled sideways); dark scrollbar elsewhere */
+html body .emcg .em-ats--group .em-ats-table { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent; }
+@media (max-width: 640px) {
+  html body .emcg .em-ats--group .em-ats-table { overflow: visible !important; border: 0 !important; background: none !important; }
+  html body .emcg .em-ats--group .em-ats-table table { display: block !important; min-width: 0 !important; }
+  html body .emcg .em-ats--group .em-ats-table thead { display: block !important; }
+  html body .emcg .em-ats--group .em-ats-table thead tr { display: flex !important; align-items: center; gap: 10px; padding: 0 14px 8px; }
+  html body .emcg .em-ats--group .em-ats-table thead th { position: static !important; padding: 0 !important; border: 0 !important; background: none !important; }
+  html body .emcg .em-ats--group .em-ats-table thead th:not(.c-check) { display: none !important; }
+  html body .emcg .em-ats--group .em-ats-table tbody { display: grid !important; gap: 10px; }
+  html body .emcg .em-ats--group .em-ats-table tr.em-ats-row { display: grid !important; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 8px 10px; align-items: center; padding: 14px; border-radius: 14px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); }
+  html body .emcg .em-ats--group .em-ats-table tr.em-ats-row > td { display: block; padding: 0 !important; border: 0 !important; min-width: 0; }
+  html body .emcg .em-ats--group .em-ats-row > .c-check { grid-column: 1; grid-row: 1; }
+  html body .emcg .em-ats--group .em-ats-row > .c-who { grid-column: 2 / 4; grid-row: 1; }
+  html body .emcg .em-ats--group .em-ats-row > .c-post, html body .emcg .em-ats--group .em-ats-row > .c-stage, html body .emcg .em-ats--group .em-ats-row > .c-status { grid-column: 2 / 4; font-size: 12px; }
+  html body .emcg .em-ats--group .em-ats-row > .c-rate { grid-column: 2; }
+  html body .emcg .em-ats--group .em-ats-row > .c-date { grid-column: 3; text-align: right; font-size: 12px; opacity: .75; }
+  html body .emcg .em-ats--group .em-ats-row > .c-act { grid-column: 2 / 4; }
+  html body .emcg .em-ats--group .em-ats-row > .c-act:empty { display: none; }
+  html body .emcg .em-ats--group .em-ats-who small { overflow-wrap: anywhere; }
+  html body .emcg .em-ats--group .em-ats-stars button { min-width: 28px; min-height: 28px; font-size: 18px; }
+}
