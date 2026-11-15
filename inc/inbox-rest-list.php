@@ -78,9 +78,10 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
         ? $wpdb->prepare(
             "(SELECT COUNT(*) FROM $threads t2
               LEFT JOIN $part p2 ON p2.thread_id = t2.id AND p2.user_id = %d
-              WHERE t2.inbox_address = inbox_address
+              WHERE t2.inbox_address = t.inbox_address
                 AND COALESCE(p2.is_read,1) = 0
-                AND COALESCE(p2.is_archived,0) = 0)",
+                AND COALESCE(p2.is_archived,0) = 0
+                AND COALESCE(p2.is_trashed,0) = 0)",
             $uid
         )
         : 'NULL';
@@ -91,9 +92,35 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
                     COUNT(*) AS thread_count,
                     MAX(updated_at) AS last_received,
                     $unread_subquery AS unread_count
-             FROM $threads GROUP BY inbox_address ORDER BY last_received DESC",
+             FROM $threads t GROUP BY inbox_address ORDER BY last_received DESC",
             ARRAY_A
         );
+
+        // Every provisioned agent mailbox is shared with site admins, but an agent that has not received mail yet
+        // has no thread row — and this list is built from threads, so it never showed up. Add the empty ones.
+        $have = array();
+        foreach ((array) $rows as $r0) $have[strtolower((string) $r0['inbox_address'])] = true;
+        // Agent mailboxes plus every user that has an inbox address stamped (Add a new inbox), empty ones too.
+        $agent_ids = $wpdb->get_col("SELECT DISTINCT user_id FROM {$wpdb->usermeta} WHERE meta_key IN ('_aipa_agent_email_group','em_inbox_address') AND meta_value <> ''");
+        if ($uid > 0) { $agent_ids[] = $uid; }
+        $agent_ids = array_unique(array_map('intval', $agent_ids));
+        $empty_agents = array();
+        foreach ((array) $agent_ids as $aid) {
+            $au = get_userdata((int) $aid);
+            if (! $au) continue;
+            $addr = strtolower(trim((string) (get_user_meta($au->ID, 'em_inbox_address', true) ?: $au->user_email)));
+            if ($addr === '' || isset($have[$addr])) continue;
+            $have[$addr] = true;
+            $empty_agents[] = array(
+                'inbox_address' => $addr,
+                'thread_count'  => 0,
+                'last_received' => null,
+                'unread_count'  => 0,
+                '_sort'         => strtolower($au->display_name ?: $addr),
+            );
+        }
+        usort($empty_agents, function ($x, $y) { return strcmp($x['_sort'], $y['_sort']); });
+        foreach ($empty_agents as $ea) { unset($ea['_sort']); $rows[] = $ea; }
     } else {
         // Non-admin: union of inboxes by owner_user_id stamp (post-2e) and
         // the user's user_email + em_inbox_address (slice 2c fallback that
@@ -114,7 +141,7 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
                         COUNT(*) AS thread_count,
                         MAX(updated_at) AS last_received,
                         $unread_subquery AS unread_count
-                 FROM $threads
+                 FROM $threads t
                  WHERE inbox_address IN ($ph) OR owner_user_id = %d
                  GROUP BY inbox_address",
                 ...$sql_args
@@ -125,9 +152,19 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
                         COUNT(*) AS thread_count,
                         MAX(updated_at) AS last_received,
                         $unread_subquery AS unread_count
-                 FROM $threads WHERE owner_user_id = %d GROUP BY inbox_address",
+                 FROM $threads t WHERE owner_user_id = %d GROUP BY inbox_address",
                 $u->ID
             ), ARRAY_A);
+        }
+
+        // The user's own address always has an inbox, even before the first message arrives.
+        $have_own = array();
+        foreach ((array) $rows as $r1) $have_own[strtolower((string) $r1['inbox_address'])] = true;
+        foreach ($candidates as $c0) {
+            $c0 = strtolower((string) $c0);
+            if ($c0 === '' || isset($have_own[$c0])) continue;
+            $have_own[$c0] = true;
+            $rows[] = array('inbox_address' => $c0, 'thread_count' => 0, 'last_received' => null, 'unread_count' => 0);
         }
 
         // Slice 2ee: append inboxes the user has been granted access to.
@@ -232,7 +269,7 @@ function em_inbox_unread_count(WP_REST_Request $r) {
             $where = $wpdb->prepare("WHERE LOWER(t.inbox_address) IN ($ph)", ...$addrs);
         }
         $sql = "SELECT
-            COUNT(*) AS total,
+            SUM(CASE WHEN COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS total,
             SUM(CASE WHEN COALESCE(p.is_read,1) = 0
                  AND COALESCE(p.is_archived,0) = 0
                  AND COALESCE(p.is_trashed,0) = 0
@@ -256,7 +293,7 @@ function em_inbox_unread_count(WP_REST_Request $r) {
     }
     $row = $wpdb->get_row($wpdb->prepare(
         "SELECT
-            COUNT(*) AS total,
+            SUM(CASE WHEN COALESCE(p.is_trashed,0) = 0 THEN 1 ELSE 0 END) AS total,
             SUM(CASE WHEN COALESCE(p.is_read,1) = 0
                  AND COALESCE(p.is_archived,0) = 0
                  AND COALESCE(p.is_trashed,0) = 0
@@ -329,8 +366,9 @@ function em_inbox_list_threads(WP_REST_Request $request) {
     } else {
         $where = '';
     }
-
-    $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $threads_table t $where");
+    // Admin "all inboxes" has no address filter; the filter clauses below start with AND, so
+    // without a WHERE they were glued onto the participants JOIN (trash/archive/unread did nothing).
+    if ($where === '') { $where = 'WHERE 1=1'; }
 
     // Filters: ?unread=1, ?archived=1, ?trashed=1, ?starred=1, ?snoozed=1, ?label_id=N
     $only_unread   = (int) $request->get_param('unread')   === 1;
@@ -392,6 +430,8 @@ function em_inbox_list_threads(WP_REST_Request $request) {
         $per_page, $offset
     );
     $rows = $wpdb->get_results($sql, ARRAY_A);
+    // Total follows the active filter (trashed / archived rows are not part of the main feed).
+    $total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $threads_table t $part_join $label_join $where $extra_where");
 
     // Batch-load labels for every visible thread (1 query regardless
     // of row count). Only meaningful for logged-in users; admins see
@@ -565,6 +605,12 @@ function em_inbox_get_thread(WP_REST_Request $request) {
             $msg['auth'] = $auth_from_headers($parsed_headers);
         }
         if (! empty($msg['body_html'])) {
+            // Designed e-mails (own <style> / style attributes) are also sent in a
+            // rich form for the sandboxed frame; the plain-kses body stays as fallback.
+            if (function_exists('em_inbox_sanitize_rich_html')
+                && preg_match('#<style\b|\sstyle\s*=|\sbgcolor\s*=#i', (string) $msg['body_html'])) {
+                $msg['body_html_rich'] = em_inbox_sanitize_rich_html($msg['body_html']);
+            }
             if (function_exists('em_inbox_sanitize_html')) {
                 $msg['body_html'] = em_inbox_sanitize_html($msg['body_html']);
             } else {

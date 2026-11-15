@@ -1058,6 +1058,53 @@
         // closes or tick bumps. Used by Composer to render the From
         // dropdown when there's more than one option.
         var fromsState = useState([]);            var availableFroms = fromsState[0], setAvailableFroms = fromsState[1];
+        // Phones (≤760px, also the chat widget's Email tab on a phone): one pane at a time. While a thread
+        // is open the owner card, toolbar and left rail step aside so the email starts at the top.
+        var appNarrowState = useState(!!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches));
+        var appNarrow = appNarrowState[0], setAppNarrow = appNarrowState[1];
+        var toolsOpenState = useState(false);     var toolsOpen = toolsOpenState[0], setToolsOpen = toolsOpenState[1];
+        var appRootRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        var listScrollRef = wp.element.useRef ? wp.element.useRef(null) : { current: null };
+        useEffect(function () {
+            if (!window.matchMedia) return;
+            var mq = window.matchMedia('(max-width: 760px)');
+            var fn = function (e) { setAppNarrow(e.matches); };
+            if (mq.addEventListener) mq.addEventListener('change', fn); else mq.addListener(fn);
+            return function () { if (mq.removeEventListener) mq.removeEventListener('change', fn); else mq.removeListener(fn); };
+        }, []);
+        // The element that actually scrolls the inbox (the widget's Email host, or the page itself).
+        function emScrollParent(el) {
+            for (var n = el && el.parentElement; n && n !== document.body; n = n.parentElement) {
+                var oy = window.getComputedStyle(n).overflowY;
+                if ((oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight) return n;
+            }
+            return null;
+        }
+        function openThread(id) {
+            if (appNarrow && !openThreadId && appRootRef.current) {
+                var sp = emScrollParent(appRootRef.current);
+                listScrollRef.current = { el: sp, top: sp ? sp.scrollTop : window.pageYOffset };
+            }
+            setOpenThreadId(id);
+        }
+        useEffect(function () {
+            if (!appNarrow || !appRootRef.current) return;
+            if (openThreadId) {
+                // Show the email from its first line, not wherever the list happened to be scrolled.
+                var sp = emScrollParent(appRootRef.current);
+                var root = appRootRef.current;
+                if (sp) {
+                    sp.scrollTop = Math.max(0, root.getBoundingClientRect().top - sp.getBoundingClientRect().top + sp.scrollTop);
+                } else if (root.getBoundingClientRect().top < 0) {
+                    root.scrollIntoView({ block: 'start' });
+                }
+            } else if (listScrollRef.current) {
+                // Back to the list: return to the row the reader came from.
+                var saved = listScrollRef.current;
+                listScrollRef.current = null;
+                if (saved.el) saved.el.scrollTop = saved.top; else window.scrollTo(0, saved.top);
+            }
+        }, [openThreadId, appNarrow]);
         // Slice 2yy: turn the grants payload from /bootstrap (or a
         // sharing-modal save) into the From-dropdown list. Extracted so
         // the bootstrap effect + SharingModal onClose can both call it.
@@ -1251,18 +1298,26 @@
             setOtherPartyEmail(null);
         }
         var supportsAll = inboxes.length > 1;
+        // Phone reading mode: the email gets the whole pane.
+        var mobileReading = appNarrow && !!openThreadId;
         return html`
-          <${InboxOwnerCard}
+          ${!mobileReading && html`<${InboxOwnerCard}
             selectedRow=${selectedRow}
             inboxes=${inboxes}
             supportsAll=${supportsAll}
-            onChoose=${chooseInbox} />
-          <div class="em-inbox">
-            <div class="em-inbox-toolbar">
+            onChoose=${chooseInbox} />`}
+          <div ref=${appRootRef} class=${'em-inbox' + (appNarrow ? ' em-inbox--mobile' : '') + (mobileReading ? ' is-reading' : '')}>
+            <div class=${'em-inbox-toolbar' + (toolsOpen ? ' is-tools-open' : '')} hidden=${mobileReading}>
               <${Button}
                 variant="primary"
                 onClick=${function () { setComposerProps({ from: selected, mode: 'new' }); }}
               >Compose<//>
+              ${appNarrow && html`<button
+                type="button"
+                class="em-inbox-filters-btn em-inbox-tools-toggle"
+                aria-expanded=${toolsOpen ? 'true' : 'false'}
+                onClick=${function () { setToolsOpen(!toolsOpen); }}
+              >${toolsOpen ? 'Less ▴' : 'Settings ▾'}</button>`}
               <button
                 type="button"
                 class="em-inbox-help-btn"
@@ -1309,7 +1364,8 @@
                 }} />`}
             </div>
             <div class="em-inbox-body em-inbox-body--three-col">
-              <${LeftRail}
+              ${!mobileReading && html`<${LeftRail}
+                narrow=${appNarrow}
                 searchQ=${searchQ}
                 onSearchQChange=${function (v) { setSearchQ(v); if (openThreadId) setOpenThreadId(null); }}
                 searchInputRef=${searchInputRef}
@@ -1321,7 +1377,7 @@
                 labels=${labels}
                 labelFilterId=${labelFilterId}
                 onLabelFilter=${setLabelFilterId}
-                onManageLabels=${function () { setShowManageLabels(true); }} />
+                onManageLabels=${function () { setShowManageLabels(true); }} />`}
               ${openThreadId
                 ? html`<${ThreadView}
                     threadId=${openThreadId}
@@ -1397,20 +1453,24 @@
                     onMarkedUnread=${function () { setOpenThreadId(null); bumpTick(tick + 1); }}
                     onLoaded=${function () { bumpTick(tick + 1); }}
                     refreshKey=${tick} />`
-                : searchQ.length >= 2
+                : null}
+              ${!openThreadId && searchQ.length >= 2
                 ? html`<${SearchResults}
                     query=${searchQ}
                     inbox=${selected}
                     openThreadId=${openThreadId}
-                    onOpenThread=${setOpenThreadId} />`
-                : html`<${FeedView}
+                    onOpenThread=${openThread} />`
+                : null}
+              ${(!openThreadId || appNarrow) && searchQ.length < 2
+                ? html`<${FeedView}
+                    isHidden=${!!openThreadId}
                     inbox=${selected}
                     openThreadId=${openThreadId}
                     labelFilterId=${labelFilterId}
                     labels=${labels}
                     onLabelFilter=${setLabelFilterId}
                     onManageLabels=${function () { setShowManageLabels(true); }}
-                    onOpenThread=${setOpenThreadId}
+                    onOpenThread=${openThread}
                     hideHeader=${true}
                     filter=${filter}
                     onFilterChange=${setFilter}
@@ -1432,7 +1492,8 @@
                     }}
                     focusedThreadId=${focusedThreadId}
                     onFocusedChange=${setFocusedThreadId}
-                    refreshKey=${tick} />`}
+                    refreshKey=${tick} />`
+                : null}
             </div>
             ${composerProps && html`
               <${SafeComposer}
@@ -2121,6 +2182,28 @@
                 __nextHasNoMarginBottom=${true}
               />
             </div>
+            ${props.narrow && !props.openThreadId && html`
+              <div class="em-inbox-mobile-pickers">
+                <select class="em-inbox-mobile-pick" aria-label="Folder" value=${props.filter}
+                  onChange=${function (e) { props.onFilterChange && props.onFilterChange(e.target.value); }}>
+                  <option value="all">${'📥 All' + (counts.total != null ? ' · ' + counts.total : '')}</option>
+                  <option value="unread">${'✉️ Unread' + (counts.unread != null ? ' · ' + counts.unread : '')}</option>
+                  <option value="starred">${'⭐ Starred' + (counts.starred != null ? ' · ' + counts.starred : '')}</option>
+                  <option value="snoozed">${'⏰ Snoozed' + (counts.snoozed != null ? ' · ' + counts.snoozed : '')}</option>
+                  <option value="scheduled">⏱ Scheduled</option>
+                  <option value="drafts">📝 Drafts</option>
+                  <option value="archived">${'📦 Archived' + (counts.archived != null ? ' · ' + counts.archived : '')}</option>
+                  <option value="trashed">${'🗑 Trash' + (counts.trashed != null ? ' · ' + counts.trashed : '')}</option>
+                </select>
+                ${props.labels && props.labels.length > 0 && html`
+                  <select class="em-inbox-mobile-pick" aria-label="Label" value=${String(Number(props.labelFilterId) || 0)}
+                    onChange=${function (e) { props.onLabelFilter && props.onLabelFilter(Number(e.target.value) || 0); }}>
+                    <option value="0">🏷 All labels</option>
+                    ${props.labels.map(function (l) { return html`<option key=${l.id} value=${String(l.id)}>${l.name}</option>`; })}
+                  </select>
+                `}
+              </div>
+            `}
             ${props.openThreadId
               ? html`<${CustomerCard} email=${props.otherPartyEmail} />`
               : html`
@@ -2377,8 +2460,8 @@
             return function () { window.removeEventListener('keydown', onKey); };
         }, [state.items, props.focusedThreadId, props.onFocusedChange]);
 
-        function fetchPage(page, append) {
-            var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=' + PER_PAGE + '&page=' + page;
+        function fetchPage(page, append, perPage) {
+            var q = 'threads?inbox=' + encodeURIComponent(inbox) + '&per_page=' + (perPage || PER_PAGE) + '&page=' + page;
             if (props.labelFilterId) {
                 q += '&label_id=' + encodeURIComponent(props.labelFilterId);
             } else {
@@ -2391,13 +2474,34 @@
             return restGet(q);
         }
 
+        // A refresh of the SAME list (refreshKey bump after read/star/archive) keeps the rows on screen and
+        // reloads as many as are showing, so the list doesn't flash a spinner or lose the reader's place.
+        var listKeyRef = wp.element.useRef ? wp.element.useRef('') : { current: '' };
         useEffect(function () {
             if (!inbox) return;
-            setState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
-            setSelected({});
-            fetchPage(1, false)
-                .then(function (data) { setState({ loading: false, items: data.items || [], total: data.total, page: data.page, err: null, counts: data.counts || null }); })
-                .catch(function (e) { setState({ loading: false, items: [], total: 0, page: 1, err: e.message || 'Failed to load threads', counts: null }); });
+            var listKey = inbox + '|' + filter + '|' + (props.labelFilterId || 0);
+            var soft = listKeyRef.current === listKey && !state.loading && state.items.length > 0;
+            listKeyRef.current = listKey;
+            // Whole pages only (so "Load more" continues without a gap); the threads route caps per_page at 100.
+            var shown = soft ? Math.min(Math.ceil(state.items.length / PER_PAGE) * PER_PAGE, 100) : PER_PAGE;
+            if (!soft) {
+                setState({ loading: true, items: [], total: 0, page: 1, err: null, counts: null });
+                setSelected({});
+            }
+            var cancelled = false;
+            fetchPage(1, false, shown)
+                .then(function (data) {
+                    if (cancelled) return;
+                    // Keep "Load more" paging on PER_PAGE boundaries after a soft reload of several pages.
+                    var items = data.items || [];
+                    var page = soft ? shown / PER_PAGE : data.page;
+                    setState({ loading: false, items: items, total: data.total, page: page, err: null, counts: data.counts || null });
+                })
+                .catch(function (e) {
+                    if (cancelled || soft) return;
+                    setState({ loading: false, items: [], total: 0, page: 1, err: e.message || 'Failed to load threads', counts: null });
+                });
+            return function () { cancelled = true; };
         }, [inbox, filter, props.labelFilterId, props.refreshKey]);
 
         function loadMore() {
@@ -2430,8 +2534,8 @@
                 .then(function () { setSelected({}); props.onBulkApplied && props.onBulkApplied(); });
         }
 
-        if (state.loading) return html`<aside class="em-inbox-feed"><${Spinner} /></aside>`;
-        if (state.err)     return html`<aside class="em-inbox-feed"><${Notice} status="error" isDismissible=${false}>${state.err}<//></aside>`;
+        if (state.loading) return html`<aside class=${'em-inbox-feed' + (props.isHidden ? ' is-hidden' : '')}><${Spinner} /></aside>`;
+        if (state.err)     return html`<aside class=${'em-inbox-feed' + (props.isHidden ? ' is-hidden' : '')}><${Notice} status="error" isDismissible=${false}>${state.err}<//></aside>`;
 
         var counts = state.counts || {};
         var btn = function (key, label) {
@@ -2447,7 +2551,7 @@
         var allOnPageSelected = state.items.length > 0 && state.items.every(function (t) { return selected[Number(t.id)]; });
 
         return html`
-          <aside class="em-inbox-feed" aria-label="Inbox thread list">
+          <aside class=${'em-inbox-feed' + (props.isHidden ? ' is-hidden' : '')} aria-label="Inbox thread list" aria-hidden=${props.isHidden ? 'true' : undefined}>
             <header class="em-inbox-feed-header">
               ${! props.hideHeader && html`
                 ${isNarrow ? html`
@@ -2769,7 +2873,23 @@
             try {
                 var d = f && f.contentDocument;
                 if (!d || !d.body) return;
-                f.style.height = (Math.max(d.documentElement.scrollHeight, d.body.scrollHeight) + 2) + 'px';
+                var b = d.body, de = d.documentElement;
+                // Measure at natural size, then shrink designs wider than the frame (600px newsletters on a
+                // phone) to fit its width, as phone mail apps do, so the reader never scrolls sideways.
+                b.style.transform = ''; b.style.width = ''; de.style.overflowX = '';
+                var cw = f.clientWidth;
+                var w = Math.max(de.scrollWidth, b.scrollWidth);
+                var h = Math.max(de.scrollHeight, b.scrollHeight);
+                if (cw > 0 && w > cw + 4) {
+                    var s = cw / w;
+                    b.style.width = w + 'px';
+                    b.style.transformOrigin = '0 0';
+                    b.style.transform = 'scale(' + s + ')';
+                    de.style.overflowX = 'hidden';
+                    f.style.height = (Math.ceil(b.scrollHeight * s) + 2) + 'px';
+                } else {
+                    f.style.height = (h + 2) + 'px';
+                }
             } catch (e) {}
         }
         function onLoad() {

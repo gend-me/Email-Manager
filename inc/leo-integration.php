@@ -659,9 +659,7 @@ class EM_Leo
                 jQuery(function ($) {
                     var $state = $('#em-leo-oauth-status');
                     var hubUrl = '<?php echo esc_js(class_exists('EM_Leo_OAuth') ? EM_Leo_OAuth::hub_url() : 'https://gend.me'); ?>';
-                    var clientId = <?php echo wp_json_encode(class_exists('EM_Leo_OAuth') && EM_Leo_OAuth::hydra_flow() ? EM_Leo_OAuth::client_id() : $settings['oauth_client_id']); ?>;
-                    // gend.me's own OAuth server (Hydra) when set, else null = the hub's legacy server.
-                    var oauthFlow = <?php echo wp_json_encode(class_exists('EM_Leo_OAuth') ? EM_Leo_OAuth::public_flow() : null); ?>;
+                    var clientId = <?php echo wp_json_encode($settings['oauth_client_id']); ?>;
 
                     function refreshStatus() {
                         $.get(<?php echo wp_json_encode(rest_url('em/v1/oauth/status')); ?>).done(function (s) {
@@ -695,7 +693,7 @@ class EM_Leo
 
                     function startOAuth() {
                         if (!clientId) { alert('Set the OAuth Client ID first.'); return; }
-                        var redirectUri = oauthFlow ? oauthFlow.redirect_uri : 'https://gend.me/oauth-bridge/';
+                        var redirectUri = 'https://gend.me/oauth-bridge/';
                         var b64url = function (bytes) {
                             var s = ''; bytes.forEach(function (b) { s += String.fromCharCode(b); });
                             return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -716,10 +714,7 @@ class EM_Leo
                                 code_challenge: challenge,
                                 code_challenge_method: 'S256'
                             });
-                            if (oauthFlow) params.set('scope', oauthFlow.scope);
-                            // where the visitor came from + the gend.me affiliate this site remembers (gm_from / gm_ref); Hydra records them for the hub's referral credit
-                            if (oauthFlow && oauthFlow.extra) { Object.keys(oauthFlow.extra).forEach(function (k) { params.set(k, oauthFlow.extra[k]); }); }
-                            var authorizeUrl = (oauthFlow ? oauthFlow.authorize_url : hubUrl + '/oauth/authorize') + '?' + params.toString();
+                            var authorizeUrl = hubUrl + '/oauth/authorize?' + params.toString();
                             var w = 600, h = 700;
                             var l = (window.innerWidth / 2) - w / 2;
                             var t = (window.innerHeight / 2) - h / 2;
@@ -728,7 +723,7 @@ class EM_Leo
                             var onMsg = function (ev) {
                                 if (ev.origin !== hubOrigin) return;
                                 var d = ev.data || {};
-                                if ((d.type !== 'gdc-auth' && d.type !== 'gend_oauth') || !d.code) return;
+                                if (d.type !== 'gdc-auth' || !d.code) return;
                                 window.removeEventListener('message', onMsg);
                                 if (win) try { win.close(); } catch(_) {}
                                 var attempt = {};

@@ -98,10 +98,16 @@ class EM_Postings
         add_action('wp_ajax_em_complete_posting_step',     [$this, 'ajax_complete_step']);
         add_action('wp_ajax_em_check_posting_actions',     [$this, 'ajax_check_actions']);
         add_action('wp_ajax_em_search_members',            [$this, 'ajax_search_members']);
+        // The applicant's own "Submit for review" (profile > Applications) on a step set to "Member submits it".
+        add_action('wp_ajax_em_member_submit_step',        [$this, 'ajax_member_submit_step']);
+        add_action('wp_ajax_em_member_resend_confirmation', [$this, 'ajax_member_resend_confirmation']);
+        // Applicants confirm their email first (same as the launch flow); confirming releases their applications.
+        add_action('wu_transition_customer_email_verification', [$this, 'on_email_verified'], 20, 3);
 
         // One-click approval links emailed to a step's designated approvers
         // (login required; the handler re-checks they're an eligible approver).
         add_action('admin_post_em_posting_approve',        [$this, 'handle_approval_link']);
+        add_filter('wu_system_email_to', [$this, 'applicant_confirm_email'], 10, 3);   // applicants get their own confirmation email
         add_action('admin_post_nopriv_em_posting_approve', [$this, 'handle_approval_link']);
 
         // "User action" steps (e.g. add a cover photo) are re-checked hourly
@@ -323,6 +329,7 @@ class EM_Postings
         return [
             'manual' => __('Team confirms manually', 'email-manager'),
             'update' => __('Action update', 'email-manager'),
+            'member' => __('Member submits it (Applications tab on their profile)', 'email-manager'),
         ];
     }
 
@@ -362,7 +369,7 @@ class EM_Postings
         $d = self::completion_defaults();
         $role = sanitize_key((string) ($raw['approver_role'] ?? ''));
 
-        $mode = in_array($raw['action_mode'] ?? '', ['manual', 'update'], true) ? $raw['action_mode'] : $d['action_mode'];
+        $mode = in_array($raw['action_mode'] ?? '', ['manual', 'update', 'member'], true) ? $raw['action_mode'] : $d['action_mode'];
         $updates = [];
         foreach ($updates_in as $u) {
             $u = is_scalar($u) ? sanitize_key((string) $u) : '';
@@ -974,6 +981,7 @@ class EM_Postings
     {
         return [
             'live'   => __('Live', 'email-manager'),
+            'draft'  => __('Ready to post', 'email-manager'),   // written here, not on the site yet
             'paused' => __('Paused', 'email-manager'),
             'closed' => __('Closed', 'email-manager'),
         ];
@@ -993,6 +1001,13 @@ class EM_Postings
     {
         $v = sanitize_text_field((string) $v);
         return preg_match('/^[A-Za-z0-9_:.\-]{1,80}$/', $v) ? $v : '';
+    }
+
+    /** The text to paste on the board: plain text, line breaks kept. */
+    private static function clean_board_body($v)
+    {
+        $v = sanitize_textarea_field((string) $v);
+        return function_exists('mb_substr') ? mb_substr($v, 0, 12000) : substr($v, 0, 12000);
     }
 
     public static function sanitize_boards($rows)
@@ -1033,6 +1048,7 @@ class EM_Postings
                 'program'  => $kind === self::KIND_AFFILIATE ? self::clean_program($r['program'] ?? '') : '',
                 'title'    => function_exists('mb_substr') ? mb_substr($title, 0, 120) : substr($title, 0, 120),
                 'url'      => $url,
+                'body'     => self::clean_board_body($r['body'] ?? ''),
                 'status'   => isset($statuses[$status]) ? $status : 'live',
                 'cost'     => round($num($r['cost'] ?? 0), 2),
                 'reported' => [
@@ -1062,6 +1078,7 @@ class EM_Postings
                 'status'   => $col('board_status', $i),
                 'title'    => $col('board_title', $i),
                 'url'      => $col('board_url', $i),
+                'body'     => $col('board_body', $i),
                 'cost'     => $col('board_cost', $i),
                 'reported' => ['views' => $col('board_rviews', $i), 'clicks' => $col('board_rclicks', $i), 'applies' => $col('board_rapplies', $i)],
             ];
@@ -1307,6 +1324,22 @@ class EM_Postings
         return is_array($m) ? $m : [];
     }
 
+    /**
+     * The social member type that goes with a group role: "project-consultant" => "Project Consultants".
+     * Member type keys on this network keep their capitals and spaces, so they are matched by slug.
+     */
+    private static function member_type_for_group_role($role_key)
+    {
+        if (!function_exists('bp_get_member_types')) return '';
+        $want = sanitize_title((string) $role_key);
+        if ($want === '') return '';
+        foreach ((array) bp_get_member_types([], 'names') as $name) {
+            $slug = sanitize_title((string) $name);
+            if ($slug === $want || $slug === $want . 's') return (string) $name;
+        }
+        return '';
+    }
+
     /** The roles / member types a contract hands out, as [kind, key] pairs (kind: role | member_type). */
     private static function contract_grants(array $contract)
     {
@@ -1322,6 +1355,10 @@ class EM_Postings
                     $type = $rc['role_type'] ?? 'wp_role';
                     if ($type === 'wp_role')   $grants[] = ['role', $key];
                     if ($type === 'sp_member') $grants[] = ['member_type', $key];
+                    if ($type === 'group_role') {
+                        $mt = self::member_type_for_group_role($key);
+                        if ($mt !== '') $grants[] = ['member_type', $mt];
+                    }
                 }
             }
             if ($contract['service'] !== '') {
@@ -1577,6 +1614,9 @@ class EM_Postings
                 $matched_user = get_user_by('email', $email);
                 if ($matched_user) $user_id = $matched_user->ID;
             }
+            // An Account Registration answer ({"action":"registered"|"logged_in","user_id":N}) carries no plain
+            // name/email answer: take the member from it (only when it matches the server-set author).
+            if (!$user_id && ($acct = self::submission_account($sub->ID, $answers))) $user_id = (int) $acct->ID;
 
             $message_url = '';
             if ($user_id && function_exists('bp_core_get_user_domain')) {
@@ -1622,6 +1662,10 @@ class EM_Postings
                 'user_id'        => $user_id,
                 'message_url'    => $message_url,
                 'submitted'      => get_the_date('', $sub->ID),
+                'ts'             => (int) get_post_time('U', true, $sub->ID),
+                'email_status'   => $user_id ? self::email_status($user_id) : 'none',
+                'email_hold'     => (bool) get_post_meta($sub->ID, self::META_EMAIL_HOLD, true),
+                'rejected'       => self::is_rejected($sub->ID),
             ];
         }
         return $out;
@@ -1873,6 +1917,9 @@ class EM_Postings
             // this is what used to be the fixed "Applicant Email"/"Team Email"
             // send, now driven by whatever step 0 is configured to do.
             $this->advance_applicant_to_step($posting, $submission_id, 0, $answers);
+            // The applicant confirms their email address first (the launch flow's confirmation email and pop-up);
+            // on_email_verified() completes this first step once they do.
+            if (self::hold_for_email($submission_id, $answers)) continue;
             // Submitting the form IS what completes step 1, so the applicant
             // moves straight into step 2 and waits there for that step's
             // approval / user action (a single-step process just completes).
@@ -1897,6 +1944,11 @@ class EM_Postings
         }
         $email = class_exists('EM_Applications') ? EM_Applications::extract_email_from_submission($answers) : '';
         $name  = class_exists('EM_Applications') ? EM_Applications::extract_name_from_submission($answers, '') : '';
+        // Forms whose only question is the account sign-up hold no email answer.
+        if ($email === '' && ($acct = self::submission_account($submission_id, $answers))) {
+            $email = (string) $acct->user_email;
+            if ($name === '') $name = trim((string) $acct->first_name) !== '' ? (string) $acct->first_name : (string) $acct->display_name;
+        }
 
         $stage_label = $step['title'] !== '' ? $step['title'] : sprintf(__('Step %d', 'email-manager'), $step_index + 1);
         update_post_meta($submission_id, self::META_STEP_INDEX, $step_index);
@@ -1977,6 +2029,9 @@ class EM_Postings
 
                 $subject = strtr((string) ($entry['subject'] ?? ''), $tokens);
                 $body    = strtr((string) ($entry['body'] ?? ''), $tokens);
+                if (function_exists('gend_email_wrap') && function_exists('gend_email_brand_on') && gend_email_brand_on()) {
+                    $body = gend_email_wrap($body);
+                }
                 wp_mail($recipients, $subject, $body, ['Content-Type: text/html; charset=UTF-8']);
             }
         }
@@ -2137,20 +2192,46 @@ class EM_Postings
 
         $who   = $name ?: ($email ?: __('An applicant', 'email-manager'));
         $title = $step['title'] !== '' ? $step['title'] : sprintf(__('Step %d', 'email-manager'), $step_index + 1);
-        $url   = self::approval_url($submission_id, $step_index);
+        $url   = self::approval_url($submission_id, $step_index);   // signed: opens the application for review (never approves on its own)
 
-        $subject = sprintf(__('Approval needed: %1$s — %2$s (%3$s)', 'email-manager'), $who, $posting->post_title, $title);
-        $body    = '<p>' . esc_html(sprintf(__('%1$s applied to %2$s and is waiting on the "%3$s" step, which needs your approval.', 'email-manager'), $who, $posting->post_title, $title)) . '</p>'
-            . ($email ? '<p>' . esc_html($email) . '</p>' : '')
-            . '<p style="color:#555;">' . nl2br(esc_html($this->answers_to_text($answers))) . '</p>'
-            . '<p><a href="' . esc_url($url) . '" style="display:inline-block;padding:10px 18px;background:#4f46e5;color:#fff;border-radius:6px;text-decoration:none;">' . esc_html__('Approve and continue', 'email-manager') . '</a></p>'
-            . '<p style="color:#777;font-size:12px;">' . esc_html__('You must be signed in as an approver for this step.', 'email-manager') . ' ' . esc_url($url) . '</p>';
-
+        $subject = sprintf(__('Review needed: %1$s, %2$s (%3$s)', 'email-manager'), $who, $posting->post_title, $title);
+        $rows = '';
+        foreach (array_filter(array_map('trim', explode("\n", (string) $this->answers_to_text($answers)))) as $line) {
+            if (preg_match('/:\s*\{/', $line)) continue;   // the account sign-up record (JSON): name + email are shown above
+            $rows .= '<p style="margin:0 0 6px;font-size:14px;line-height:1.55;color:#aab4bf;">' . esc_html($line) . '</p>';
+        }
+        $body = self::email_card(
+            sprintf(__('Review · %s', 'email-manager'), $posting->post_title),
+            esc_html__('An application is', 'email-manager') . ' <em style="font-style:italic;color:#e06bff;">' . esc_html__('waiting for you', 'email-manager') . '</em>.',
+            '<p style="margin:0 0 16px;font-size:16px;line-height:1.65;color:#dfe6ee;">' . esc_html(sprintf(__('%1$s applied for %2$s and has reached the "%3$s" step, which needs your review.', 'email-manager'), $who, $posting->post_title, $title)) . '</p>'
+            . ($email ? '<p style="margin:0 0 16px;font-size:14px;color:#6ec1e4;">' . esc_html($email) . '</p>' : '')
+            . ($rows ? '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#121722" style="width:100%;margin:0 0 8px;border-collapse:separate;background-color:#121722;border:1px solid #1f2632;border-radius:14px;"><tr><td style="padding:16px 18px;">' . $rows . '</td></tr></table>' : ''),
+            __('Review application', 'email-manager'),
+            $url,
+            __('Opens the application in Talk Flows › Applications, where you approve it or send it back. Nothing is approved from this email.', 'email-manager')
+        );
         foreach ($approvers as $u) {
             if (is_email($u->user_email)) {
                 wp_mail($u->user_email, $subject, $body, ['Content-Type: text/html; charset=UTF-8']);
             }
         }
+    }
+
+    /** gend.me email card (same design as the step emails), wrapped in the shared template when it is on. */
+    public static function email_card($eyebrow, $h1_html, $body_html, $btn_label = '', $btn_url = '', $foot = '')
+    {
+        $mono = 'font-family:JetBrains Mono,SFMono-Regular,Consolas,Courier New,monospace;';
+        $html = '<table role="presentation" class="gm-card" data-gend-email="body" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0b0e14" style="width:100%;max-width:600px;margin:0 auto;border-collapse:separate;border-spacing:0;background-color:#0b0e14;border:1px solid #1f2632;border-radius:20px;">'
+            . '<tr><td style="height:4px;line-height:4px;font-size:0;background-color:#b608c9;background-image:linear-gradient(90deg,#b608c9,#e06bff,#6ec1e4);border-radius:19px 19px 0 0;">&nbsp;</td></tr>'
+            . '<tr><td class="gm-pad" style="padding:40px 40px 36px;font-family:Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.65;font-weight:300;color:#dfe6ee;">'
+            . '<p class="gm-eyebrow" style="margin:0 0 14px;' . $mono . 'font-size:11px;line-height:1.4;font-weight:500;letter-spacing:0.22em;text-transform:uppercase;color:#6ec1e4;">' . esc_html($eyebrow) . '</p>'
+            . '<h1 class="gm-h1" style="margin:0 0 18px;font-family:Playfair Display,Georgia,Times New Roman,serif;font-size:30px;line-height:1.15;font-weight:700;letter-spacing:-0.02em;color:#ffffff;">' . $h1_html . '</h1>'
+            . $body_html
+            . ($btn_url !== '' ? '<table role="presentation" class="gm-btn" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 4px;"><tr><td align="center" bgcolor="#b608c9" style="padding:15px 34px;background-color:#b608c9;border-radius:100px;"><a href="' . esc_url($btn_url) . '" style="font-family:Inter,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.2;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:#ffffff;text-decoration:none;">' . esc_html($btn_label) . '</a></td></tr></table>' : '')
+            . ($foot !== '' ? '<p style="margin:20px 0 0;font-size:13px;line-height:1.6;color:#8b949e;">' . esc_html($foot) . '</p>' : '')
+            . '</td></tr></table>';
+        if (function_exists('gend_email_wrap') && function_exists('gend_email_brand_on') && gend_email_brand_on()) $html = gend_email_wrap($html);
+        return $html;
     }
 
     /** Front door for the emailed approval link. */
@@ -2180,11 +2261,13 @@ class EM_Postings
             wp_die(esc_html__('You are not an approver for this step.', 'email-manager'), '', ['response' => 403]);
         }
         if (self::current_step_index($sub, $process) !== $step || get_post_meta($sub, self::META_STEP_STATE, true) === 'completed') {
-            wp_die(esc_html__('This step was already handled — nothing more to do.', 'email-manager'), esc_html__('Already handled', 'email-manager'), ['response' => 200]);
+            wp_safe_redirect(admin_url('admin.php?page=talk-flows&ats_open=' . (int) $sub) . '#tab=applications');
+            exit;
         }
 
-        $this->complete_step($posting, $sub, 'approval', get_current_user_id());
-        wp_die(esc_html__('Approved — the applicant has moved on to the next step.', 'email-manager'), esc_html__('Approved', 'email-manager'), ['response' => 200]);
+        // 2026-11-12: the email no longer approves on its own; it opens the application in Talk Flows › Applications.
+        wp_safe_redirect(admin_url('admin.php?page=talk-flows&ats_open=' . (int) $sub) . '#tab=applications');
+        exit;
     }
 
     /* ---------------- User-action detection ---------------- */
@@ -2199,7 +2282,28 @@ class EM_Postings
             $u = $email ? get_user_by('email', $email) : false;
             if ($u) $uid = (int) $u->ID;
         }
+        if (!$uid && ($acct = self::submission_account($submission_id, $answers))) $uid = (int) $acct->ID;
         return $uid;
+    }
+
+    /** The member behind an Account Registration answer ({"action":"registered"|"logged_in","user_id":N,...}).
+     *  That answer can be typed or altered by the visitor, so it only counts when its user_id is the
+     *  submission's author, which the server sets to the member who was signed in (or just registered)
+     *  when the form was sent. */
+    public static function submission_account($submission_id, $answers)
+    {
+        $author = (int) get_post_field('post_author', (int) $submission_id);
+        if ($author < 1 || !is_array($answers)) return null;
+        foreach ($answers as $val) {
+            $raw = is_array($val) ? ($val['answer'] ?? '') : $val;
+            if (!is_string($raw) || $raw === '' || $raw[0] !== '{') continue;
+            $d = json_decode($raw, true);
+            if (is_array($d) && in_array($d['action'] ?? '', ['registered', 'logged_in'], true) && (int) ($d['user_id'] ?? 0) === $author) {
+                $u = get_userdata($author);
+                return $u ?: null;
+            }
+        }
+        return null;
     }
 
     /** Plain-English list of the updates a step is waiting on. */
@@ -2457,7 +2561,8 @@ class EM_Postings
 
     private function guard()
     {
-        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Forbidden'], 403);
+        // 2026-11-14: a group's managers may move / approve its applicants from the group's Careers tab (postings-groups.php).
+        if (!current_user_can('manage_options') && !(function_exists('em_ats_group_scope') && em_ats_group_scope())) wp_send_json_error(['message' => 'Forbidden'], 403);
         check_ajax_referer('em_app_support', 'nonce');
     }
 
@@ -2579,6 +2684,7 @@ class EM_Postings
         update_post_meta($posting_id, self::META_STATUS, $status);
         update_post_meta($posting_id, self::META_FORM_ID, $form_id);
         update_post_meta($posting_id, self::META_LANDING, $landing);
+        do_action('em_posting_saved', $posting_id); // 2026-11-14: Group (postings-groups.php)
 
         // Ensure the landing page exists (always) + thank-you page (only in page mode).
         $this->ensure_owned_page($posting_id, 'landing', $title);
@@ -2631,7 +2737,7 @@ class EM_Postings
         $lp      = (int) get_post_meta($id, self::META_LANDING_PAGE, true);
         $typ     = (int) get_post_meta($id, self::META_THANKYOU_PAGE, true);
 
-        return [
+        return apply_filters('em_posting_payload', [
             'id'          => $id,
             'title'       => $posting->post_title,
             'status'      => get_post_meta($id, self::META_STATUS, true) ?: 'open',
@@ -2652,7 +2758,7 @@ class EM_Postings
             'landing_edit_url'  => $lp  ? admin_url('post.php?post=' . $lp  . '&action=edit') : '',
             'thankyou_edit_url' => $typ ? admin_url('post.php?post=' . $typ . '&action=edit') : '',
             'form_edit_url'     => $form_id ? admin_url('post.php?post=' . $form_id . '&action=edit') : '',
-        ];
+        ], $posting);
     }
 
     public function ajax_get_form_fields()
@@ -2876,6 +2982,263 @@ class EM_Postings
     }
 
     /** Is this application tagged to this posting? */
+    /* ---------------- Email confirmation (same as the launch flow: WP Ultimo customer verification) ---------------- */
+
+    const META_EMAIL_HOLD = '_em_email_hold';     // submission meta: ts the application started waiting for the email confirmation
+    const META_REJECTED   = '_em_ats_rejected';   // submission meta: ['at' => ts, 'by' => uid, 'reason' => text]
+
+    /** 'verified' | 'pending' | 'none' for a member. Without WP Ultimo there is nothing to confirm with: 'verified'. */
+    public static function email_status($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id < 1) return 'none';
+        if (get_user_meta($user_id, 'gdc_email_verified_at', true)) return 'verified';
+        if (!function_exists('wu_get_customer_by_user_id')) return 'verified';
+        $c = wu_get_customer_by_user_id($user_id);
+        if (!$c) return 'none';
+        $s = (string) $c->get_email_verification();
+        return in_array($s, ['verified', 'pending'], true) ? $s : 'none';
+    }
+
+    /** Ask the member to confirm their email: creates their customer record as pending (which sends the launch flow's
+     *  confirmation email), flips an unconfirmed one to pending, or resends (at most once a minute) when $resend. */
+    public static function request_email_confirmation($user_id, $resend = false)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id < 1 || !function_exists('wu_get_customer_by_user_id') || !function_exists('wu_create_customer')) return false;
+        $c = wu_get_customer_by_user_id($user_id);
+        if (!$c) {
+            $c = wu_create_customer(['user_id' => $user_id, 'email_verification' => 'pending']);
+            return !is_wp_error($c) && $c;
+        }
+        $state = (string) $c->get_email_verification();
+        if ($state === 'verified') return true;
+        if ($state !== 'pending') {
+            $c->set_email_verification('pending');
+            $c->save();
+            return true;
+        }
+        if (!$resend) return true;
+        $last = (int) get_user_meta($user_id, 'gdc_last_verification_email_sent', true);
+        if ($last && time() - $last < 60) return false;
+        $c->send_verification_email();
+        update_user_meta($user_id, 'gdc_last_verification_email_sent', time());
+        return true;
+    }
+
+    /** On submission: an applicant whose email isn't confirmed stays on the first step until they confirm it. */
+    private static function hold_for_email($submission_id, $answers)
+    {
+        if (!apply_filters('em_postings_require_email_confirmation', true, $submission_id)) return false;
+        $uid = self::applicant_user_id($submission_id, $answers);
+        if (!$uid || self::email_status($uid) === 'verified') return false;
+        self::$confirm_for = (int) $submission_id;   // the confirmation email that goes out now is about this application
+        $ok = self::request_email_confirmation($uid);
+        self::$confirm_for = 0;
+        if (!$ok) return false;   // nothing to confirm with: don't block the application
+        update_post_meta($submission_id, self::META_EMAIL_HOLD, time());
+        return true;
+    }
+
+    /** Set while an application asks for the email confirmation (see applicant_confirm_email()). */
+    private static $confirm_for = 0;
+
+    /**
+     * WP Ultimo's confirm_email_address email talks about launching a web app. For an applicant (an application is
+     * asking, or one is held for the confirmation), send the application's own email with the same verification link
+     * and return no recipient so WP Ultimo's copy is not sent.
+     */
+    public function applicant_confirm_email($to, $email, $payload)
+    {
+        if (!is_object($email) || !method_exists($email, 'get_slug') || $email->get_slug() !== 'confirm_email_address') return $to;
+        $link = isset($payload['verification_link']) ? (string) $payload['verification_link'] : '';
+        if ($link === '') return $to;
+        $uid = 0;
+        foreach (['customer_user_id', 'user_id'] as $k) {
+            if (!$uid && !empty($payload[$k])) $uid = (int) $payload[$k];
+        }
+        if (!$uid && !empty($payload['customer_id']) && function_exists('wu_get_customer') && ($c = wu_get_customer((int) $payload['customer_id']))) $uid = (int) $c->get_user_id();
+        if (!$uid && is_string($to) && is_email($to) && ($u = get_user_by('email', $to))) $uid = (int) $u->ID;
+        $user = $uid ? get_userdata($uid) : null;
+        if (!$user) return $to;
+        $sids = self::$confirm_for ? [self::$confirm_for] : self::email_held_submissions($uid);
+        if (!$sids) return $to;
+        $posting = get_post((int) get_post_meta((int) $sids[0], self::SUBMISSION_TAG, true));
+        if (!$posting || $posting->post_type !== self::CPT) return $to;
+
+        $name = trim((string) $user->first_name) !== '' ? (string) $user->first_name : (string) $user->display_name;
+        $body = self::email_card(
+            sprintf(__('Application · %s', 'email-manager'), $posting->post_title),
+            esc_html__('One click to', 'email-manager') . ' <em style="font-style:italic;color:#e06bff;">' . esc_html__('send your application', 'email-manager') . '</em>.',
+            '<p style="margin:0 0 16px;font-size:16px;line-height:1.65;color:#dfe6ee;">' . esc_html(sprintf(__('Hi %1$s, thanks for applying for %2$s. Confirm this is your email address and your application moves straight on to the next step.', 'email-manager'), $name, $posting->post_title)) . '</p>',
+            __('Confirm my email', 'email-manager'),
+            $link,
+            sprintf(__('After confirming you return to the %s page with your next steps. If you did not apply, you can ignore this email.', 'email-manager'), $posting->post_title)
+        );
+        wp_mail($user->user_email, sprintf(__('Confirm your email to send your %s application', 'email-manager'), $posting->post_title), $body, ['Content-Type: text/html; charset=UTF-8']);
+        return '';
+    }
+
+    /** The member's applications that wait for their email confirmation. */
+    public static function email_held_submissions($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id < 1) return [];
+        $base = ['post_type' => 'chat_submission', 'post_status' => 'any', 'numberposts' => 50, 'fields' => 'ids'];
+        $ids = get_posts($base + ['author' => $user_id, 'meta_key' => self::META_EMAIL_HOLD, 'meta_compare' => 'EXISTS']);
+        if (class_exists('EM_Applications')) {
+            $ids = array_merge($ids, get_posts($base + ['meta_query' => [['key' => self::META_EMAIL_HOLD, 'compare' => 'EXISTS'], ['key' => EM_Applications::APPLICANT_USER_META, 'value' => $user_id]]]));
+        }
+        return array_values(array_unique(array_map('intval', $ids)));
+    }
+
+    /** Email confirmed (WP Ultimo customer -> verified): every held application carries on from its first step. */
+    public function on_email_verified($old_status, $new_status, $customer_id)
+    {
+        if ($new_status !== 'verified' || !function_exists('wu_get_customer')) return;
+        $c = wu_get_customer($customer_id);
+        if ($c) $this->release_email_holds((int) $c->get_user_id());
+    }
+
+    public function release_email_holds($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id < 1) return 0;
+        if (!get_user_meta($user_id, 'gdc_email_verified_at', true)) update_user_meta($user_id, 'gdc_email_verified_at', time());
+        $n = 0;
+        foreach (self::email_held_submissions($user_id) as $sid) {
+            delete_post_meta($sid, self::META_EMAIL_HOLD);
+            $posting = get_post((int) get_post_meta($sid, self::SUBMISSION_TAG, true));
+            if (!$posting || $posting->post_type !== self::CPT) continue;
+            $this->log_step_event($sid, __('Email confirmed', 'email-manager'), 'email_confirmed', 'member', $user_id);
+            if ($this->complete_step($posting, $sid, 'submission', 0)) $n++;
+        }
+        return $n;
+    }
+
+    /** Admin: confirm a member's email by hand (support cases). Releases their applications too. */
+    public function admin_confirm_email($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id < 1) return false;
+        if (function_exists('wu_get_customer_by_user_id') && ($c = wu_get_customer_by_user_id($user_id)) && $c->get_email_verification() !== 'verified') {
+            $c->disable_verification_key();
+            $c->set_email_verification('verified');
+            $c->save();                         // fires on_email_verified
+        }
+        $this->release_email_holds($user_id);   // no customer record, or already verified with holds left
+        return true;
+    }
+
+    public static function is_rejected($submission_id)
+    {
+        $r = get_post_meta((int) $submission_id, self::META_REJECTED, true);
+        return is_array($r) && !empty($r['at']);
+    }
+
+    /* ---------------- The member's own applications (profile > Applications) ---------------- */
+
+    /** Is this member the applicant behind the submission? Only the submission's author (set by the server to the
+     *  member who was signed in or had just registered) or the account the team linked to it count, never a typed email. */
+    public static function member_owns_submission($submission_id, $user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id < 1 || get_post_type((int) $submission_id) !== 'chat_submission') return false;
+        if ((int) get_post_field('post_author', (int) $submission_id) === $user_id) return true;
+        return class_exists('EM_Applications') && (int) get_post_meta((int) $submission_id, EM_Applications::APPLICANT_USER_META, true) === $user_id;
+    }
+
+    /** Can the member complete the step they are on themselves? (a user-action step set to "Member submits it") */
+    public static function member_can_submit(array $step, $step_index, $state)
+    {
+        return $step_index >= 1 && empty($step['final']) && $state !== 'completed' && empty($step['_rejected'])
+            && ($step['completion'] ?? '') === 'action' && ($step['action_mode'] ?? '') === 'member';
+    }
+
+    /** Every application this member sent through a posting, newest first, with where it stands. */
+    public static function member_applications($user_id)
+    {
+        $user_id = (int) $user_id;
+        if ($user_id < 1) return [];
+        $base = ['post_type' => 'chat_submission', 'post_status' => ['publish', 'draft', 'pending', 'private'], 'numberposts' => 50, 'fields' => 'ids', 'orderby' => 'date', 'order' => 'DESC'];
+        $ids  = get_posts($base + ['author' => $user_id, 'meta_query' => [['key' => self::SUBMISSION_TAG, 'compare' => 'EXISTS']]]);
+        if (class_exists('EM_Applications')) {
+            $ids = array_merge($ids, get_posts($base + ['meta_query' => [['key' => EM_Applications::APPLICANT_USER_META, 'value' => $user_id], ['key' => self::SUBMISSION_TAG, 'compare' => 'EXISTS']]]));
+        }
+        $out = [];
+        foreach (array_unique(array_map('intval', $ids)) as $sid) {
+            $posting = get_post((int) get_post_meta($sid, self::SUBMISSION_TAG, true));
+            if (!$posting || $posting->post_type !== self::CPT || $posting->post_status === 'trash') continue;
+            $process = self::get_process($posting->ID);
+            if (!$process) continue;
+            $idx   = self::current_step_index($sid, $process);
+            $state = get_post_meta($sid, self::META_STEP_STATE, true) === 'completed' ? 'completed' : 'pending';
+            $step  = $idx >= 0 ? $process[$idx] : null;
+            $steps = [];
+            foreach ($process as $i => $s) {
+                $steps[] = ['title' => $s['title'] !== '' ? $s['title'] : sprintf(__('Step %d', 'email-manager'), $i + 1), 'desc' => (string) ($s['desc'] ?? ''), 'final' => !empty($s['final'])];
+            }
+            $rejected = self::is_rejected($sid);
+            if ($step && $rejected) $step['_rejected'] = 1;
+            $out[] = [
+                'id'           => (int) $sid,
+                'posting_id'   => (int) $posting->ID,
+                'rejected'     => $rejected,
+                'email_hold'   => (bool) get_post_meta($sid, self::META_EMAIL_HOLD, true),
+                'title'        => $posting->post_title,
+                'url'          => self::landing_url($posting),
+                'submitted'    => get_the_date('', $sid),
+                'ts'           => (int) get_post_time('U', true, $sid),
+                'steps'        => $steps,
+                'index'        => $idx,
+                'state'        => $state,
+                'approved'     => $state === 'completed' || ($step && !empty($step['final'])),
+                'waiting_on'   => ($step && $state === 'pending' && $idx >= 1 && empty($step['final'])) ? (string) $step['completion'] : '',
+                'can_submit'   => $step ? self::member_can_submit($step, $idx, $state) : false,
+                'action_label' => $step ? (string) ($step['action_label'] ?? '') : '',
+                'action_url'   => $step ? (string) ($step['action_url'] ?? '') : '',
+            ];
+        }
+        usort($out, function ($a, $b) { return $b['ts'] <=> $a['ts']; });
+        return $out;
+    }
+
+    /** POST submission_id + nonce (em_member_apps): the signed-in applicant completes their current "Member submits it"
+     *  step, which moves the application on (for Project Consultant / Web Developer: into Review, notifying approvers). */
+    public function ajax_member_submit_step()
+    {
+        check_ajax_referer('em_member_apps', 'nonce');
+        $uid = get_current_user_id();
+        $sid = absint($_POST['submission_id'] ?? 0);
+        if (!$uid || !$sid || !self::member_owns_submission($sid, $uid)) wp_send_json_error(['message' => __('That application is not yours.', 'email-manager')], 403);
+        $posting = get_post((int) get_post_meta($sid, self::SUBMISSION_TAG, true));
+        if (!$posting || $posting->post_type !== self::CPT) wp_send_json_error(['message' => __('That posting no longer exists.', 'email-manager')], 404);
+        $process = self::get_process($posting->ID);
+        $idx     = self::current_step_index($sid, $process);
+        $state   = get_post_meta($sid, self::META_STEP_STATE, true) === 'completed' ? 'completed' : 'pending';
+        if (self::is_rejected($sid) || get_post_meta($sid, self::META_EMAIL_HOLD, true)) wp_send_json_error(['message' => __('This step is not waiting on you any more.', 'email-manager')], 409);
+        if ($idx < 0 || !self::member_can_submit($process[$idx], $idx, $state)) wp_send_json_error(['message' => __('This step is not waiting on you any more.', 'email-manager')], 409);
+        if (class_exists('EM_Applications') && !(int) get_post_meta($sid, EM_Applications::APPLICANT_USER_META, true)) {
+            update_post_meta($sid, EM_Applications::APPLICANT_USER_META, $uid);
+        }
+        if (!$this->complete_step($posting, $sid, 'member', $uid)) wp_send_json_error(['message' => __('Could not submit it. Please try again.', 'email-manager')], 500);
+        foreach (self::member_applications($uid) as $app) {
+            if ($app['id'] === $sid) wp_send_json_success(['application' => $app]);
+        }
+        wp_send_json_success(['application' => null]);
+    }
+
+    /** POST nonce (em_member_apps): resend the email confirmation to the signed-in member. */
+    public function ajax_member_resend_confirmation()
+    {
+        check_ajax_referer('em_member_apps', 'nonce');
+        $uid = get_current_user_id();
+        if (!$uid) wp_send_json_error(['message' => __('Please sign in again.', 'email-manager')], 403);
+        if (self::email_status($uid) === 'verified') wp_send_json_success(['message' => __('Your email is already confirmed.', 'email-manager')]);
+        if (!self::request_email_confirmation($uid, true)) wp_send_json_error(['message' => __('We just sent one. Please wait a minute before asking again.', 'email-manager')], 429);
+        wp_send_json_success(['message' => __('Sent. Check your inbox and spam folder.', 'email-manager')]);
+    }
+
     private static function submission_belongs($submission_id, $posting_id)
     {
         return $submission_id && (int) get_post_meta($submission_id, self::SUBMISSION_TAG, true) === (int) $posting_id;
@@ -3385,6 +3748,8 @@ class EM_Postings
                 </div>
             </div>
 
+            <?php do_action('em_postings_panel_after_grid'); ?>
+
             <?php self::render_editor_modal(); ?>
             <?php self::render_newform_modal(); ?>
             <?php self::render_role_modal(); ?>
@@ -3504,6 +3869,7 @@ class EM_Postings
                                         <option value="closed"><?php esc_html_e('Closed — landing shown, form hidden', 'email-manager'); ?></option>
                                     </select>
                                 </label>
+                                <?php if (function_exists('em_posting_group_field')) em_posting_group_field(); // 2026-11-14 ?>
                             </div>
                             <div class="em-pf-field">
                                 <span class="em-pf-label"><?php esc_html_e('Application Form', 'email-manager'); ?></span>
@@ -3654,7 +4020,7 @@ class EM_Postings
                             </div>
 
                             <div class="em-pf-subpane" data-subpane="jobboards">
-                            <p class="em-pf-hint"><?php esc_html_e('Attach this application\'s postings on job boards. Each one gets its own tracked apply link — use it as the apply URL on the board — so visits and applications are counted per posting in Analytics. Job boards don\'t share their own numbers with us, so you can also log what a board reports to compare.', 'email-manager'); ?></p>
+                            <p class="em-pf-hint"><?php esc_html_e('Attach this application\'s postings on job boards. Each one holds the posting text to paste on that board and its own tracked apply link — use it as the apply URL on the board — so visits and applications are counted per posting in Analytics. Job boards don\'t share their own numbers with us, so you can also log what a board reports to compare.', 'email-manager'); ?></p>
                             <div class="em-pf-label"><?php esc_html_e('Add a posting from', 'email-manager'); ?></div>
                             <div class="em-board-chips">
                                 <?php foreach (self::board_catalog() as $key => $b): ?>
@@ -4206,4 +4572,4 @@ class EM_Postings
     }
 }
 
-new EM_Postings();
+$GLOBALS['em_postings'] = new EM_Postings();

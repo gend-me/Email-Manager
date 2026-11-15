@@ -82,6 +82,12 @@ function em_inbox_sanitize_html($html) {
     // Pass our own protocol allowlist (default WP set + cid) via the
     // third arg so they're preserved inside the inbox-render path.
     $protocols = array_merge(wp_allowed_protocols(), array('cid'));
+    // wp_kses drops disallowed tags but keeps their text, so a <style> block
+    // (every newsletter / Google notification has one) would show as raw CSS.
+    // Remove those elements together with their contents first.
+    $html = preg_replace('#<(head|style|script|title|noscript|template|xml)\b[^>]*>.*?</\1\s*>#is', '', $html);
+    $html = preg_replace('#<!--.*?-->#s', '', $html);
+    $html = preg_replace('#<(style|script|head|title)\b[^>]*>.*$#is', '', $html);
     $clean = wp_kses($html, em_inbox_strict_allowed_html(), $protocols);
     // Belt-and-suspenders: scrub any javascript:/data:/vbscript:/file: URLs
     // that snuck through (e.g. via a weird percent-encoding).
@@ -172,4 +178,29 @@ function em_inbox_toggle_show_images(WP_REST_Request $request) {
     if ($show) $list[] = $sender;
     update_user_meta($user->ID, 'em_inbox_show_images_from', $list);
     return rest_ensure_response(array('ok' => true, 'sender' => $sender, 'show' => $show, 'count' => count($list)));
+}
+
+/**
+ * Rich variant for the sandboxed message frame: keeps the sender's own
+ * <style> blocks and style attributes so the e-mail looks as it was sent.
+ * Safe because the client renders it in a script-less sandboxed iframe under
+ * a CSP that blocks everything except inline styles and (when allowed) images;
+ * the active content is also removed here (defence in depth).
+ */
+function em_inbox_sanitize_rich_html($html) {
+    if ($html === '' || $html === null) return '';
+    $html = preg_replace('#<(script|iframe|object|embed|applet|noscript|template|title|xml|frameset|frame)\b[^>]*>.*?</\1\s*>#is', '', $html);
+    $html = preg_replace('#<(script|iframe|object|embed|applet|title|frameset|frame)\b[^>]*>.*$#is', '', $html);
+    $html = preg_replace('#<!--.*?-->#s', '', $html);
+    $html = preg_replace('#</?(html|head|body|meta|link|base|form|input|button|select|textarea|svg)\b[^>]*>#i', '', $html);
+    $html = preg_replace('#\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)#i', '', $html);
+    $html = preg_replace_callback(
+        '/(href|src|background|cite|action|formaction)\s*=\s*(["\'])\s*(javascript|data|vbscript|file)\s*:[^"\']*\2/i',
+        function ($m) { return $m[1] . '="#blocked-' . strtolower($m[3]) . '"'; },
+        $html
+    );
+    // CSS: no @import / expression() / behavior / javascript: urls
+    $html = preg_replace('#@import[^;{]*;?#i', '', $html);
+    $html = preg_replace('#(expression\s*\(|behaviou?r\s*:|-moz-binding\s*:|javascript\s*:)#i', 'x-blocked', $html);
+    return $html;
 }

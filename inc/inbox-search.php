@@ -109,7 +109,9 @@ function em_inbox_search_handler(WP_REST_Request $request) {
             MATCH(m.subject, m.sender, m.body_plain) AGAINST (%s IN NATURAL LANGUAGE MODE) AS score
          FROM $messages m
          LEFT JOIN $threads t ON t.id = m.thread_id
+         LEFT JOIN {$wpdb->prefix}gdc_inbox_participants sp ON sp.thread_id = m.thread_id AND sp.user_id = " . (int) get_current_user_id() . "
          WHERE MATCH(m.subject, m.sender, m.body_plain) AGAINST (%s IN NATURAL LANGUAGE MODE)
+           AND COALESCE(sp.is_trashed, 0) = 0
            $inbox_clause
          ORDER BY score DESC, m.received_at DESC
          LIMIT %d",

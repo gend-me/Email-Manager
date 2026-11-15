@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Community Emails
  * Description: Automate high-touch communication and keep your users engaged with targeted community updates.
- * Version:     1.0.3
+ * Version:     1.0.1
  * Author:      By GenD
  * Author URI:  https://gend.me/
  * Text Domain: email-manager
@@ -11,7 +11,19 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('EMAIL_MANAGER_VERSION', time() + 25);
+// Asset version = newest mtime of the plugin's CSS/JS (cached 5 min). It used to be time() + 25, which minted a new URL for
+// every asset on every request: nothing could be cached by the browser or the static layer, and each page view re-downloaded
+// the plugin's CSS/JS from the hub. It still changes whenever a file is deployed.
+$em_asset_ver = wp_cache_get('em_asset_ver', 'email-manager');
+if (!$em_asset_ver) {
+    $em_asset_ver = 1;
+    foreach ((array) glob(plugin_dir_path(__FILE__) . 'assets/*.{css,js}', GLOB_BRACE) as $em_f) {
+        $em_asset_ver = max($em_asset_ver, (int) @filemtime($em_f));
+    }
+    wp_cache_set('em_asset_ver', $em_asset_ver, 'email-manager', 300);
+}
+define('EMAIL_MANAGER_VERSION', (int) $em_asset_ver);
+unset($em_asset_ver, $em_f);
 define('EMAIL_MANAGER_PATH', plugin_dir_path(__FILE__));
 define('EMAIL_MANAGER_URL', plugin_dir_url(__FILE__)); // Renamed to EM_URL in the instruction, but keeping original for consistency with other defines.
 define('EM_PATH', EMAIL_MANAGER_PATH); // Added for GitHub Updater
@@ -63,6 +75,8 @@ require_once EMAIL_MANAGER_PATH . 'inc/inbox-bootstrap.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-recovery-email.php';
 require_once EMAIL_MANAGER_PATH . 'inc/chat-widget.php';
 require_once EMAIL_MANAGER_PATH . 'inc/video-player.php';
+require_once EMAIL_MANAGER_PATH . 'inc/member-applications.php';
+require_once EMAIL_MANAGER_PATH . 'inc/postings-ats.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-dm.php';
 require_once EMAIL_MANAGER_PATH . 'inc/inbox-rest-output-guard.php';
 require_once EMAIL_MANAGER_PATH . 'inc/email-templates.php';
@@ -231,7 +245,7 @@ function em_enqueue_assets($hook)
         wp_enqueue_script('em-email-lists-table', EMAIL_MANAGER_URL . 'assets/email-lists-table.js', array('jquery', 'em-email-ai-popup'), EMAIL_MANAGER_VERSION . '-l1', true);
 
         // Applications + Support shared assets ("-p2" busts cache for the Postings rework)
-        wp_enqueue_style('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.css', array('em-email-manager-admin'), EMAIL_MANAGER_VERSION . '-p5');
+        wp_enqueue_style('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.css', array('em-email-manager-admin'), EMAIL_MANAGER_VERSION . '-p6');
         wp_enqueue_script('em-app-support', EMAIL_MANAGER_URL . 'assets/em-app-support.js', array('jquery'), EMAIL_MANAGER_VERSION . '-p4', true);
         wp_localize_script('em-app-support', 'EM_AS_CONFIG', array(
             'ajaxUrl' => admin_url('admin-ajax.php'),
@@ -239,7 +253,7 @@ function em_enqueue_assets($hook)
         ));
 
         // Postings (Applications ▸ Postings sub-tab) admin behaviors.
-        wp_enqueue_script('em-postings', EMAIL_MANAGER_URL . 'assets/em-postings.js', array('jquery', 'em-app-support'), EMAIL_MANAGER_VERSION . '-p5', true);
+        wp_enqueue_script('em-postings', EMAIL_MANAGER_URL . 'assets/em-postings.js', array('jquery', 'em-app-support'), EMAIL_MANAGER_VERSION . '-p6', true);
         wp_localize_script('em-postings', 'EM_POSTINGS_CONFIG', array(
             'ajaxUrl'   => admin_url('admin-ajax.php'),
             'nonce'     => wp_create_nonce('em_app_support'),
