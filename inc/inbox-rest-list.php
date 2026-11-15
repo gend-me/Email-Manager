@@ -206,7 +206,7 @@ function em_inbox_list_inboxes(WP_REST_Request $request) {
         foreach ($rows as &$decor_row) {
             $owner = get_user_by('email', strtolower((string) $decor_row['inbox_address']));
             if ($owner) {
-                $decor_row['owner_display_name'] = $owner->display_name ?: $owner->user_login;
+                $decor_row['owner_display_name'] = html_entity_decode( (string) ( $owner->display_name ?: $owner->user_login ), ENT_QUOTES, 'UTF-8' ); // stored encoded; the client escapes
                 $decor_row['owner_avatar_url']   = get_avatar_url($owner->ID, array('size' => 80));
                 $decor_row['owner_id']           = (int) $owner->ID;
             } else {
