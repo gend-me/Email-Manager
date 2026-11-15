@@ -17,12 +17,12 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => 'em_get_lists_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => 'em_create_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -30,17 +30,17 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => 'em_get_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::EDITABLE,
             'callback' => 'em_update_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => 'em_delete_list_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -48,13 +48,13 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::READABLE,
             'callback' => 'em_get_list_subscribers_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
         array(
             'methods' => WP_REST_Server::CREATABLE, // Add existing subscriber to list
             'callback' => 'em_add_subscriber_to_list_handler', // NOT IMPLEMENTED in original file, but logic exists in JS to call POST to this endpoint? Checking JS...
             // JS calls: POST .../email-lists/ID/subscribers with subscriber_id
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -63,7 +63,7 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => 'em_add_subscriber_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -71,7 +71,7 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => 'em_remove_subscriber_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -80,7 +80,7 @@ function em_register_email_manager_routes()
         array(
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => 'em_import_csv_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_lists_permission_check',
         ),
     ));
 
@@ -129,7 +129,7 @@ function em_register_email_manager_routes()
         array(
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => 'em_wc_email_toggle_handler',
-            'permission_callback' => 'em_rest_permission_check',
+            'permission_callback' => 'em_rest_wc_toggle_permission_check',
         ),
     ));
 
@@ -395,6 +395,29 @@ function em_wc_email_toggle_handler(WP_REST_Request $request)
 function em_rest_permission_check()
 {
     return current_user_can('manage_options');
+}
+
+/** 2026-11-15: email lists + subscribers: site admins or Talk Flows Manage (dashboard levels). */
+function em_rest_lists_permission_check()
+{
+    return current_user_can('manage_options') || current_user_can('gs_dash_talk_flows_manage');
+}
+
+/**
+ * 2026-11-15: turning a system email on/off: site admins, or Sales Team Manage for the Sales Team's own emails
+ * (ST_Notifications::catalog). Editing copy and recipients (wc-email-save) stays admin-only: the body sanitizer is
+ * permissive and extra recipients could copy password-reset mail.
+ */
+function em_rest_wc_toggle_permission_check(WP_REST_Request $request)
+{
+    if (current_user_can('manage_options')) return true;
+    if (!current_user_can('gs_dash_sales_team_manage') || !class_exists('ST_Notifications') || !method_exists('ST_Notifications', 'catalog')) return false;
+    $body = json_decode($request->get_body(), true);
+    $id = is_array($body) && isset($body['email_id']) ? sanitize_key($body['email_id']) : '';
+    foreach ((array) ST_Notifications::catalog() as $def) {
+        if ($id !== '' && isset($def['id']) && $def['id'] === $id) return true;
+    }
+    return false;
 }
 
 // ─── WC Email Save ────────────────────────────────────────────────────────────

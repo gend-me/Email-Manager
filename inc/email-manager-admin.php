@@ -486,6 +486,7 @@ function em_render_email_manager_page()
                             <button type="button" class="gdc-subtab" data-subtab="lists">
                                 <?php esc_html_e('Lists', 'email-manager'); ?>
                             </button>
+                            <?php endif; if ($em_dash_admin) : // Onboarding, Newsletters, System Emails, App Template edit email HTML: admins (2026-11-15) ?>
                             <button type="button" class="gdc-subtab" data-subtab="onboarding">
                                 <?php esc_html_e('Onboarding Emails', 'email-manager'); ?>
                             </button>
@@ -557,6 +558,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- Onboarding Emails Subtab Content -->
+                        <?php endif; if ($em_dash_admin) : // Onboarding, Newsletters, App Template: admins (2026-11-15) ?>
                         <div class="gdc-subtab-panel" data-subpanel="onboarding" hidden>
                             <div class="gdc-email-panel">
                                 <div class="gdc-email-panel__header">
@@ -676,7 +678,7 @@ function em_render_email_manager_page()
                         </div>
 
                         <!-- System Emails Subtab Content -->
-                        <?php endif; if ($em_dash_manage) : // System Emails ?>
+                        <?php endif; if ($em_dash_admin) : // System Emails: admins (2026-11-15) ?>
                         <div class="gdc-subtab-panel" data-subpanel="system-emails" hidden>
                             <?php // --- WordPress Core Emails --- ?>
                             <?php em_system_email_table(__('Login & Account Emails', 'email-manager'), function() use ($gdc_wp_core_emails) {
