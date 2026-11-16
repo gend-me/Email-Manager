@@ -16,10 +16,124 @@ class EM_Email_Logs
     {
         add_action('init', [$this, 'register_post_type']);
 
-        // If we want to capture emails, we need to hook into wp_mail, 
-        // but for now we focus on viewing existing or manually created logs.
-        // GenD core likely hooked wp_mail. We might need to duplicate that if we want *new* logs.
-        // For now, let's just enable viewing.
+        // 2026-11-15: logging of sent mail restored. The old writer (GenD Core, gdc_email_log) was not ported when
+        // the email features moved into this plugin, so nothing was logged after 2026-02-11. Hub (main site) only.
+        add_action('wp_mail_succeeded', [$this, 'log_sent']);
+        add_action('wp_mail_failed', [$this, 'log_failed']);
+        add_action(self::PURGE_HOOK, [$this, 'purge_old_logs']);
+        add_action('init', [$this, 'schedule_purge']);
+    }
+
+    private const PURGE_HOOK = 'em_email_log_purge';
+    private const RETENTION_DAYS = 90;
+    private const BODY_MAX = 51200; // bytes kept per logged body
+    private static $writing = false;
+
+    private static function enabled(): bool
+    {
+        return is_main_site() && (bool) apply_filters('em_email_log_enabled', true);
+    }
+
+    public function log_sent($data)
+    {
+        if (is_array($data)) {
+            self::write_log($data, 'sent', '');
+        }
+    }
+
+    public function log_failed($error)
+    {
+        if (!is_wp_error($error)) {
+            return;
+        }
+        $data = $error->get_error_data();
+        self::write_log(is_array($data) ? $data : [], 'failed', $error->get_error_message());
+    }
+
+    /** Records one email as an em_email_log post (meta: _em_log_status/_to/_subject/_time/_body/_error). */
+    private static function write_log(array $data, string $status, string $error)
+    {
+        if (self::$writing || !self::enabled()) {
+            return;
+        }
+        self::$writing = true;
+        try {
+            $to = $data['to'] ?? '';
+            $to = is_array($to) ? implode(', ', array_map('strval', $to)) : (string) $to;
+            $to = sanitize_text_field(substr($to, 0, 1000));
+            $subject = sanitize_text_field(substr((string) ($data['subject'] ?? ''), 0, 500));
+            $body = self::safe_body($subject, (string) ($data['message'] ?? ''));
+            $now = current_time('mysql');
+
+            $id = wp_insert_post(wp_slash([
+                'post_type' => self::POST_TYPE,
+                'post_status' => 'publish',
+                'post_title' => ($to !== '' ? $to : '(no recipient)') . ' - ' . $subject,
+                'post_author' => 0,
+            ]), true);
+            if (is_wp_error($id) || !$id) {
+                return;
+            }
+            add_post_meta($id, '_em_log_status', $status);
+            add_post_meta($id, '_em_log_to', wp_slash($to));
+            add_post_meta($id, '_em_log_subject', wp_slash($subject));
+            add_post_meta($id, '_em_log_time', $now);
+            add_post_meta($id, '_em_log_body', wp_slash($body));
+            if ($error !== '') {
+                add_post_meta($id, '_em_log_error', wp_slash(sanitize_text_field(substr($error, 0, 500))));
+            }
+            if (!empty($data['transport'])) {
+                add_post_meta($id, '_em_log_transport', sanitize_key((string) $data['transport']));
+            }
+        } catch (\Throwable $e) {
+            // Logging must never break sending.
+        } finally {
+            self::$writing = false;
+        }
+    }
+
+    /** Body as stored: capped, and with sign-in / reset credentials removed (never keep tokens in logs). */
+    private static function safe_body(string $subject, string $body): string
+    {
+        if (preg_match('/password|reset|verif|one[- ]time|login link|sign[- ]in link|magic link|security code|\b2fa\b|\botp\b/i', $subject)) {
+            return '[Body not stored: this email can contain a sign-in, reset or verification credential.]';
+        }
+        // Token-like query values in links (key=, token=, code=, sig=, nonce=, hash= ...).
+        $body = preg_replace('/((?:[?&]|&amp;)[a-z0-9_\-]*(?:key|token|code|otp|sig|signature|hash|nonce|secret|auth)=)[^&"\'\s<>]+/i', '$1[redacted]', $body);
+        if (strlen($body) > self::BODY_MAX) {
+            $body = substr($body, 0, self::BODY_MAX) . "\n<!-- [truncated] -->";
+        }
+        return $body;
+    }
+
+    public function schedule_purge()
+    {
+        if (is_main_site() && !wp_next_scheduled(self::PURGE_HOOK)) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', self::PURGE_HOOK);
+        }
+    }
+
+    /** Deletes em_email_log posts older than RETENTION_DAYS (batched). */
+    public function purge_old_logs()
+    {
+        if (!is_main_site()) {
+            return;
+        }
+        global $wpdb;
+        $cutoff = gmdate('Y-m-d H:i:s', time() - self::RETENTION_DAYS * DAY_IN_SECONDS);
+        for ($i = 0; $i < 20; $i++) {
+            $ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts} WHERE post_type = %s AND post_date_gmt < %s LIMIT 200",
+                self::POST_TYPE,
+                $cutoff
+            ));
+            if (empty($ids)) {
+                break;
+            }
+            foreach ($ids as $id) {
+                wp_delete_post((int) $id, true);
+            }
+        }
     }
 
     public function register_post_type()
